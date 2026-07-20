@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-labelledby="title description">
+  <title id="title">Battle Field Guide</title>
+  <desc id="description">Field compass and lightning mark</desc>
+  <defs>
+    <linearGradient id="background" x1="64" y1="32" x2="448" y2="480" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#173b57"/>
+      <stop offset="1" stop-color="#071018"/>
+    </linearGradient>
+    <linearGradient id="needle" x1="166" y1="112" x2="352" y2="402" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#58d8ff"/>
+      <stop offset="1" stop-color="#66e3a4"/>
+    </linearGradient>
+  </defs>
+  <rect width="512" height="512" fill="url(#background)"/>
+  <path d="M256 62 286 98 256 134 226 98Z" fill="#58d8ff"/>
+  <path d="M450 256 414 286 378 256 414 226Z" fill="#66e3a4"/>
+  <path d="M256 450 226 414 256 378 286 414Z" fill="#58d8ff"/>
+  <path d="M62 256 98 226 134 256 98 286Z" fill="#66e3a4"/>
+  <circle cx="256" cy="256" r="148" fill="#0c1c2b" stroke="#2d607b" stroke-width="22"/>
+  <path d="m314 142-82 91-34 137 82-91Z" fill="url(#needle)" stroke="#f6f9fc" stroke-width="10" stroke-linejoin="round"/>
+  <path d="m285 173-72 102h49l-35 89 83-118h-50Z" fill="#ffd166" stroke="#071018" stroke-width="9" stroke-linejoin="round"/>
+  <circle cx="256" cy="256" r="17" fill="#f6f9fc" stroke="#071018" stroke-width="8"/>
+</svg>

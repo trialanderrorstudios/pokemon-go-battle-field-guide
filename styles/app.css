@@ -1,0 +1,731 @@
+:root {
+  color-scheme: dark;
+  --bg: #071018;
+  --panel: #102031;
+  --panel-raised: #172a3e;
+  --line: #2d4861;
+  --text: #f6f9fc;
+  --muted: #9fb4c8;
+  --cyan: #58d8ff;
+  --green: #66e3a4;
+  --amber: #ffd166;
+  --danger: #ff8291;
+  --focus: #f7df74;
+  --tab-bar-height: 4.75rem;
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-synthesis: none;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  width: 100%;
+  max-width: 100%;
+  min-height: 100%;
+  margin: 0;
+  overflow-x: hidden;
+  background: var(--bg);
+  color: var(--text);
+}
+
+body {
+  min-height: 100vh;
+  min-height: 100dvh;
+  background:
+    radial-gradient(circle at 88% -8%, #234b70 0, transparent 28rem),
+    var(--bg);
+  font-size: 1rem;
+  line-height: 1.45;
+  -webkit-text-size-adjust: 100%;
+}
+
+a {
+  color: inherit;
+}
+
+.app-shell {
+  width: 100%;
+  max-width: 100%;
+  min-height: 100vh;
+  min-height: 100dvh;
+  margin-inline: auto;
+  padding-top: env(safe-area-inset-top, 0px);
+}
+
+.app-header {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 1rem max(1rem, env(safe-area-inset-right, 0px)) 0.9rem max(1rem, env(safe-area-inset-left, 0px));
+  border-bottom: 1px solid var(--line);
+  background: linear-gradient(145deg, #17324c, #0c1c2b);
+}
+
+.brand-mark {
+  flex: 0 0 auto;
+  width: 48px;
+  height: 48px;
+  border-radius: 12px;
+  box-shadow: 0 8px 24px #0007;
+}
+
+.eyebrow,
+.status-kicker {
+  margin: 0;
+  color: var(--cyan);
+  font-size: 0.7rem;
+  font-weight: 800;
+  letter-spacing: 0.13em;
+  text-transform: uppercase;
+}
+
+h1 {
+  margin: 0.2rem 0 0;
+  font-size: clamp(1.35rem, 6vw, 1.8rem);
+  line-height: 1.1;
+}
+
+#app {
+  width: 100%;
+  max-width: 100%;
+  padding: 1rem max(1rem, env(safe-area-inset-right, 0px)) calc(var(--tab-bar-height) + 1.5rem + env(safe-area-inset-bottom, 0px)) max(1rem, env(safe-area-inset-left, 0px));
+}
+
+.fallback-section {
+  width: 100%;
+  max-width: 34rem;
+  margin: 0 auto 0.75rem;
+  padding: 1rem;
+  overflow-wrap: anywhere;
+  border: 1px solid var(--line);
+  border-radius: 1rem;
+  background: linear-gradient(145deg, var(--panel-raised), var(--panel));
+  box-shadow: 0 14px 34px #0005;
+  scroll-margin-top: 1rem;
+}
+
+.fallback-section:target {
+  border-color: var(--cyan);
+  box-shadow: 0 0 0 3px #58d8ff22, 0 14px 34px #0005;
+}
+
+.fallback-section h2 {
+  margin: 0.35rem 0;
+  font-size: 1.25rem;
+}
+
+.fallback-section p:last-child {
+  margin: 0;
+  color: var(--muted);
+}
+
+.tab-bar {
+  position: fixed;
+  z-index: 20;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  width: 100%;
+  max-width: 100%;
+  min-height: calc(var(--tab-bar-height) + env(safe-area-inset-bottom, 0px));
+  padding: 0.35rem max(0.25rem, env(safe-area-inset-right, 0px)) env(safe-area-inset-bottom, 0px) max(0.25rem, env(safe-area-inset-left, 0px));
+  border-top: 1px solid var(--line);
+  background: #0c1926f7;
+  box-shadow: 0 -10px 30px #0007;
+}
+
+.tab-link {
+  display: flex;
+  min-width: 44px;
+  min-height: 44px;
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+  gap: 0.08rem;
+  padding: 0.3rem 0.1rem;
+  overflow: hidden;
+  border-radius: 0.75rem;
+  color: var(--muted);
+  font-size: 0.69rem;
+  font-weight: 700;
+  line-height: 1.1;
+  text-align: center;
+  text-decoration: none;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.tab-link[aria-current="page"] {
+  color: var(--cyan);
+  background: #173348;
+}
+
+.tab-glyph {
+  color: var(--text);
+  font-size: 1.05rem;
+  font-weight: 850;
+  line-height: 1;
+}
+
+.tab-link:focus-visible {
+  outline: 3px solid var(--focus);
+  outline-offset: -3px;
+}
+
+.tab-link:active {
+  background: #1a3a50;
+}
+
+.raid-method-note,
+.raid-card details,
+.raid-card-gap {
+  color: var(--muted);
+}
+
+.raid-lanes {
+  display: grid;
+  gap: 1.25rem;
+}
+
+.raid-lane h3 {
+  margin: 1rem 0 0.65rem;
+}
+
+.raid-card-list {
+  display: grid;
+  gap: 0.75rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.raid-card {
+  min-width: 0;
+  padding: 0.9rem;
+  overflow-wrap: anywhere;
+  border: 1px solid var(--line);
+  border-radius: 0.9rem;
+  background: linear-gradient(145deg, var(--panel-raised), var(--panel));
+}
+
+.raid-card-gap {
+  border-style: dashed;
+  background: #0d1a26;
+}
+
+.raid-card-heading {
+  display: flex;
+  align-items: baseline;
+  gap: 0.65rem;
+}
+
+.raid-card h4,
+.raid-rank,
+.raid-moves {
+  margin: 0;
+}
+
+.raid-rank,
+.raid-elite {
+  color: var(--amber);
+  font-weight: 800;
+}
+
+.raid-moves {
+  display: grid;
+  gap: 0.12rem;
+  margin-top: 0.6rem;
+}
+
+.raid-moves span,
+.raid-dps dt,
+.raid-practical dt {
+  color: var(--muted);
+  font-size: 0.75rem;
+}
+
+.raid-dps,
+.raid-practical {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.4rem;
+  margin: 0.75rem 0;
+}
+
+.raid-dps div,
+.raid-practical div {
+  min-width: 0;
+  padding: 0.5rem;
+  border-radius: 0.65rem;
+  background: #08131eaa;
+}
+
+.raid-dps dd,
+.raid-practical dd {
+  margin: 0.15rem 0 0;
+  font-size: 0.88rem;
+  font-weight: 750;
+}
+
+.raid-card summary {
+  min-height: 44px;
+  padding-block: 0.7rem;
+  color: var(--cyan);
+  cursor: pointer;
+}
+
+.gyms-view,
+.gym-section,
+.gym-subsection {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.gym-section {
+  max-width: 42rem;
+  margin-inline: auto;
+  padding-block: 0.5rem 1.25rem;
+}
+
+.gym-section h2,
+.gym-section h3,
+.gym-section p {
+  margin-block: 0;
+}
+
+.gym-intro,
+.gym-caveat,
+.gym-card details,
+.gym-empty {
+  color: var(--muted);
+}
+
+.gym-card-list,
+.gym-steps {
+  display: grid;
+  gap: 0.7rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.gym-card,
+.gym-subsection,
+.placement-lane,
+.gym-warning,
+.gym-caveat {
+  min-width: 0;
+  padding: 0.9rem;
+  overflow-wrap: anywhere;
+  border: 1px solid var(--line);
+  border-radius: 0.9rem;
+  background: linear-gradient(145deg, var(--panel-raised), var(--panel));
+}
+
+.gym-rank,
+.placement-score {
+  color: var(--amber);
+  font-size: 0.78rem;
+  font-weight: 800;
+}
+
+.gym-moves {
+  color: var(--cyan);
+}
+
+.gym-card details summary {
+  min-height: 44px;
+  padding-block: 0.65rem;
+  color: var(--cyan);
+  cursor: pointer;
+}
+
+.gym-steps {
+  counter-reset: gym-step;
+}
+
+.gym-steps li {
+  position: relative;
+  min-width: 0;
+  padding: 0.7rem 0.7rem 0.7rem 2.6rem;
+  border-left: 2px solid var(--cyan);
+  background: #0d1a26;
+}
+
+.gym-steps li::before {
+  position: absolute;
+  left: 0.7rem;
+  counter-increment: gym-step;
+  content: counter(gym-step);
+  color: var(--cyan);
+  font-weight: 850;
+}
+
+.gym-warning {
+  border-color: #ffd16688;
+  background: #332a17;
+}
+
+.gym-warning p,
+.gym-warning ul {
+  margin: 0.45rem 0 0;
+}
+
+.placement-lanes {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.placement-controls {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.5rem;
+  margin-top: 0.75rem;
+}
+
+.placement-controls button {
+  min-width: 44px;
+  min-height: 44px;
+  padding: 0.6rem;
+  border: 1px solid var(--cyan);
+  border-radius: 0.7rem;
+  background: #102b3d;
+  color: var(--text);
+  font: inherit;
+  font-weight: 750;
+  cursor: pointer;
+}
+
+.placement-controls button:focus-visible {
+  outline: 3px solid var(--focus);
+  outline-offset: 2px;
+}
+
+.pvp-view,
+.pvp-section,
+.more-view,
+.more-section,
+.more-list-view {
+  display: grid;
+  gap: 0.8rem;
+  width: 100%;
+  max-width: 44rem;
+  margin-inline: auto;
+}
+
+.safe-escape {
+  display: inline-flex;
+  width: fit-content;
+  min-height: 44px;
+  align-items: center;
+  padding: 0.55rem 0.75rem;
+  border: 1px solid var(--line);
+  border-radius: 0.7rem;
+  color: var(--cyan);
+  font-weight: 750;
+  text-decoration: none;
+}
+
+.safe-escape:focus-visible,
+.pvp-controls select:focus-visible,
+.pvp-controls button:focus-visible,
+.app-actions button:focus-visible,
+.more-section button:focus-visible,
+.file-action:focus-within,
+.more-route-card:focus-visible {
+  outline: 3px solid var(--focus);
+  outline-offset: 2px;
+}
+
+.pvp-controls {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.65rem;
+  padding: 0.8rem;
+  border: 1px solid var(--line);
+  border-radius: 0.9rem;
+  background: var(--panel);
+}
+
+.pvp-controls label {
+  display: grid;
+  gap: 0.3rem;
+  min-width: 0;
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 750;
+}
+
+.pvp-controls select,
+.pvp-controls button,
+.app-actions button,
+.more-section button,
+.file-action {
+  min-width: 44px;
+  min-height: 44px;
+  padding: 0.6rem;
+  border: 1px solid var(--cyan);
+  border-radius: 0.65rem;
+  background: #102b3d;
+  color: var(--text);
+  font: inherit;
+  font-weight: 750;
+}
+
+.pvp-controls fieldset {
+  display: grid;
+  grid-column: 1 / -1;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.5rem;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.pvp-controls legend {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+}
+
+.pvp-controls button[aria-pressed="true"] {
+  color: #071018;
+  background: var(--cyan);
+}
+
+.pvp-section h2,
+.pvp-section h3,
+.pvp-section p,
+.more-section h2,
+.more-section h3,
+.more-section p,
+.more-list-view h1,
+.more-list-view h3,
+.more-list-view p {
+  margin-block: 0;
+}
+
+.pvp-summary,
+.pvp-empty,
+.pvp-types,
+.pvp-card details,
+.pvp-sources,
+.source-path {
+  color: var(--muted);
+}
+
+.pvp-card-list,
+.pvp-team-list,
+.more-card-list,
+.source-list {
+  display: grid;
+  gap: 0.75rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.pvp-card,
+.pvp-team-card,
+.more-list-card,
+.more-section,
+.source-card,
+.claim-grid article {
+  min-width: 0;
+  padding: 0.9rem;
+  overflow-wrap: anywhere;
+  border: 1px solid var(--line);
+  border-radius: 0.9rem;
+  background: linear-gradient(145deg, var(--panel-raised), var(--panel));
+}
+
+.pvp-card-heading {
+  display: flex;
+  align-items: baseline;
+  gap: 0.6rem;
+}
+
+.pvp-card-heading h3,
+.pvp-rank {
+  margin: 0;
+}
+
+.pvp-rank,
+.pvp-elite,
+.more-list-meta,
+.pvp-league-label {
+  color: var(--amber);
+  font-size: 0.78rem;
+  font-weight: 800;
+}
+
+.pvp-moves,
+.pvp-stats,
+.pvp-guidance,
+.more-card-facts {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.45rem;
+  margin: 0.65rem 0;
+}
+
+.pvp-moves div,
+.pvp-stats div,
+.pvp-guidance div,
+.more-card-facts div {
+  min-width: 0;
+  padding: 0.5rem;
+  border-radius: 0.6rem;
+  background: #08131eaa;
+}
+
+.pvp-moves dt,
+.pvp-stats dt,
+.pvp-guidance dt,
+.more-card-facts dt {
+  color: var(--muted);
+  font-size: 0.73rem;
+}
+
+.pvp-moves dd,
+.pvp-stats dd,
+.pvp-guidance dd,
+.more-card-facts dd {
+  margin: 0.12rem 0 0;
+  font-size: 0.86rem;
+  font-weight: 750;
+}
+
+.pvp-card summary,
+.source-details summary {
+  min-height: 44px;
+  padding-block: 0.65rem;
+  color: var(--cyan);
+  cursor: pointer;
+}
+
+.pvp-team-members {
+  display: grid;
+  gap: 0.4rem;
+  padding-left: 1.25rem;
+}
+
+.pvp-team-members span {
+  display: block;
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+.more-route-grid,
+.claim-grid,
+.app-actions {
+  display: grid;
+  gap: 0.65rem;
+}
+
+.more-route-card {
+  display: grid;
+  gap: 0.15rem;
+  min-height: 88px;
+  padding: 0.8rem;
+  border: 1px solid var(--cyan);
+  border-radius: 0.8rem;
+  background: #102b3d;
+  text-decoration: none;
+}
+
+.more-route-card span,
+.more-route-card small {
+  color: var(--muted);
+}
+
+.source-card code {
+  font-size: 0.72rem;
+  overflow-wrap: anywhere;
+}
+
+.method-list {
+  margin-block: 0;
+  padding-left: 1.3rem;
+}
+
+.file-action {
+  display: inline-flex;
+  width: fit-content;
+  align-items: center;
+  cursor: pointer;
+}
+
+.file-action input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+}
+
+@media (min-width: 36rem) {
+  .pvp-controls {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .pvp-controls fieldset {
+    grid-column: auto;
+  }
+
+  .pvp-moves,
+  .pvp-stats,
+  .pvp-guidance {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .more-route-grid,
+  .claim-grid,
+  .app-actions {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (min-width: 42rem) {
+  .placement-lanes {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    align-items: start;
+  }
+}
+
+@media (min-width: 42rem) {
+  .raid-lanes {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    align-items: start;
+  }
+}
+
+@media (min-width: 48rem) {
+  .app-shell {
+    width: 48rem;
+    border-inline: 1px solid var(--line);
+    box-shadow: 0 0 60px #0008;
+  }
+
+  .tab-bar {
+    right: auto;
+    left: 50%;
+    width: 48rem;
+    transform: translateX(-50%);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+  }
+}

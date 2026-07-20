@@ -1,0 +1,157 @@
+import { escapeHtml } from "./home.js";
+
+
+function displayMove(moveId) {
+  return String(moveId ?? "Unknown move").toLowerCase().split("_")
+    .map((word) => word ? word[0].toUpperCase() + word.slice(1) : "")
+    .join(" ");
+}
+
+
+function sectionHeading(kicker, title, id) {
+  return `<p class="status-kicker">${escapeHtml(kicker)}</p><h2 id="${id}">${escapeHtml(title)}</h2>`;
+}
+
+
+function buildCard(row, index) {
+  const id = `gym-build-${index + 1}`;
+  return `<li class="gym-card"><article aria-labelledby="${id}">
+    <p class="gym-rank">${index + 1} · ${escapeHtml(row.healingEfficiency)} healing efficiency</p>
+    <h3 id="${id}">${escapeHtml(row.pokemon)}</h3>
+    <p class="gym-moves"><strong>${escapeHtml(displayMove(row.fastMove))} + ${escapeHtml(displayMove(row.chargedMove))}</strong></p>
+    <p>${escapeHtml(row.coverage)}</p>
+    <details><summary>Low-resource build</summary><p>${escapeHtml(row.build)}</p><p>${escapeHtml(row.budgetReason)}</p></details>
+  </article></li>`;
+}
+
+
+function offenseSection(gym) {
+  return `<section class="gym-section" aria-labelledby="gym-offense-title">
+    ${sectionHeading("Low stardust and Candy", "Build These Six", "gym-offense-title")}
+    <p class="gym-intro">Solid Level 35–40 gym attackers with broad coverage; no second charged move is required.</p>
+    <ol class="gym-card-list">${(gym.buildTheseSix ?? []).map(buildCard).join("")}</ol>
+    <div class="gym-subsection" aria-labelledby="solo-offense-title">
+      <h3 id="solo-offense-title">Solo gym offense</h3>
+      <ol class="gym-steps">${(gym.soloOffense ?? []).map((row) => `<li><strong>${escapeHtml(row.title)}</strong><p>${escapeHtml(row.advice)}</p></li>`).join("")}</ol>
+    </div>
+  </section>`;
+}
+
+
+function staggerSection(gym) {
+  const guide = gym.staggerGuide ?? {};
+  return `<section class="gym-section" aria-labelledby="gym-stagger-title">
+    ${sectionHeading("Coordinated two-player clear", "Two-player stagger", "gym-stagger-title")}
+    <p>${escapeHtml(guide.goal)}</p>
+    <ol class="gym-steps">${(guide.steps ?? []).map((step) => `<li><strong>${escapeHtml(step.player)}</strong><p>${escapeHtml(step.action)}</p></li>`).join("")}</ol>
+    <p class="gym-caveat"><strong>Timing caveat:</strong> ${escapeHtml(guide.caveat)}</p>
+  </section>`;
+}
+
+
+function defenderCard(row) {
+  return `<li class="gym-card"><article>
+    <p class="gym-rank">${escapeHtml(row.defenseTier)}-tier defender</p>
+    <h3>${escapeHtml(row.pokemon)}</h3>
+    <p><strong>${escapeHtml(displayMove(row.fastMove))} + ${escapeHtml(displayMove(row.chargedMove))}</strong></p>
+    <p><strong>Weak to:</strong> ${escapeHtml((row.weaknesses ?? []).join(", "))}</p>
+    <p>${escapeHtml(row.placementValue)}</p>
+    <details><summary>Motivation and solo counters</summary>
+      <p><strong>Motivation:</strong> ${escapeHtml(row.motivationNote)}</p>
+      ${(row.soloCounters ?? []).map((counter) => `<p>${escapeHtml(counter.pokemon)} · ${escapeHtml(displayMove(counter.fastMove))} + ${escapeHtml(displayMove(counter.chargedMove))}</p>`).join("")}
+    </details>
+  </article></li>`;
+}
+
+
+function defenseSection(gym) {
+  const warnings = (gym.placementWarnings ?? []).map((warning) => `<aside class="gym-warning">
+    <strong>${escapeHtml(warning.message)}</strong><p>${escapeHtml(warning.recommendation)}</p>
+  </aside>`).join("");
+  return `<section class="gym-section" aria-labelledby="gym-defense-title">
+    ${sectionHeading("Break the attacker's flow", "Defender placement", "gym-defense-title")}
+    <p class="gym-intro">Alternate weaknesses and consider motivation decay; defense delays attackers but cannot guarantee a hold.</p>
+    ${warnings}
+    <ul class="gym-card-list">${(gym.defenders ?? []).map(defenderCard).join("")}</ul>
+  </section>`;
+}
+
+
+function atIndex(rows, index) {
+  if (!rows.length) return null;
+  const normalized = ((Number(index) || 0) % rows.length + rows.length) % rows.length;
+  return rows[normalized];
+}
+
+
+function recommendationCard(candidate, label, lane, index, count) {
+  const recommendation = candidate
+    ? `<h3>${escapeHtml(candidate.pokemon)}</h3>
+      <p class="placement-score">Score ${escapeHtml(candidate.score)} · option ${index + 1} of ${count}</p>
+      <p>${escapeHtml(candidate.rationale)}</p>
+      <p><strong>Weak to:</strong> ${escapeHtml((candidate.weaknesses ?? []).join(", ") || "None listed")}</p>
+      <p><strong>Resists repeated:</strong> ${escapeHtml((candidate.resistsCommon ?? []).join(", ") || "None")}</p>`
+    : `<p class="gym-empty">${lane === "owned" ? "Mark an eligible defender as owned to fill this lane." : "No eligible defender remains."}</p>`;
+  return `<article class="placement-lane" aria-labelledby="placement-${lane}-title">
+    <p class="status-kicker">Independent recommendation lane</p>
+    <h3 id="placement-${lane}-title">${escapeHtml(label)}</h3>
+    ${recommendation}
+    <div class="placement-controls">
+      <button type="button" data-lane="${lane}" data-direction="previous" aria-label="Previous ${escapeHtml(label)} alternative">Previous alternative</button>
+      <button type="button" data-lane="${lane}" data-direction="next" aria-label="Next ${escapeHtml(label)} alternative">Next alternative</button>
+    </div>
+  </article>`;
+}
+
+
+function ownedDefenderEditor(defenders, ownedFormIds) {
+  const owned = new Set(ownedFormIds ?? []);
+  return `<section class="gym-section" aria-labelledby="gym-owned-defenders-title">
+    ${sectionHeading("Local roster", "Edit Owned Defenders", "gym-owned-defenders-title")}
+    <p>Mark the exact defender forms you own so the Placement Coach can rank practical choices from your roster.</p>
+    <fieldset class="placement-controls">
+      <legend>Placement-eligible defender forms</legend>
+      ${(defenders ?? []).map((row) => {
+        const isOwned = owned.has(row.formId);
+        const action = isOwned ? "Remove" : "Mark";
+        return `<button type="button" data-owned-form-id="${escapeHtml(row.formId)}" data-owned-route="gyms" aria-pressed="${isOwned}" aria-label="${action} ${escapeHtml(row.pokemon)} exact form ${escapeHtml(row.formId)} ${isOwned ? "from" : "as"} owned">${escapeHtml(row.pokemon)} · ${escapeHtml(row.formId)} · ${isOwned ? "Owned" : "Not owned"}</button>`;
+      }).join("")}
+    </fieldset>
+  </section>`;
+}
+
+
+export function renderPlacementCoach({ placementResult, ownedIndex = 0, overallIndex = 0 } = {}) {
+  const result = placementResult ?? {};
+  const ownedRows = result.ownedAlternatives ?? [];
+  const overallRows = result.overallAlternatives ?? [];
+  const safeOwnedIndex = ownedRows.length ? ((Number(ownedIndex) || 0) % ownedRows.length + ownedRows.length) % ownedRows.length : 0;
+  const safeOverallIndex = overallRows.length ? ((Number(overallIndex) || 0) % overallRows.length + overallRows.length) % overallRows.length : 0;
+  const warnings = (result.lineupWarnings ?? []).map((warning) => `<li>${escapeHtml(warning)}</li>`).join("");
+  return `<section class="gym-section placement-coach" aria-labelledby="placement-coach-title">
+    ${sectionHeading("Two independent lanes", "Placement Coach", "placement-coach-title")}
+    <p>Choose defenders already in the gym, then compare an owned option with the unrestricted best placement.</p>
+    ${warnings ? `<aside class="gym-warning"><strong>Weakness-chain warnings</strong><ul>${warnings}</ul></aside>` : ""}
+    <div class="placement-lanes">
+      ${recommendationCard(atIndex(ownedRows, safeOwnedIndex), "Best From Your Roster", "owned", safeOwnedIndex, ownedRows.length)}
+      ${recommendationCard(atIndex(overallRows, safeOverallIndex), "Best Overall", "overall", safeOverallIndex, overallRows.length)}
+    </div>
+  </section>`;
+}
+
+
+export function renderGyms({
+  gym = {},
+  placementResult,
+  ownedFormIds = [],
+  ownedIndex = 0,
+  overallIndex = 0,
+} = {}) {
+  return `<div class="gyms-view">
+    ${offenseSection(gym)}
+    ${staggerSection(gym)}
+    ${defenseSection(gym)}
+    ${ownedDefenderEditor(gym.defenders, ownedFormIds)}
+    ${renderPlacementCoach({ placementResult, ownedIndex, overallIndex })}
+  </div>`;
+}

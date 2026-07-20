@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#0c1c2b">
+  <meta name="color-scheme" content="dark">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Field Guide">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; font-src 'self'; manifest-src 'self'; worker-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'">
+  <title>Pokémon GO Battle Field Guide</title>
+  <link rel="manifest" href="./manifest.webmanifest">
+  <link rel="apple-touch-icon" href="./icons/apple-touch-icon.png">
+  <link rel="icon" href="./icons/field-guide.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="./styles/app.css">
+  <script type="module" src="./src/app.js"></script>
+</head>
+<body>
+  <div class="app-shell">
+    <header class="app-header">
+      <img class="brand-mark" src="./icons/field-guide.svg" alt="" width="48" height="48">
+      <div>
+        <p class="eyebrow">Offline battle reference</p>
+        <h1>Battle Field Guide</h1>
+      </div>
+    </header>
+
+    <main id="app" aria-live="polite">
+      <section id="home" class="fallback-section shell-status" aria-labelledby="home-title">
+        <p class="status-kicker">Validated data</p>
+        <h2 id="home-title">Preparing your field guide</h2>
+        <p>Use the five sections below as a phone-safe reference while the interactive tools load.</p>
+      </section>
+      <section id="raids" class="fallback-section" aria-labelledby="raids-title">
+        <p class="status-kicker">Raids</p>
+        <h2 id="raids-title">Hundo CP and practical counters</h2>
+        <p>Compare regular, Mega, Primal, Super Mega, Shadow, and owned attackers with optimal raid moves.</p>
+      </section>
+      <section id="gyms" class="fallback-section" aria-labelledby="gyms-title">
+        <p class="status-kicker">Gyms</p>
+        <h2 id="gyms-title">Solo, stagger, and placement plans</h2>
+        <p>Build low-resource offense teams and avoid adjacent defenders that share an easy weakness.</p>
+      </section>
+      <section id="pvp" class="fallback-section" aria-labelledby="pvp-title">
+        <p class="status-kicker">PvP</p>
+        <h2 id="pvp-title">Great, Ultra, and Master League</h2>
+        <p>Review open-league ranks, legal moves, optimal IVs, roles, caveats, and example teams.</p>
+      </section>
+      <section id="more" class="fallback-section" aria-labelledby="more-title">
+        <p class="status-kicker">More</p>
+        <h2 id="more-title">Investments, sources, and app help</h2>
+        <p>Find budget and future-proof picks, coverage planning, methodology, install help, and release notes.</p>
+      </section>
+    </main>
+
+    <nav class="tab-bar" aria-label="Primary">
+      <a class="tab-link" href="./#home" data-route="home"><span class="tab-glyph" aria-hidden="true">⌂</span><span>Home</span></a>
+      <a class="tab-link" href="./#raids" data-route="raids"><span class="tab-glyph" aria-hidden="true">⚡</span><span>Raids</span></a>
+      <a class="tab-link" href="./#gyms" data-route="gyms"><span class="tab-glyph" aria-hidden="true">▲</span><span>Gyms</span></a>
+      <a class="tab-link" href="./#pvp" data-route="pvp"><span class="tab-glyph" aria-hidden="true">◆</span><span>PvP</span></a>
+      <a class="tab-link" href="./#more" data-route="more"><span class="tab-glyph" aria-hidden="true">•••</span><span>More</span></a>
+    </nav>
+  </div>
+</body>
+</html>
