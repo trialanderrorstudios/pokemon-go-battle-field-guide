@@ -198,8 +198,10 @@ export async function stageRelease(manifest, environment = {}, expectations = {}
     return { ...metadata, offlineReady: true };
   }
   assertStageExpectations(metadata, expectations);
-  if (validated.releaseId === metadata.previousReleaseId
-    && await cacheIsComplete(env, validated.releaseId, validated)) {
+  if (validated.releaseId === metadata.previousReleaseId) {
+    if (!await cacheIsComplete(env, validated.releaseId, validated)) {
+      throw new Error("Previous release manifest differs; refusing destructive restage.");
+    }
     const latest = await readMetadata(env);
     if (validated.releaseId === latest.currentReleaseId) {
       if (!await cacheIsComplete(env, validated.releaseId, validated)) {
@@ -443,7 +445,16 @@ export async function fetchWithinWorker(request, environment = {}) {
     }
   }
   const shell = await env.caches.open(SHELL_CACHE);
-  return await shell.match(request) ?? env.fetch(request);
+  const shellUrls = new Set(SHELL_FILES.map((path) => scopedUrl(env.scope, path)));
+  if (!shellUrls.has(url.href)) return env.fetch(request);
+  try {
+    const response = await env.fetch(request, { cache: "no-store" });
+    if (response?.ok) return response;
+  } catch {
+    // An installed shell remains available for offline use.
+  }
+  return await shell.match(request)
+    ?? new Response("Offline shell asset unavailable.", { status: 503 });
 }
 
 
