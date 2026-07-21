@@ -18,14 +18,14 @@ function titleCase(value) {
 
 function listRows(listId, data) {
   if (listId === "budget") return data.budgets?.raid ?? [];
-  if (listId === "megas") return data.megasPrimals ?? [];
+  if (listId === "megas") return megaPriorityRows(data.megasPrimals ?? []);
   if (listId === "future") return futureImpactRows(data.futureProof ?? []);
   if (listId === "coverage") return data.coveragePlanner ?? [];
   return [];
 }
 
 
-export function futureImpactRows(rows = []) {
+function groupedImpactRows(rows, { availabilityFirst = false } = {}) {
   const grouped = new Map();
   for (const row of rows) {
     if (!row?.formId) continue;
@@ -33,6 +33,7 @@ export function futureImpactRows(rows = []) {
     grouped.get(row.formId).push(row);
   }
   const tierOrder = { "S+": 0, S: 1, A: 2, B: 3, C: 4 };
+  const availabilityOrder = { available: 0, permanent: 0, rotation_unknown: 1, unavailable: 2 };
   return [...grouped.values()].map((entries) => {
     const ranked = [...entries].sort((left, right) =>
       (tierOrder[left.investmentTier] ?? 9) - (tierOrder[right.investmentTier] ?? 9)
@@ -46,12 +47,25 @@ export function futureImpactRows(rows = []) {
       impactAverageRank: entries.reduce((sum, row) => sum + Number(row.rank ?? 99), 0) / entries.length,
     };
   }).sort((left, right) =>
-    (tierOrder[left.investmentTier] ?? 9) - (tierOrder[right.investmentTier] ?? 9)
+    (availabilityFirst
+      ? (availabilityOrder[left.availabilityStatus] ?? 1) - (availabilityOrder[right.availabilityStatus] ?? 1)
+      : 0)
+    || (tierOrder[left.investmentTier] ?? 9) - (tierOrder[right.investmentTier] ?? 9)
     || right.impactTypes.length - left.impactTypes.length
     || left.impactBestRank - right.impactBestRank
     || left.impactAverageRank - right.impactAverageRank
     || left.pokemon.localeCompare(right.pokemon))
     .map((row, index) => ({ ...row, impactPriority: index + 1 }));
+}
+
+
+export function megaPriorityRows(rows = []) {
+  return groupedImpactRows(rows, { availabilityFirst: true });
+}
+
+
+export function futureImpactRows(rows = []) {
+  return groupedImpactRows(rows);
 }
 
 
@@ -66,8 +80,9 @@ function attackerListCard(row, listId) {
     fastMove ? `${escapeHtml(titleCase(fastMove))}${eliteFast ? ' <small class="elite-tm">Elite Fast TM</small>' : ""}` : "",
     chargedMove ? `${escapeHtml(titleCase(chargedMove))}${eliteCharged ? ' <small class="elite-tm">Elite Charged TM</small>' : ""}` : "",
   ].filter(Boolean).join(" + ");
-  const priority = listId === "future" ? ` data-impact-priority="${row.impactPriority}"` : "";
-  const meta = listId === "future"
+  const isPriorityList = listId === "future" || listId === "megas";
+  const priority = isPriorityList ? ` data-impact-priority="${row.impactPriority}"` : "";
+  const meta = isPriorityList
     ? `Priority #${row.impactPriority} · Covers: ${(row.impactTypes ?? [row.attackingType]).join(", ")} · best practical rank #${row.impactBestRank}`
     : `${row.attackingType} · practical rank #${row.rank}`;
   return `<li class="more-list-card"${priority} data-form-id="${escapeHtml(row.formId)}"><article>
@@ -104,6 +119,7 @@ export function renderMoreList(listId, data = {}) {
     <p class="status-kicker">${escapeHtml(definition.group)} guide · ${rows.length} entries</p>
     <h1 id="more-list-title">${escapeHtml(definition.title)}</h1>
     ${listId === "future" ? '<p class="pvp-summary">Priority order favors S+ investment, multi-type coverage, and practical type rank. It does not compare raw DPS across unrelated types.</p>' : ""}
+    ${listId === "megas" ? '<p class="pvp-summary">Only one Mega/Primal can be active at a time. This deduplicated priority order favors availability and rotation status, S+ investment, multi-type coverage, and practical type rank.</p>' : ""}
     <ul class="more-card-list">${rows.map((row) => (
       listId === "coverage" ? coverageListCard(row) : attackerListCard(row, listId)
     )).join("")}</ul>

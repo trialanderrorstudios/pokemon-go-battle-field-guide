@@ -29,6 +29,8 @@ body {
   overflow-x: hidden;
   background: var(--bg);
   color: var(--text);
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
 }
 
 body {
@@ -39,7 +41,6 @@ body {
     var(--bg);
   font-size: 1rem;
   line-height: 1.45;
-  -webkit-text-size-adjust: 100%;
 }
 
 a {
@@ -151,19 +152,28 @@ h1 {
 
 .home-view form {
   display: grid;
+  width: 100%;
+  max-width: none;
+  min-width: 0;
   gap: 0.45rem;
   margin: 0.35rem 0 0.2rem;
   padding: 0.8rem;
 }
 
 .home-view form label {
+  display: block;
+  width: 100%;
+  min-width: 0;
   color: var(--muted);
   font-size: 0.78rem;
   font-weight: 750;
 }
 
 #global-search {
+  display: block;
+  align-self: stretch;
   width: 100%;
+  max-width: none;
   min-width: 0;
   min-height: 44px;
   padding: 0.65rem 0.75rem;
@@ -183,14 +193,18 @@ h1 {
 
 .home-task-grid {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: minmax(0, 1fr);
+  width: 100%;
+  min-width: 0;
   gap: 0.65rem;
 }
 
-.home-task-card {
+.home-task-grid > .home-task-card {
   display: flex;
+  width: 100%;
+  max-width: none;
   min-width: 0;
-  min-height: 7rem;
+  min-height: 5.5rem;
   align-items: flex-start;
   justify-content: center;
   flex-direction: column;
@@ -198,11 +212,15 @@ h1 {
   margin: 0;
   padding: 0.8rem;
   text-decoration: none;
+  overflow: hidden;
 }
 
-.home-task-card h3,
-.home-task-card p {
+.home-task-grid > .home-task-card h3,
+.home-task-grid > .home-task-card p {
+  width: 100%;
+  min-width: 0;
   margin: 0;
+  overflow-wrap: anywhere;
 }
 
 .home-task-card h3 {

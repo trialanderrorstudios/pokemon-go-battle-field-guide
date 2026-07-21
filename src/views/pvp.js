@@ -2,6 +2,7 @@ import { escapeHtml } from "./home.js";
 
 
 export const PVP_LEAGUES = Object.freeze(["great", "ultra", "master"]);
+const PVP_LEAGUE_FILTERS = Object.freeze(["all", ...PVP_LEAGUES]);
 const FORM_FILTERS = new Set(["all", "regular", "shadow"]);
 const VIEWS = new Set(["rankings", "teams"]);
 const INVESTMENT_FILTERS = new Set(["all", "S+", "S", "A", "B", "C"]);
@@ -20,7 +21,7 @@ export function createPvpState({ preferences = {}, filters = {} } = {}) {
   return {
     form: allowed(requested.form, FORM_FILTERS, "all"),
     investment: allowed(requested.investment, INVESTMENT_FILTERS, "all"),
-    league: allowed(requested.league, new Set(PVP_LEAGUES), "great"),
+    league: allowed(requested.league, new Set(PVP_LEAGUE_FILTERS), "all"),
     view: allowed(requested.view, VIEWS, "rankings"),
   };
 }
@@ -41,7 +42,10 @@ export function pvpPreferencePayload(state = {}) {
 
 export function selectPvpRows(pvp = {}, state = createPvpState()) {
   const normalized = createPvpState({ filters: state });
-  return (pvp?.[normalized.league] ?? []).filter((row) => {
+  const leagueRows = normalized.league === "all"
+    ? PVP_LEAGUES.flatMap((league) => pvp?.[league] ?? [])
+    : (pvp?.[normalized.league] ?? []);
+  return leagueRows.filter((row) => {
     if (normalized.form === "shadow" && !row.shadow) return false;
     if (normalized.form === "regular" && row.shadow) return false;
     return normalized.investment === "all" || row.investmentTier === normalized.investment;
@@ -57,6 +61,7 @@ function titleCase(value) {
 
 
 function leagueName(league) {
+  if (league === "all") return "All leagues";
   return `${league[0].toUpperCase()}${league.slice(1)} League`;
 }
 
@@ -87,7 +92,7 @@ function filterSelect(name, label, value, choices) {
 
 function controls(state) {
   return `<form class="pvp-controls" data-pvp-filters aria-label="PvP league and ranking filters">
-    ${filterSelect("league", "League", state.league, PVP_LEAGUES.map((league) => [league, leagueName(league)]))}
+    ${filterSelect("league", "League", state.league, PVP_LEAGUE_FILTERS.map((league) => [league, leagueName(league)]))}
     ${state.view === "rankings" ? `${filterSelect("form", "Form", state.form, [["all", "Regular + Shadow"], ["regular", "Regular only"], ["shadow", "Shadow only"]])}
     ${filterSelect("investment", "Investment", state.investment, [["all", "All tiers"], ["S+", "S+"], ["S", "S"], ["A", "A"], ["B", "B"], ["C", "C"]])}` : ""}
     <fieldset><legend>View</legend>
@@ -98,13 +103,14 @@ function controls(state) {
 }
 
 
-function pvpCard(row, forms) {
+function pvpCard(row, forms, { showLeague = false } = {}) {
   const rankOne = row.rankOne ?? {};
   const ivs = rankOne.ivs ?? {};
   const eliteMoves = new Set(forms?.[row.formId]?.elite_moves ?? []);
   const cardId = `pvp-${row.league}-${row.rank}-${row.formId}`.replace(/[^a-z0-9-]/gi, "-").toLowerCase();
   return `<li class="pvp-card" data-form-id="${escapeHtml(row.formId)}">
     <article aria-labelledby="${cardId}">
+      ${showLeague ? `<p class="pvp-league-label">${escapeHtml(leagueName(row.league))}</p>` : ""}
       <div class="pvp-card-heading"><p class="pvp-rank">#${escapeHtml(row.rank)}</p><h3 id="${cardId}">${escapeHtml(row.pokemon)}</h3></div>
       <p class="pvp-types">${escapeHtml(typesFor(forms, row.formId))}${row.shadow ? " · <strong>Shadow form</strong>" : " · Regular form"}</p>
       <dl class="pvp-moves">
@@ -138,14 +144,16 @@ function pvpCard(row, forms) {
 
 
 function rankingsView(pvp, forms, state) {
-  const allRows = pvp?.[state.league] ?? [];
+  const allRows = state.league === "all"
+    ? PVP_LEAGUES.flatMap((league) => pvp?.[league] ?? [])
+    : (pvp?.[state.league] ?? []);
   const rows = selectPvpRows(pvp, state);
   return `<section class="pvp-section" aria-labelledby="pvp-rankings-title">
     <p class="status-kicker">Open league cutoff snapshot</p>
-    <h2 id="pvp-rankings-title">${escapeHtml(leagueName(state.league))} Top 50</h2>
+    <h2 id="pvp-rankings-title">${escapeHtml(state.league === "all" ? "All leagues · Top 50 each" : `${leagueName(state.league)} Top 50`)}</h2>
     <p class="pvp-summary">Showing ${rows.length} of ${allRows.length}. Regular and Shadow forms remain separate exact-form entries.</p>
     ${rows.length
-      ? `<ol class="pvp-card-list">${rows.map((row) => pvpCard(row, forms)).join("")}</ol>`
+      ? `<ol class="pvp-card-list">${rows.map((row) => pvpCard(row, forms, { showLeague: state.league === "all" })).join("")}</ol>`
       : `<p class="pvp-empty">No entries match these filters. Change Form or Investment to continue.</p>`}
   </section>`;
 }
@@ -185,7 +193,9 @@ function teamCard(team, pvp, forms) {
 
 
 function teamsView(pvp, teams, forms, state) {
-  const leagueTeams = (teams ?? []).filter((team) => team.league === state.league);
+  const leagueTeams = state.league === "all"
+    ? (teams ?? [])
+    : (teams ?? []).filter((team) => team.league === state.league);
   return `<section class="pvp-section" aria-labelledby="pvp-teams-title">
     <p class="status-kicker">${leagueTeams.length} current example teams</p>
     <h2 id="pvp-teams-title">${escapeHtml(leagueName(state.league))} team suggestions</h2>

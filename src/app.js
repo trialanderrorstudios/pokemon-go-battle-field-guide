@@ -811,11 +811,13 @@ function continueTaskFor(state, ui) {
     };
   }
   if (route === "pvp") {
-    const league = `${ui.pvp.league[0].toUpperCase()}${ui.pvp.league.slice(1)}`;
+    const league = ui.pvp.league === "all"
+      ? "All leagues"
+      : `${ui.pvp.league[0].toUpperCase()}${ui.pvp.league.slice(1)} League`;
     return {
       route,
       label: "Continue PvP",
-      detail: `${league} League · ${ui.pvp.form} forms · ${ui.pvp.view}`,
+      detail: `${league} · ${ui.pvp.form} forms · ${ui.pvp.view}`,
     };
   }
   return null;
