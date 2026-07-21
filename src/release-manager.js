@@ -1,5 +1,5 @@
 export const APP_VERSION = 1;
-export const APP_SHELL_REVISION = "r5";
+export const APP_SHELL_REVISION = "r6";
 export const MANIFEST_SCHEMA_VERSION = 1;
 export const DATA_SCHEMA_VERSION = 1;
 export const RELEASE_STATES = Object.freeze([
@@ -145,7 +145,17 @@ function stateFromStatus(status = {}) {
     currentReleaseId: status.currentReleaseId ?? null,
     previousReleaseId: status.previousReleaseId ?? null,
     offlineReady: status.offlineReady === true,
+    generation: Number.isInteger(status.generation) && status.generation >= 0
+      ? status.generation
+      : 0,
   };
+}
+
+
+function candidateIsOlder(candidate, activeManifest, currentReleaseId) {
+  const activeCutoff = activeManifest?.dataCutoff
+    ?? (/^(\d{4}-\d{2}-\d{2})-/.exec(currentReleaseId ?? "")?.[1] ?? null);
+  return activeCutoff !== null && candidate.dataCutoff < activeCutoff;
 }
 
 
@@ -168,7 +178,7 @@ export class ReleaseManager {
     this.listeners = new Set();
     this._state = Object.freeze({
       status: "uninitialized", currentReleaseId: null, previousReleaseId: null,
-      offlineReady: false, candidate: null, manifest: null, data: null, error: null,
+      offlineReady: false, generation: 0, candidate: null, manifest: null, data: null, error: null,
     });
   }
 
@@ -221,6 +231,150 @@ export class ReleaseManager {
     return this.sendMessage({ type: "RELEASE_STATUS" });
   }
 
+  async reconcilePromotionFailure(
+    candidate,
+    previousReleaseId,
+    promotionError,
+    {
+      activationReceipt = null,
+      fallbackStatus = "update_available",
+      previousData = null,
+      previousGeneration = 0,
+      previousManifest = null,
+    } = {},
+  ) {
+    const failedState = (durableStatus, reconciliationError = null) => {
+      const reconciled = durableStatus ? stateFromStatus(durableStatus) : {
+        currentReleaseId: null,
+        previousReleaseId: null,
+        offlineReady: false,
+        generation: 0,
+      };
+      const manifest = durableStatus?.manifest
+        ?? (reconciled.currentReleaseId === candidate.releaseId ? candidate : null);
+      const detail = reconciliationError
+        ? `; durable release reconciliation failed: ${reconciliationError}`
+        : "";
+      return this.transition("failed", {
+        ...reconciled,
+        manifest,
+        data: null,
+        candidate,
+        error: `${promotionError}${detail}`,
+      });
+    };
+
+    let reconciled;
+    try {
+      reconciled = await this.status();
+    } catch (error) {
+      return failedState(null, String(error?.message ?? error));
+    }
+
+    const immutableCurrentConfirmed = reconciled?.currentReleaseId === previousReleaseId
+      && reconciled?.offlineReady === true
+      && (
+        reconciled?.generation === previousGeneration
+        || (
+          reconciled?.manifest?.releaseId === previousReleaseId
+          && previousManifest?.releaseId === previousReleaseId
+        )
+      );
+    if (immutableCurrentConfirmed) {
+      return this.transition(fallbackStatus, {
+        ...stateFromStatus(reconciled),
+        manifest: previousManifest,
+        data: previousData,
+        candidate,
+        error: promotionError,
+      });
+    }
+
+    if (previousReleaseId === null
+      || reconciled?.currentReleaseId !== candidate.releaseId
+      || activationReceipt?.activationChanged !== true) {
+      return failedState(reconciled);
+    }
+
+    try {
+      await this.sendMessage({
+        type: "ROLLBACK_RELEASE",
+        expectedCurrentReleaseId: candidate.releaseId,
+        expectedPreviousReleaseId: activationReceipt.previousReleaseId,
+        expectedGeneration: activationReceipt.generation,
+      });
+      const restored = await this.status();
+      if (restored?.currentReleaseId === previousReleaseId
+        && restored?.offlineReady === true) {
+        return this.transition(fallbackStatus, {
+          ...stateFromStatus(restored),
+          manifest: previousManifest,
+          data: previousData,
+          candidate,
+          error: promotionError,
+        });
+      }
+      return failedState(restored, "conditional rollback restored an unexpected release");
+    } catch (error) {
+      const reconciliationError = String(error?.message ?? error);
+      try {
+        return failedState(await this.status(), reconciliationError);
+      } catch (statusError) {
+        return failedState(
+          null,
+          `${reconciliationError}; status read failed: ${String(statusError?.message ?? statusError)}`,
+        );
+      }
+    }
+  }
+
+  async promote(candidate, { fallbackStatus = "update_available" } = {}) {
+    const previousReleaseId = this._state.currentReleaseId;
+    const previousGeneration = this._state.generation;
+    const previousManifest = this._state.manifest;
+    const previousData = this._state.data;
+    let activationAttempted = false;
+    let activationReceipt = null;
+    try {
+      await this.sendMessage({
+        type: "STAGE_RELEASE",
+        manifest: candidate,
+        expectedCurrentReleaseId: previousReleaseId,
+        expectedGeneration: previousGeneration,
+      });
+      activationAttempted = true;
+      activationReceipt = await this.sendMessage({
+        type: "ACTIVATE_RELEASE",
+        releaseId: candidate.releaseId,
+      });
+      if (activationReceipt?.currentReleaseId !== candidate.releaseId
+        || activationReceipt?.offlineReady !== true
+        || !Number.isInteger(activationReceipt?.generation)
+        || activationReceipt.generation < 0) {
+        throw new Error("Candidate release was not durably active and offline-ready.");
+      }
+      const data = await this.loadRelease(candidate);
+      const finalStatus = await this.status();
+      if (finalStatus?.currentReleaseId !== candidate.releaseId
+        || finalStatus?.offlineReady !== true
+        || finalStatus?.generation !== activationReceipt.generation) {
+        throw new Error("Candidate release changed while its data was loading.");
+      }
+      return this.transition("ready", {
+        ...stateFromStatus(finalStatus), manifest: candidate, data, candidate: null, error: null,
+      });
+    } catch (error) {
+      const promotionError = String(error?.message ?? error);
+      return this.reconcilePromotionFailure(candidate, previousReleaseId, promotionError, {
+        activationReceipt: activationAttempted ? activationReceipt : null,
+        fallbackStatus,
+        previousData,
+        previousGeneration,
+        previousManifest,
+      });
+    }
+  }
+
   async initialize() {
     try {
       await this.register("./sw.js", { scope: "./", type: "module" });
@@ -248,13 +402,7 @@ export class ReleaseManager {
 
       if (!durable.currentReleaseId) {
         this.transition("caching", { candidate, error: null });
-        await this.sendMessage({ type: "STAGE_RELEASE", manifest: candidate });
-        await this.sendMessage({ type: "ACTIVATE_RELEASE", releaseId: candidate.releaseId });
-        const activated = await this.status();
-        const data = await this.loadRelease(candidate);
-        return this.transition("ready", {
-          ...stateFromStatus(activated), manifest: candidate, data, candidate: null, error: null,
-        });
+        return this.promote(candidate, { fallbackStatus: "failed" });
       }
 
       if (!activeManifest && candidate.releaseId === durable.currentReleaseId) {
@@ -262,9 +410,19 @@ export class ReleaseManager {
         activeData = await this.loadRelease(candidate);
       }
       if (candidate.releaseId !== durable.currentReleaseId) {
-        return this.transition("update_available", {
+        if (candidateIsOlder(candidate, activeManifest, durable.currentReleaseId)) {
+          return this.transition("ready", {
+            ...durable,
+            manifest: activeManifest,
+            data: activeData,
+            candidate: null,
+            error: null,
+          });
+        }
+        this.transition("updating", {
           ...durable, manifest: activeManifest, data: activeData, candidate, error: null,
         });
+        return this.promote(candidate);
       }
       return this.transition("ready", {
         ...durable, manifest: activeManifest ?? candidate, data: activeData,
@@ -282,33 +440,60 @@ export class ReleaseManager {
     const candidate = this._state.candidate;
     if (!candidate) throw new Error("No compatible update is available.");
     this.transition("updating", { error: null });
-    try {
-      await this.sendMessage({ type: "STAGE_RELEASE", manifest: candidate });
-      await this.sendMessage({ type: "ACTIVATE_RELEASE", releaseId: candidate.releaseId });
-      const activated = await this.status();
-      const data = await this.loadRelease(candidate);
-      return this.transition("ready", {
-        ...stateFromStatus(activated), manifest: candidate, data, candidate: null, error: null,
-      });
-    } catch (error) {
-      return this.transition("failed", {
-        candidate, error: String(error?.message ?? error),
-      });
-    }
+    return this.promote(candidate);
   }
 
   async rollback() {
     if (!this._state.previousReleaseId) throw new Error("No previous release is available.");
+    const prior = this._state;
     this.transition("updating", { error: null });
+    let rollbackAttempted = false;
     try {
-      const rolledBack = await this.sendMessage({ type: "ROLLBACK_RELEASE" });
+      rollbackAttempted = true;
+      const rolledBack = await this.sendMessage({
+        type: "ROLLBACK_RELEASE",
+        expectedCurrentReleaseId: prior.currentReleaseId,
+        expectedPreviousReleaseId: prior.previousReleaseId,
+        expectedGeneration: prior.generation,
+      });
       const manifest = rolledBack?.manifest ?? null;
-      const data = manifest ? await this.loadRelease(manifest) : this._state.data;
+      if (!manifest) throw new Error("Rolled-back release manifest is unavailable.");
+      const data = await this.loadRelease(manifest);
+      const finalStatus = await this.status();
+      if (finalStatus?.currentReleaseId !== rolledBack.currentReleaseId
+        || finalStatus?.offlineReady !== true
+        || finalStatus?.generation !== rolledBack.generation) {
+        throw new Error("Rolled-back release changed while its data was loading.");
+      }
       return this.transition("ready", {
-        ...stateFromStatus(rolledBack), manifest, data, candidate: null, error: null,
+        ...stateFromStatus(finalStatus), manifest, data, candidate: null, error: null,
       });
     } catch (error) {
-      return this.transition("failed", { error: String(error?.message ?? error) });
+      const message = String(error?.message ?? error);
+      if (!rollbackAttempted) return this.transition("failed", { error: message });
+      try {
+        const durable = await this.status();
+        const unchanged = durable?.currentReleaseId === prior.currentReleaseId
+          && durable?.generation === prior.generation;
+        return this.transition("failed", {
+          ...stateFromStatus(durable),
+          manifest: unchanged ? prior.manifest : (durable?.manifest ?? null),
+          data: unchanged ? prior.data : null,
+          candidate: unchanged ? prior.candidate : null,
+          error: message,
+        });
+      } catch (statusError) {
+        return this.transition("failed", {
+          currentReleaseId: null,
+          previousReleaseId: null,
+          offlineReady: false,
+          generation: 0,
+          manifest: null,
+          data: null,
+          candidate: null,
+          error: `${message}; rollback reconciliation failed: ${String(statusError?.message ?? statusError)}`,
+        });
+      }
     }
   }
 }

@@ -67,6 +67,7 @@ function metadataUrl(env) {
 function emptyMetadata() {
   return {
     schemaVersion: 1,
+    generation: 0,
     currentReleaseId: null,
     previousReleaseId: null,
     stagedReleaseId: null,
@@ -84,7 +85,11 @@ async function readMetadata(env) {
   try {
     const value = await response.json();
     if (!value || value.schemaVersion !== 1) return emptyMetadata();
-    return { ...emptyMetadata(), ...value };
+    const metadata = { ...emptyMetadata(), ...value };
+    metadata.generation = Number.isInteger(value.generation) && value.generation >= 0
+      ? value.generation
+      : 0;
+    return metadata;
   } catch {
     return emptyMetadata();
   }
@@ -145,22 +150,77 @@ async function cacheIsComplete(env, releaseId, manifest) {
   const cache = await env.caches.open(`${RELEASE_CACHE_PREFIX}${releaseId}`);
   const marker = await cache.match(releaseUrl(env, releaseId, COMPLETE_PATH));
   if (!marker) return false;
+  const cachedManifestResponse = await cache.match(releaseUrl(env, releaseId, MANIFEST_PATH));
+  if (!cachedManifestResponse) return false;
+  try {
+    const cachedManifest = validateReleaseManifest(await cachedManifestResponse.json(), {
+      appVersion: env.appVersion,
+    });
+    if (JSON.stringify(cachedManifest) !== JSON.stringify(validated)) return false;
+  } catch {
+    return false;
+  }
   for (const file of validated.files) {
     if (!await cache.match(releaseUrl(env, releaseId, file.path))) return false;
   }
-  return Boolean(await cache.match(releaseUrl(env, releaseId, MANIFEST_PATH)));
+  return true;
 }
 
 
-export async function stageRelease(manifest, environment = {}) {
+function assertStageExpectations(metadata, expectations) {
+  for (const [field, actual] of [
+    ["expectedCurrentReleaseId", metadata.currentReleaseId],
+    ["expectedGeneration", metadata.generation],
+  ]) {
+    if (Object.hasOwn(expectations, field) && expectations[field] !== actual) {
+      throw new Error(`Stage expectation failed for ${field}.`);
+    }
+  }
+}
+
+
+export async function stageRelease(manifest, environment = {}, expectations = {}) {
   const env = runtime(environment);
   const validated = validateReleaseManifest(manifest, { appVersion: env.appVersion });
-  const metadata = await readMetadata(env);
+  let metadata = await readMetadata(env);
   if (validated.releaseId === metadata.currentReleaseId) {
     if (!await cacheIsComplete(env, validated.releaseId, validated)) {
       throw new Error("Active release cache is incomplete; refusing destructive restage.");
     }
     return { ...metadata, offlineReady: true };
+  }
+  assertStageExpectations(metadata, expectations);
+  metadata = await readMetadata(env);
+  if (validated.releaseId === metadata.currentReleaseId) {
+    if (!await cacheIsComplete(env, validated.releaseId, validated)) {
+      throw new Error("Active release cache is incomplete; refusing destructive restage.");
+    }
+    return { ...metadata, offlineReady: true };
+  }
+  assertStageExpectations(metadata, expectations);
+  if (validated.releaseId === metadata.previousReleaseId
+    && await cacheIsComplete(env, validated.releaseId, validated)) {
+    const latest = await readMetadata(env);
+    if (validated.releaseId === latest.currentReleaseId) {
+      if (!await cacheIsComplete(env, validated.releaseId, validated)) {
+        throw new Error("Active release cache is incomplete; refusing previous-cache reuse.");
+      }
+      return { ...latest, offlineReady: true };
+    }
+    assertStageExpectations(latest, expectations);
+    if (validated.releaseId === latest.previousReleaseId
+      && await cacheIsComplete(env, validated.releaseId, validated)) {
+      const staged = {
+        ...latest,
+        generation: latest.generation + (
+          latest.stagedReleaseId === validated.releaseId ? 0 : 1
+        ),
+        stagedReleaseId: validated.releaseId,
+        stagedManifest: validated,
+      };
+      await writeMetadata(env, staged);
+      return { ...staged, offlineReady: Boolean(latest.currentReleaseId) };
+    }
   }
   const cacheName = `${RELEASE_CACHE_PREFIX}${validated.releaseId}`;
   await env.caches.delete(cacheName);
@@ -196,15 +256,29 @@ export async function stageRelease(manifest, environment = {}) {
       releaseUrl(env, validated.releaseId, COMPLETE_PATH),
       new Response(JSON.stringify(marker), { headers: { "content-type": "application/json" } }),
     );
+    const latest = await readMetadata(env);
+    if (validated.releaseId === latest.currentReleaseId) {
+      if (!await cacheIsComplete(env, validated.releaseId, validated)) {
+        throw new Error("Active release cache is incomplete after staging.");
+      }
+      return { ...latest, offlineReady: true };
+    }
+    assertStageExpectations(latest, expectations);
     const staged = {
-      ...metadata,
+      ...latest,
+      generation: latest.generation + (
+        latest.stagedReleaseId === validated.releaseId ? 0 : 1
+      ),
       stagedReleaseId: validated.releaseId,
       stagedManifest: validated,
     };
     await writeMetadata(env, staged);
-    return { ...staged, offlineReady: Boolean(metadata.currentReleaseId) };
+    return { ...staged, offlineReady: Boolean(latest.currentReleaseId) };
   } catch (error) {
-    await env.caches.delete(cacheName);
+    const latest = await readMetadata(env);
+    if (latest.currentReleaseId !== validated.releaseId) {
+      await env.caches.delete(cacheName);
+    }
     throw error;
   }
 }
@@ -213,6 +287,13 @@ export async function stageRelease(manifest, environment = {}) {
 export async function activateRelease(releaseId, environment = {}) {
   const env = runtime(environment);
   const metadata = await readMetadata(env);
+  if (metadata.currentReleaseId === releaseId) {
+    if (!metadata.currentManifest
+      || !await cacheIsComplete(env, releaseId, metadata.currentManifest)) {
+      throw new Error("Active release cache is incomplete; refusing idempotent activation.");
+    }
+    return { ...await releaseStatus(env), activationChanged: false };
+  }
   if (metadata.stagedReleaseId !== releaseId || !metadata.stagedManifest) {
     throw new Error("Release is not fully staged and cannot be activated.");
   }
@@ -221,6 +302,7 @@ export async function activateRelease(releaseId, environment = {}) {
   }
   const promoted = {
     ...metadata,
+    generation: metadata.generation + 1,
     currentReleaseId: releaseId,
     currentManifest: metadata.stagedManifest,
     previousReleaseId: metadata.currentReleaseId,
@@ -230,13 +312,22 @@ export async function activateRelease(releaseId, environment = {}) {
   };
   await writeMetadata(env, promoted);
   await retireReleaseCaches(env, [promoted.currentReleaseId, promoted.previousReleaseId]);
-  return releaseStatus(env);
+  return { ...await releaseStatus(env), activationChanged: true };
 }
 
 
-export async function rollbackRelease(environment = {}) {
+export async function rollbackRelease(environment = {}, expectations = {}) {
   const env = runtime(environment);
   const metadata = await readMetadata(env);
+  for (const [field, actual] of [
+    ["expectedCurrentReleaseId", metadata.currentReleaseId],
+    ["expectedPreviousReleaseId", metadata.previousReleaseId],
+    ["expectedGeneration", metadata.generation],
+  ]) {
+    if (Object.hasOwn(expectations, field) && expectations[field] !== actual) {
+      throw new Error(`Rollback expectation failed for ${field}.`);
+    }
+  }
   if (!metadata.previousReleaseId || !metadata.previousManifest) {
     throw new Error("No previous validated release is available for rollback.");
   }
@@ -245,6 +336,7 @@ export async function rollbackRelease(environment = {}) {
   }
   const rolledBack = {
     ...metadata,
+    generation: metadata.generation + 1,
     currentReleaseId: metadata.previousReleaseId,
     currentManifest: metadata.previousManifest,
     previousReleaseId: metadata.currentReleaseId,
@@ -269,17 +361,28 @@ export async function releaseStatus(environment = {}) {
     stagedReleaseId: metadata.stagedReleaseId,
     manifest: metadata.currentManifest,
     offlineReady,
+    generation: metadata.generation,
   };
 }
 
 
 export async function dispatchReleaseCommand(message, environment = {}) {
   if (!message || typeof message.type !== "string") throw new TypeError("Invalid service-worker command.");
-  if (message.type === "STAGE_RELEASE") return stageRelease(message.manifest, environment);
+  if (message.type === "STAGE_RELEASE") return stageRelease(message.manifest, environment, message);
   if (message.type === "ACTIVATE_RELEASE") return activateRelease(message.releaseId, environment);
-  if (message.type === "ROLLBACK_RELEASE") return rollbackRelease(environment);
+  if (message.type === "ROLLBACK_RELEASE") return rollbackRelease(environment, message);
   if (message.type === "RELEASE_STATUS") return releaseStatus(environment);
   throw new TypeError(`Unsupported service-worker command ${message.type}.`);
+}
+
+
+export function createQueuedReleaseDispatcher(dispatch = dispatchReleaseCommand) {
+  let pending = Promise.resolve();
+  return (message, environment = {}) => {
+    const result = pending.then(() => dispatch(message, environment));
+    pending = result.catch(() => undefined);
+    return result;
+  };
 }
 
 
@@ -366,6 +469,7 @@ export async function activateShell(environment = {}) {
 
 const worker = typeof self !== "undefined" && "registration" in self ? self : null;
 if (worker) {
+  const queuedReleaseCommand = createQueuedReleaseDispatcher();
   worker.addEventListener("install", (event) => {
     event.waitUntil(installShell().then(() => worker.skipWaiting()));
   });
@@ -374,7 +478,7 @@ if (worker) {
   });
   worker.addEventListener("message", (event) => {
     const port = event.ports?.[0];
-    event.waitUntil(dispatchReleaseCommand(event.data).then(
+    event.waitUntil(queuedReleaseCommand(event.data).then(
       (result) => port?.postMessage({ ok: true, result }),
       (error) => port?.postMessage({ ok: false, error: String(error?.message ?? error) }),
     ));

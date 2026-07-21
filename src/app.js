@@ -52,7 +52,10 @@ function bindSearch(documentObject, index) {
 }
 
 
-function releaseLabel(releaseState = {}) {
+export function releaseLabel(releaseState = {}) {
+  if (releaseState.status === "update_available" && releaseState.error) {
+    return `Update failed · using the installed release · ${releaseState.error}`;
+  }
   if (releaseState.status === "update_available") {
     return `Update available · data through ${releaseState.candidate?.dataCutoff ?? "unknown"}`;
   }
