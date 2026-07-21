@@ -33,11 +33,8 @@ export function raidSlots(rows, attackingType) {
 }
 
 
-function eliteLabels(row) {
-  const labels = [];
-  if (row.optimalEliteFastTM) labels.push("Elite Fast TM");
-  if (row.optimalEliteChargedTM) labels.push("Elite Charged TM");
-  return labels.length ? `<p class="raid-elite">${labels.map(escapeHtml).join(" · ")}</p>` : "";
+function moveWithElite(moveId, elite, kind) {
+  return `${escapeHtml(displayMove(moveId))}${elite ? ` <small class="elite-tm">Elite ${escapeHtml(kind)} TM</small>` : ""}`;
 }
 
 
@@ -57,10 +54,9 @@ function rankCard(row, lane) {
     <article aria-labelledby="${headingId}">
       <div class="raid-card-heading"><p class="raid-rank">#${row.rank}</p><h4 id="${headingId}">${escapeHtml(row.pokemon)}</h4></div>
       <dl class="raid-moves" aria-label="Optimal raid moves">
-        <div><dt>Quick:</dt><dd>${escapeHtml(displayMove(row.optimalFastMove))}</dd></div>
-        <div><dt>Charged:</dt><dd>${escapeHtml(displayMove(row.optimalChargedMove))}</dd></div>
+        <div><dt>Quick:</dt><dd>${moveWithElite(row.optimalFastMove, row.optimalEliteFastTM, "Fast")}</dd></div>
+        <div><dt>Charged:</dt><dd>${moveWithElite(row.optimalChargedMove, row.optimalEliteChargedTM, "Charged")}</dd></div>
       </dl>
-      ${eliteLabels(row)}
       <dl class="raid-dps" aria-label="Standardized raid DPS">
         <div><dt>Neutral DPS</dt><dd>${dps(row.dps?.neutral)}</dd></div>
         <div><dt>Super-effective DPS</dt><dd>${dps(row.dps?.superEffective)}</dd></div>

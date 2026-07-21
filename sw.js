@@ -1,6 +1,6 @@
 import { APP_VERSION, validateReleaseManifest } from "./src/release-manager.js";
 
-export const SHELL_CACHE = `pogo-shell-v${APP_VERSION}-r2`;
+export const SHELL_CACHE = `pogo-shell-v${APP_VERSION}-r3`;
 export const RELEASE_CACHE_PREFIX = "pogo-release-";
 export const METADATA_CACHE = "pogo-release-metadata";
 

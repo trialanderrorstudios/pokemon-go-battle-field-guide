@@ -13,23 +13,35 @@ function sectionHeading(kicker, title, id) {
 }
 
 
-function buildCard(row, index) {
+function moveWithElite(moveId, form, kind) {
+  const elite = new Set(form?.elite_moves ?? []).has(moveId);
+  return `${escapeHtml(displayMove(moveId))}${elite ? ` <small class="elite-tm">Elite ${escapeHtml(kind)} TM</small>` : ""}`;
+}
+
+
+function movePair(row, forms) {
+  const form = forms?.[row.formId];
+  return `${moveWithElite(row.fastMove, form, "Fast")} + ${moveWithElite(row.chargedMove, form, "Charged")}`;
+}
+
+
+function buildCard(row, index, forms) {
   const id = `gym-build-${index + 1}`;
   return `<li class="gym-card"><article aria-labelledby="${id}">
     <p class="gym-rank">${index + 1} · ${escapeHtml(row.healingEfficiency)} healing efficiency</p>
     <h3 id="${id}">${escapeHtml(row.pokemon)}</h3>
-    <p class="gym-moves"><strong>${escapeHtml(displayMove(row.fastMove))} + ${escapeHtml(displayMove(row.chargedMove))}</strong></p>
+    <p class="gym-moves"><strong>${movePair(row, forms)}</strong></p>
     <p>${escapeHtml(row.coverage)}</p>
     <details><summary>Low-resource build</summary><p>${escapeHtml(row.build)}</p><p>${escapeHtml(row.budgetReason)}</p></details>
   </article></li>`;
 }
 
 
-function offenseSection(gym) {
+function offenseSection(gym, forms) {
   return `<section class="gym-section" aria-labelledby="gym-offense-title">
     ${sectionHeading("Low stardust and Candy", "Build These Six", "gym-offense-title")}
     <p class="gym-intro">Solid Level 35–40 gym attackers with broad coverage; no second charged move is required.</p>
-    <ol class="gym-card-list">${(gym.buildTheseSix ?? []).map(buildCard).join("")}</ol>
+    <ol class="gym-card-list">${(gym.buildTheseSix ?? []).map((row, index) => buildCard(row, index, forms)).join("")}</ol>
     <div class="gym-subsection" aria-labelledby="solo-offense-title">
       <h3 id="solo-offense-title">Solo gym offense</h3>
       <ol class="gym-steps">${(gym.soloOffense ?? []).map((row) => `<li><strong>${escapeHtml(row.title)}</strong><p>${escapeHtml(row.advice)}</p></li>`).join("")}</ol>
@@ -49,22 +61,22 @@ function staggerSection(gym) {
 }
 
 
-function defenderCard(row) {
+function defenderCard(row, forms) {
   return `<li class="gym-card"><article>
     <p class="gym-rank">${escapeHtml(row.defenseTier)}-tier defender</p>
     <h3>${escapeHtml(row.pokemon)}</h3>
-    <p><strong>${escapeHtml(displayMove(row.fastMove))} + ${escapeHtml(displayMove(row.chargedMove))}</strong></p>
+    <p><strong>${movePair(row, forms)}</strong></p>
     <p><strong>Weak to:</strong> ${escapeHtml((row.weaknesses ?? []).join(", "))}</p>
     <p>${escapeHtml(row.placementValue)}</p>
     <details><summary>Motivation and solo counters</summary>
       <p><strong>Motivation:</strong> ${escapeHtml(row.motivationNote)}</p>
-      ${(row.soloCounters ?? []).map((counter) => `<p>${escapeHtml(counter.pokemon)} · ${escapeHtml(displayMove(counter.fastMove))} + ${escapeHtml(displayMove(counter.chargedMove))}</p>`).join("")}
+      ${(row.soloCounters ?? []).map((counter) => `<p>${escapeHtml(counter.pokemon)} · ${movePair(counter, forms)}</p>`).join("")}
     </details>
   </article></li>`;
 }
 
 
-function defenseSection(gym) {
+function defenseSection(gym, forms) {
   const warnings = (gym.placementWarnings ?? []).map((warning) => `<aside class="gym-warning">
     <strong>${escapeHtml(warning.message)}</strong><p>${escapeHtml(warning.recommendation)}</p>
   </aside>`).join("");
@@ -72,7 +84,7 @@ function defenseSection(gym) {
     ${sectionHeading("Break the attacker's flow", "Defender placement", "gym-defense-title")}
     <p class="gym-intro">Alternate weaknesses and consider motivation decay; defense delays attackers but cannot guarantee a hold.</p>
     ${warnings}
-    <ul class="gym-card-list">${(gym.defenders ?? []).map(defenderCard).join("")}</ul>
+    <ul class="gym-card-list">${(gym.defenders ?? []).map((row) => defenderCard(row, forms)).join("")}</ul>
   </section>`;
 }
 
@@ -142,6 +154,7 @@ export function renderPlacementCoach({ placementResult, ownedIndex = 0, overallI
 
 export function renderGyms({
   gym = {},
+  forms = {},
   placementResult,
   ownedFormIds = [],
   ownedIndex = 0,
@@ -149,9 +162,9 @@ export function renderGyms({
 } = {}) {
   return `<div class="gyms-view">
     ${renderPlacementCoach({ placementResult, ownedIndex, overallIndex })}
-    ${offenseSection(gym)}
+    ${offenseSection(gym, forms)}
     ${staggerSection(gym)}
-    ${defenseSection(gym)}
+    ${defenseSection(gym, forms)}
     ${ownedDefenderEditor(gym.defenders, ownedFormIds)}
   </div>`;
 }

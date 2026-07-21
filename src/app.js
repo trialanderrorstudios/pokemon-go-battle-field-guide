@@ -669,6 +669,11 @@ function displayMove(moveId) {
 }
 
 
+function moveWithElite(moveId, elite, kind) {
+  return `${escapeHtml(displayMove(moveId))}${elite ? ` <small class="elite-tm">Elite ${escapeHtml(kind)} TM</small>` : ""}`;
+}
+
+
 function raidCounterCard(row, roster) {
   const owned = (roster.ownedFormIds ?? []).includes(row.formId);
   const ownedCount = owned
@@ -677,25 +682,15 @@ function raidCounterCard(row, roster) {
   const multiplier = Number(row.effectiveness ?? 1);
   const dps = multiplier >= 2.56 ? row.dps?.doubleWeakness
     : multiplier >= 1.6 ? row.dps?.superEffective : row.dps?.neutral;
-  const practicalMoves = `${displayMove(row.fastMove)} + ${displayMove(row.chargedMove)}`;
-  const optimalMoves = `${displayMove(row.optimalFastMove)} + ${displayMove(row.optimalChargedMove)}`;
+  const practicalMoves = `${moveWithElite(row.fastMove, row.eliteFastTM, "Fast")} + ${moveWithElite(row.chargedMove, row.eliteChargedTM, "Charged")}`;
+  const optimalMoves = `${moveWithElite(row.optimalFastMove, row.optimalEliteFastTM, "Fast")} + ${moveWithElite(row.optimalChargedMove, row.optimalEliteChargedTM, "Charged")}`;
   const movesDisagree = row.fastMove !== row.optimalFastMove
     || row.chargedMove !== row.optimalChargedMove;
-  const practicalLegacy = [
-    row.eliteFastTM ? "Elite Fast TM" : null,
-    row.eliteChargedTM ? "Elite Charged TM" : null,
-  ].filter(Boolean);
-  const optimalLegacy = [
-    row.optimalEliteFastTM ? "Elite Fast TM" : null,
-    row.optimalEliteChargedTM ? "Elite Charged TM" : null,
-  ].filter(Boolean);
   return `<li class="raid-card" data-form-id="${escapeHtml(row.formId)}">
     <p class="raid-rank">Type rank #${escapeHtml(row.typeRank ?? row.rank)} · ${escapeHtml(multiplier)}×</p>
     <h4>${escapeHtml(row.pokemon)}</h4>
-    <p><strong>Optimal DPS moves:</strong> ${escapeHtml(optimalMoves)}</p>
-    ${movesDisagree ? `<p><strong>Practical moves:</strong> ${escapeHtml(practicalMoves)}</p>` : ""}
-    ${optimalLegacy.length ? `<p><strong>Optimal legacy requirement:</strong> ${escapeHtml(optimalLegacy.join(" + "))}</p>` : ""}
-    ${movesDisagree && practicalLegacy.length ? `<p><strong>Practical legacy requirement:</strong> ${escapeHtml(practicalLegacy.join(" + "))}</p>` : ""}
+    <p><strong>Optimal DPS moves:</strong> ${optimalMoves}</p>
+    ${movesDisagree ? `<p><strong>Practical moves:</strong> ${practicalMoves}</p>` : ""}
     <p>${Number.isFinite(Number(dps)) ? `${Number(dps).toFixed(2)} standardized DPS` : "DPS unavailable"} · ${escapeHtml(row.investmentTier)}</p>
     <p><strong>Availability:</strong> ${escapeHtml(row.availability ?? "Availability not documented")}</p>
     <button type="button" data-owned-form-id="${escapeHtml(row.formId)}" aria-pressed="${owned}">${owned ? `Owned ×${ownedCount} · Remove all copies` : "Mark one owned"}</button>
@@ -903,6 +898,7 @@ export function bootstrap({
       app.innerHTML = interactionNotice(ui) + (state.gym
         ? `${gymLineupControls(state, ui)}${renderGyms({
           gym: state.gym,
+          forms: state.core.forms,
           placementResult: placementFor(placementState, roster),
           ownedFormIds: roster.ownedFormIds,
           ownedIndex: ui.gym.ownedIndex,

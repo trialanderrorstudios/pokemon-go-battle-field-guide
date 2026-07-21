@@ -19,19 +19,61 @@ function titleCase(value) {
 function listRows(listId, data) {
   if (listId === "budget") return data.budgets?.raid ?? [];
   if (listId === "megas") return data.megasPrimals ?? [];
-  if (listId === "future") return data.futureProof ?? [];
+  if (listId === "future") return futureImpactRows(data.futureProof ?? []);
   if (listId === "coverage") return data.coveragePlanner ?? [];
   return [];
 }
 
 
-function attackerListCard(row) {
-  const movePair = [row.optimalFastMove ?? row.fastMove, row.optimalChargedMove ?? row.chargedMove]
-    .filter(Boolean).map(titleCase).join(" + ");
-  return `<li class="more-list-card" data-form-id="${escapeHtml(row.formId)}"><article>
-    <p class="more-list-meta">${escapeHtml(row.attackingType)} · practical rank #${escapeHtml(row.rank)}</p>
+export function futureImpactRows(rows = []) {
+  const grouped = new Map();
+  for (const row of rows) {
+    if (!row?.formId) continue;
+    if (!grouped.has(row.formId)) grouped.set(row.formId, []);
+    grouped.get(row.formId).push(row);
+  }
+  const tierOrder = { "S+": 0, S: 1, A: 2, B: 3, C: 4 };
+  return [...grouped.values()].map((entries) => {
+    const ranked = [...entries].sort((left, right) =>
+      (tierOrder[left.investmentTier] ?? 9) - (tierOrder[right.investmentTier] ?? 9)
+      || Number(left.rank ?? 99) - Number(right.rank ?? 99)
+      || String(left.attackingType).localeCompare(String(right.attackingType)));
+    const types = [...new Set(entries.map((row) => row.attackingType))].sort();
+    return {
+      ...ranked[0],
+      impactTypes: types,
+      impactBestRank: Math.min(...entries.map((row) => Number(row.rank ?? 99))),
+      impactAverageRank: entries.reduce((sum, row) => sum + Number(row.rank ?? 99), 0) / entries.length,
+    };
+  }).sort((left, right) =>
+    (tierOrder[left.investmentTier] ?? 9) - (tierOrder[right.investmentTier] ?? 9)
+    || right.impactTypes.length - left.impactTypes.length
+    || left.impactBestRank - right.impactBestRank
+    || left.impactAverageRank - right.impactAverageRank
+    || left.pokemon.localeCompare(right.pokemon))
+    .map((row, index) => ({ ...row, impactPriority: index + 1 }));
+}
+
+
+function attackerListCard(row, listId) {
+  const usesOptimalFast = Boolean(row.optimalFastMove);
+  const usesOptimalCharged = Boolean(row.optimalChargedMove);
+  const fastMove = usesOptimalFast ? row.optimalFastMove : row.fastMove;
+  const chargedMove = usesOptimalCharged ? row.optimalChargedMove : row.chargedMove;
+  const eliteFast = usesOptimalFast ? row.optimalEliteFastTM : row.eliteFastTM;
+  const eliteCharged = usesOptimalCharged ? row.optimalEliteChargedTM : row.eliteChargedTM;
+  const movePair = [
+    fastMove ? `${escapeHtml(titleCase(fastMove))}${eliteFast ? ' <small class="elite-tm">Elite Fast TM</small>' : ""}` : "",
+    chargedMove ? `${escapeHtml(titleCase(chargedMove))}${eliteCharged ? ' <small class="elite-tm">Elite Charged TM</small>' : ""}` : "",
+  ].filter(Boolean).join(" + ");
+  const priority = listId === "future" ? ` data-impact-priority="${row.impactPriority}"` : "";
+  const meta = listId === "future"
+    ? `Priority #${row.impactPriority} · Covers: ${(row.impactTypes ?? [row.attackingType]).join(", ")} · best practical rank #${row.impactBestRank}`
+    : `${row.attackingType} · practical rank #${row.rank}`;
+  return `<li class="more-list-card"${priority} data-form-id="${escapeHtml(row.formId)}"><article>
+    <p class="more-list-meta">${escapeHtml(meta)}</p>
     <h3>${escapeHtml(row.pokemon)}</h3>
-    <p><strong>${escapeHtml(movePair)}</strong></p>
+    <p><strong>${movePair}</strong></p>
     <dl class="more-card-facts">
       <div><dt>Investment</dt><dd>${escapeHtml(row.investmentTier)} · ${escapeHtml(row.recommendation)}</dd></div>
       <div><dt>Budget</dt><dd>${escapeHtml(row.budgetValue)} · ${escapeHtml(row.resourceBurden)}</dd></div>
@@ -61,8 +103,9 @@ export function renderMoreList(listId, data = {}) {
     <a class="safe-escape" href="./#more">Back to More</a>
     <p class="status-kicker">${escapeHtml(definition.group)} guide · ${rows.length} entries</p>
     <h1 id="more-list-title">${escapeHtml(definition.title)}</h1>
+    ${listId === "future" ? '<p class="pvp-summary">Priority order favors S+ investment, multi-type coverage, and practical type rank. It does not compare raw DPS across unrelated types.</p>' : ""}
     <ul class="more-card-list">${rows.map((row) => (
-      listId === "coverage" ? coverageListCard(row) : attackerListCard(row)
+      listId === "coverage" ? coverageListCard(row) : attackerListCard(row, listId)
     )).join("")}</ul>
   </section>`;
 }

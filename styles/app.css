@@ -793,6 +793,27 @@ h1 {
   font-size: 0.78rem;
 }
 
+.pvp-team-members .pvp-team-moves {
+  margin-top: 0.28rem;
+  color: var(--text);
+  line-height: 1.5;
+}
+
+.elite-tm,
+.pvp-team-members .elite-tm {
+  display: inline-block;
+  margin-left: 0.18rem;
+  padding: 0.08rem 0.32rem;
+  border: 1px solid #f6bd60aa;
+  border-radius: 999px;
+  background: #4a2d0d;
+  color: #ffd486;
+  font-size: 0.68rem;
+  font-weight: 850;
+  line-height: 1.25;
+  white-space: nowrap;
+}
+
 .more-route-grid,
 .claim-grid,
 .app-actions {
