@@ -103,7 +103,7 @@ function controls(state) {
 }
 
 
-function pvpCard(row, forms, { showLeague = false } = {}) {
+function pvpCard(row, forms, { showLeague = false, publishedRank = false } = {}) {
   const rankOne = row.rankOne ?? {};
   const ivs = rankOne.ivs ?? {};
   const eliteMoves = new Set(forms?.[row.formId]?.elite_moves ?? []);
@@ -111,7 +111,7 @@ function pvpCard(row, forms, { showLeague = false } = {}) {
   return `<li class="pvp-card" data-form-id="${escapeHtml(row.formId)}">
     <article aria-labelledby="${cardId}">
       ${showLeague ? `<p class="pvp-league-label">${escapeHtml(leagueName(row.league))}</p>` : ""}
-      <div class="pvp-card-heading"><p class="pvp-rank">#${escapeHtml(row.rank)}</p><h3 id="${cardId}">${escapeHtml(row.pokemon)}</h3></div>
+      <div class="pvp-card-heading"><p class="pvp-rank">${publishedRank ? "Published rank " : ""}#${escapeHtml(row.rank)}</p><h3 id="${cardId}">${escapeHtml(row.pokemon)}</h3></div>
       <p class="pvp-types">${escapeHtml(typesFor(forms, row.formId))}${row.shadow ? " · <strong>Shadow form</strong>" : " · Regular form"}</p>
       <dl class="pvp-moves">
         <div><dt>Fast move</dt><dd>${moveWithElite(row.fastMove, eliteMoves, "Fast")}</dd></div>
@@ -133,6 +133,7 @@ function pvpCard(row, forms, { showLeague = false } = {}) {
         <div><dt>Source version</dt><dd>${escapeHtml(row.sourceVersion ?? "Not documented")}</dd></div>
         <div><dt>Verified</dt><dd>${escapeHtml(row.verifiedAt ?? "Not documented")}</dd></div>
       </dl>
+      ${row.alternativeReason ? `<p class="pvp-alternative-reason"><strong>Why it is here:</strong> ${escapeHtml(row.alternativeReason)}</p>` : ""}
       <details><summary>Caveat and sources</summary>
         <p><strong>Caveat:</strong> ${escapeHtml(row.caveat)}</p>
         <p>${escapeHtml(rankOne.ivCaveat)}</p>
@@ -192,7 +193,24 @@ function teamCard(team, pvp, forms) {
 }
 
 
-function teamsView(pvp, teams, forms, state) {
+function alternativesView(alternatives, forms, state) {
+  const rows = state.league === "all"
+    ? (alternatives ?? [])
+    : (alternatives ?? []).filter((row) => row.league === state.league);
+  if (!rows.length) return "";
+  return `<section class="pvp-section pvp-alternatives" aria-labelledby="pvp-alternatives-title">
+    <p class="status-kicker">Owned-build and familiar options</p>
+    <h2 id="pvp-alternatives-title">Practical alternatives outside the Top 50</h2>
+    <p class="pvp-summary">These do not replace the six current teams per league. Published rank, XL needs, legal moves, and caveats stay visible.</p>
+    <ol class="pvp-card-list">${rows.map((row) => pvpCard(row, forms, {
+      showLeague: state.league === "all",
+      publishedRank: true,
+    })).join("")}</ol>
+  </section>`;
+}
+
+
+function teamsView(pvp, teams, alternatives, forms, state) {
   const leagueTeams = state.league === "all"
     ? (teams ?? [])
     : (teams ?? []).filter((team) => team.league === state.league);
@@ -201,17 +219,17 @@ function teamsView(pvp, teams, forms, state) {
     <h2 id="pvp-teams-title">${escapeHtml(leagueName(state.league))} team suggestions</h2>
     <p class="pvp-summary">Example teams are plans, not guaranteed wins. Shared and acknowledged weaknesses stay visible.</p>
     <ul class="pvp-team-list">${leagueTeams.map((team) => teamCard(team, pvp, forms)).join("")}</ul>
-  </section>`;
+  </section>${alternativesView(alternatives, forms, state)}`;
 }
 
 
-export function renderPvp({ pvp = {}, pvpTeams = [], forms = {}, state } = {}) {
+export function renderPvp({ pvp = {}, pvpTeams = [], pvpAlternatives = [], forms = {}, state } = {}) {
   const normalized = createPvpState({ filters: state });
   return `<div class="pvp-view">
     <a class="safe-escape" href="./#pvp">Reset PvP filters</a>
     ${controls(normalized)}
     ${normalized.view === "teams"
-      ? teamsView(pvp, pvpTeams, forms, normalized)
+      ? teamsView(pvp, pvpTeams, pvpAlternatives, forms, normalized)
       : rankingsView(pvp, forms, normalized)}
   </div>`;
 }

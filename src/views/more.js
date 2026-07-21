@@ -195,6 +195,7 @@ function appSection(data) {
   return `<section class="more-section" aria-labelledby="more-app-title">
     <p class="status-kicker">Install, transfer, and release</p><h2 id="more-app-title">App</h2>
     <p><strong>Release:</strong> ${escapeHtml(data.release?.releaseId ?? "Not loaded")}</p>
+    <p><strong>App shell:</strong> ${escapeHtml(data.release?.shellRevision ?? "Unknown")}</p>
     <p aria-label="Release update status">${escapeHtml(update.label ?? "Update status unavailable")}</p>
     <div class="app-actions" aria-label="Install and update controls">
       <button type="button" data-action="install-app">Install app</button>

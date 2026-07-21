@@ -1,5 +1,5 @@
 import { createRouter, ROUTES } from "./router.js";
-import { ReleaseManager } from "./release-manager.js";
+import { APP_SHELL_REVISION, ReleaseManager } from "./release-manager.js";
 import { ATTACK_TYPES, buildRaidPlan } from "./raid-target.js";
 import { buildSearchIndex, search } from "./search.js";
 import {
@@ -78,6 +78,7 @@ function releaseView(releaseState = {}) {
     releaseNotes: manifest.releaseNotes,
     doClaim: manifest.doClaim,
     doNotClaim: manifest.doNotClaim,
+    shellRevision: APP_SHELL_REVISION,
   } : null;
 }
 
@@ -911,7 +912,8 @@ export function bootstrap({
     pvp() {
       app.innerHTML = interactionNotice(ui) + (state.pvp
         ? renderPvp({
-          pvp: state.pvp, pvpTeams: state.pvpTeams, forms: state.core.forms,
+          pvp: state.pvp, pvpTeams: state.pvpTeams,
+          pvpAlternatives: state.pvpAlternatives, forms: state.core.forms,
           state: ui.pvp,
         })
         : fallbackSections.pvp);

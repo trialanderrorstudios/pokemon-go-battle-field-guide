@@ -700,6 +700,16 @@ h1 {
   margin-block: 0;
 }
 
+.pvp-alternatives {
+  margin-top: 1.5rem;
+  border-top: 1px solid var(--line);
+  padding-top: 1.5rem;
+}
+
+.pvp-alternative-reason {
+  color: var(--muted);
+}
+
 .pvp-summary,
 .pvp-empty,
 .pvp-types,

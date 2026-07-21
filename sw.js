@@ -1,6 +1,6 @@
-import { APP_VERSION, validateReleaseManifest } from "./src/release-manager.js";
+import { APP_SHELL_REVISION, APP_VERSION, validateReleaseManifest } from "./src/release-manager.js";
 
-export const SHELL_CACHE = `pogo-shell-v${APP_VERSION}-r4`;
+export const SHELL_CACHE = `pogo-shell-v${APP_VERSION}-${APP_SHELL_REVISION}`;
 export const RELEASE_CACHE_PREFIX = "pogo-release-";
 export const METADATA_CACHE = "pogo-release-metadata";
 
@@ -312,7 +312,7 @@ export async function cleanupObsoleteShellCaches(environment = {}) {
 }
 
 
-async function fetchWithinWorker(request, environment = {}) {
+export async function fetchWithinWorker(request, environment = {}) {
   const env = runtime(environment);
   const url = new URL(request.url);
   const scope = new URL(env.scope);
@@ -322,7 +322,14 @@ async function fetchWithinWorker(request, environment = {}) {
   }
   if (request.mode === "navigate") {
     const shell = await env.caches.open(SHELL_CACHE);
-    return await shell.match(scopedUrl(env.scope, "index.html")) ?? env.fetch(request);
+    try {
+      const response = await env.fetch(request, { cache: "no-store" });
+      if (response?.ok) return response;
+    } catch {
+      // Offline navigation falls back to the verified shell below.
+    }
+    return await shell.match(scopedUrl(env.scope, "index.html"))
+      ?? new Response("Offline shell unavailable.", { status: 503 });
   }
   const status = await releaseStatus(env);
   if (status.currentReleaseId) {
@@ -337,13 +344,33 @@ async function fetchWithinWorker(request, environment = {}) {
 }
 
 
+export async function refreshWindowClients(environment = {}) {
+  const scope = new URL(environment.scope ?? globalThis.registration?.scope).href;
+  const clients = environment.clients ?? globalThis.clients;
+  const windows = await clients.matchAll({ type: "window", includeUncontrolled: true });
+  for (const client of windows) {
+    if (typeof client?.url !== "string" || !client.url.startsWith(scope)) continue;
+    if (typeof client.navigate === "function") await client.navigate(client.url);
+  }
+}
+
+
+export async function activateShell(environment = {}) {
+  const clients = environment.clients ?? globalThis.clients;
+  const removed = await cleanupObsoleteShellCaches(environment);
+  await clients.claim();
+  if (removed.length) await refreshWindowClients({ ...environment, clients });
+  return removed;
+}
+
+
 const worker = typeof self !== "undefined" && "registration" in self ? self : null;
 if (worker) {
   worker.addEventListener("install", (event) => {
     event.waitUntil(installShell().then(() => worker.skipWaiting()));
   });
   worker.addEventListener("activate", (event) => {
-    event.waitUntil(cleanupObsoleteShellCaches().then(() => worker.clients.claim()));
+    event.waitUntil(activateShell());
   });
   worker.addEventListener("message", (event) => {
     const port = event.ports?.[0];
