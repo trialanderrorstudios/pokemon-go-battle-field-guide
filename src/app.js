@@ -98,6 +98,27 @@ function placementFor(state, roster) {
 }
 
 
+export function gymEligibleDefenderForms(forms = {}) {
+  return Object.values(forms).filter((form) => {
+    const tags = new Set(form?.tags ?? []);
+    const formName = String(form?.form ?? "").toUpperCase();
+    const mythicalGymException = form?.dex === 808 || form?.dex === 809;
+    return form?.released === true
+      && Number(form?.base_defense) > 0
+      && Number(form?.base_stamina) > 0
+      && !tags.has("mega")
+      && !tags.has("legendary")
+      && (!tags.has("mythical") || mythicalGymException)
+      && !tags.has("ultrabeast")
+      && !formName.startsWith("MEGA")
+      && formName !== "PRIMAL";
+  }).sort((left, right) => left.name.localeCompare(right.name, undefined, {
+    numeric: true,
+    sensitivity: "base",
+  }) || left.form_id.localeCompare(right.form_id));
+}
+
+
 function replaceObject(target, value) {
   for (const key of Object.keys(target)) delete target[key];
   Object.assign(target, structuredClone(value));
@@ -105,9 +126,17 @@ function replaceObject(target, value) {
 
 
 function stableRosterJson(roster) {
+  const ownedFormIds = [...(roster.ownedFormIds ?? [])].sort();
+  const ownedFormCounts = Object.fromEntries(ownedFormIds.map((formId) => [
+    formId,
+    Number.isInteger(roster.ownedFormCounts?.[formId]) && roster.ownedFormCounts[formId] > 0
+      ? roster.ownedFormCounts[formId]
+      : 1,
+  ]));
   return `${JSON.stringify({
-    schemaVersion: 1,
-    ownedFormIds: [...(roster.ownedFormIds ?? [])].sort(),
+    schemaVersion: 2,
+    ownedFormIds,
+    ownedFormCounts,
     favorites: [...(roster.favorites ?? [])].sort(),
     preferences: roster.preferences ?? {},
   })}\n`;
@@ -129,6 +158,19 @@ const TASK_ROUTES = new Set(["raids", "gyms", "pvp"]);
 const RAID_LANES = new Set(["regular", "shadow", "owned"]);
 const RAID_LEVELS = new Set(["normal", "weatherBoosted"]);
 const RAID_VIEWS = new Set(["rankings", "target"]);
+const RAID_TARGET_CATEGORIES = Object.freeze([
+  ["all", "All targets"],
+  ["standard", "Standard"],
+  ["mega", "Mega"],
+  ["supermega", "Super Mega"],
+  ["primal", "Primal"],
+  ["shadow", "Shadow"],
+  ["legendary", "Legendary"],
+  ["mythical", "Mythical"],
+  ["ultrabeast", "Ultra Beast"],
+]);
+const RAID_TARGET_CATEGORY_SET = new Set(RAID_TARGET_CATEGORIES.map(([value]) => value));
+const SUPER_MEGA_FORM_IDS = new Set(["0026-mega-y"]);
 
 
 function plainObject(value) {
@@ -159,18 +201,73 @@ function raidState(filters = {}, validFormIds = null) {
     encounterLevel: allowed(filters.encounterLevel, RAID_LEVELS, "normal"),
     observedCp,
     targetFormId: validFormId(filters.targetFormId, validFormIds, "0150-normal"),
+    targetCategory: allowed(filters.targetCategory, RAID_TARGET_CATEGORY_SET, "all"),
     view: allowed(filters.view, RAID_VIEWS, "rankings"),
   };
 }
 
 
-function gymState(filters = {}, gymDefenderFormIds = null) {
-  const lineupFormIds = Array.isArray(filters.lineupFormIds)
-    ? [...new Set(filters.lineupFormIds.filter((formId) => (
-      typeof formId === "string"
-      && (!gymDefenderFormIds || gymDefenderFormIds.has(formId))
-    )))]
-    : [];
+function raidTargetMatchesCategory(target, form, category) {
+  if (category === "all") return true;
+  const tags = new Set(form?.tags ?? []);
+  const formName = String(form?.form ?? "").toUpperCase();
+  const isSuperMega = SUPER_MEGA_FORM_IDS.has(target?.bossFormId);
+  const isPrimal = formName === "PRIMAL";
+  const isMega = tags.has("mega") && !isPrimal && !isSuperMega;
+  if (category === "supermega") return isSuperMega;
+  if (category === "primal") return isPrimal;
+  if (category === "mega") return isMega;
+  if (category === "shadow") return form?.shadow === true;
+  if (category === "legendary") return tags.has("legendary");
+  if (category === "mythical") return tags.has("mythical");
+  if (category === "ultrabeast") return tags.has("ultrabeast");
+  if (category === "standard") {
+    return form?.shadow !== true
+      && !isMega
+      && !isPrimal
+      && !isSuperMega
+      && !tags.has("legendary")
+      && !tags.has("mythical")
+      && !tags.has("ultrabeast");
+  }
+  return false;
+}
+
+
+export function raidTargetsForCategory(targets = [], forms = {}, category = "all") {
+  const safeCategory = RAID_TARGET_CATEGORY_SET.has(category) ? category : "all";
+  return [...targets]
+    .filter((target) => raidTargetMatchesCategory(target, forms[target?.bossFormId], safeCategory))
+    .sort((left, right) => left.boss.localeCompare(right.boss, undefined, {
+      numeric: true,
+      sensitivity: "base",
+    }) || left.bossFormId.localeCompare(right.bossFormId));
+}
+
+
+function normalizeGymLineup(formIds, gymDefenderFormIds, gymDefenderSpeciesByFormId) {
+  const lineup = [];
+  const usedSpecies = new Set();
+  for (const formId of Array.isArray(formIds) ? formIds : []) {
+    if (lineup.length >= 6 || typeof formId !== "string") continue;
+    if (gymDefenderFormIds && !gymDefenderFormIds.has(formId)) continue;
+    const species = gymDefenderSpeciesByFormId?.get(formId) ?? formId;
+    if (usedSpecies.has(species)) continue;
+    usedSpecies.add(species);
+    lineup.push(formId);
+  }
+  return lineup;
+}
+
+
+function gymState(
+  filters = {}, gymDefenderFormIds = null, gymDefenderSpeciesByFormId = null,
+) {
+  const lineupFormIds = normalizeGymLineup(
+    filters.lineupFormIds,
+    gymDefenderFormIds,
+    gymDefenderSpeciesByFormId,
+  );
   const safeIndex = (value) => Number.isSafeInteger(value) && Math.abs(value) <= 1_000_000
     ? value
     : 0;
@@ -186,6 +283,7 @@ export function createInteractionState({
   roster = {},
   validFormIds = null,
   gymDefenderFormIds = validFormIds,
+  gymDefenderSpeciesByFormId = null,
 } = {}) {
   const savedTask = plainObject(roster.preferences?.lastTask)
     && TASK_ROUTES.has(roster.preferences.lastTask.route)
@@ -195,7 +293,11 @@ export function createInteractionState({
   const taskFilters = savedTask?.filters ?? {};
   return {
     raid: raidState(savedTask?.route === "raids" ? taskFilters : {}, validFormIds),
-    gym: gymState(savedTask?.route === "gyms" ? taskFilters : {}, gymDefenderFormIds),
+    gym: gymState(
+      savedTask?.route === "gyms" ? taskFilters : {},
+      gymDefenderFormIds,
+      gymDefenderSpeciesByFormId,
+    ),
     pvp: createPvpState({
       preferences: roster.preferences ?? {},
       filters: savedTask?.route === "pvp" ? taskFilters : {},
@@ -204,6 +306,7 @@ export function createInteractionState({
     moreList: null,
     installMessage: "",
     rosterMessage: "",
+    rosterQuery: "",
     interactionMessage: "",
   };
 }
@@ -223,6 +326,7 @@ export function createInteractionController({
   rosterStore = null,
   validFormIds = new Set(),
   gymDefenderFormIds = validFormIds,
+  gymDefenderSpeciesByFormId = null,
   renderRoute = () => {},
   releaseManager = null,
   navigateMore = null,
@@ -231,21 +335,30 @@ export function createInteractionController({
 } = {}) {
   if (!ui || !roster) throw new TypeError("Interaction state and roster are required.");
 
-  const commitRoster = async (next) => {
-    const snapshot = structuredClone(next);
-    if (rosterStore?.replace) await rosterStore.replace(snapshot);
-    replaceObject(roster, snapshot);
+  let rosterWriteQueue = Promise.resolve();
+  const enqueueRosterWrite = (buildNext) => {
+    const operation = rosterWriteQueue.then(async () => {
+      const snapshot = structuredClone(buildNext(structuredClone(roster)));
+      if (rosterStore?.replace) await rosterStore.replace(snapshot);
+      replaceObject(roster, snapshot);
+      return snapshot;
+    });
+    rosterWriteQueue = operation.catch(() => {});
+    return operation;
   };
+  const mutateRoster = (buildNext) => enqueueRosterWrite(buildNext);
   let failureRoute = ui.lastTask?.route ?? "home";
   const persistTask = async (route, nextUi) => {
     failureRoute = route;
     const filters = taskFilters(route, nextUi);
-    const preferences = {
-      ...(roster.preferences ?? {}),
-      lastTask: { route, filters },
-    };
-    if (route === "pvp") preferences.pvp = structuredClone(nextUi.pvp);
-    await commitRoster({ ...roster, preferences });
+    await mutateRoster((current) => {
+      const preferences = {
+        ...(current.preferences ?? {}),
+        lastTask: { route, filters },
+      };
+      if (route === "pvp") preferences.pvp = structuredClone(nextUi.pvp);
+      return { ...current, preferences };
+    });
     nextUi.lastTask = { route };
     nextUi.interactionMessage = "";
     replaceObject(ui, nextUi);
@@ -257,6 +370,20 @@ export function createInteractionController({
     handleFailure(error) {
       ui.interactionMessage = `Could not save changes: ${error?.message ?? error}`;
       rerender(failureRoute);
+    },
+    handleInput(event) {
+      const rosterSearch = event?.target?.closest?.("[data-roster-search]");
+      if (!rosterSearch) return;
+      ui.rosterQuery = String(rosterSearch.value ?? "").slice(0, 80);
+      const caret = Math.min(
+        Number.isInteger(rosterSearch.selectionStart) ? rosterSearch.selectionStart : ui.rosterQuery.length,
+        ui.rosterQuery.length,
+      );
+      const ownerDocument = rosterSearch.ownerDocument;
+      rerender("more");
+      const nextSearch = ownerDocument?.querySelector?.("[data-roster-search]");
+      nextSearch?.focus?.({ preventScroll: true });
+      nextSearch?.setSelectionRange?.(caret, caret);
     },
     async handleChange(event) {
       const target = event?.target;
@@ -272,6 +399,17 @@ export function createInteractionController({
       if (raidTarget) {
         const nextUi = structuredClone(ui);
         nextUi.raid = raidState({ ...nextUi.raid, targetFormId: raidTarget.value }, validFormIds);
+        await persistTask("raids", nextUi);
+        rerender("raids");
+        return;
+      }
+      const raidTargetCategory = target?.closest?.("[data-raid-target-category]");
+      if (raidTargetCategory) {
+        const nextUi = structuredClone(ui);
+        nextUi.raid = raidState({
+          ...nextUi.raid,
+          targetCategory: raidTargetCategory.value,
+        }, validFormIds);
         await persistTask("raids", nextUi);
         rerender("raids");
         return;
@@ -295,8 +433,23 @@ export function createInteractionController({
       const gymLineup = target?.closest?.("[data-gym-lineup]");
       if (gymLineup) {
         const nextUi = structuredClone(ui);
-        nextUi.gym.lineupFormIds = [...(gymLineup.selectedOptions ?? [])]
-          .map((option) => option.value).filter((formId) => gymDefenderFormIds.has(formId));
+        nextUi.gym.lineupFormIds = normalizeGymLineup(
+          [...(gymLineup.selectedOptions ?? [])].map((selectedOption) => selectedOption.value),
+          gymDefenderFormIds,
+          gymDefenderSpeciesByFormId,
+        );
+        await persistTask("gyms", nextUi);
+        rerender("gyms");
+        return;
+      }
+      const gymLineupAdd = target?.closest?.("[data-gym-lineup-add]");
+      if (gymLineupAdd?.value) {
+        const nextUi = structuredClone(ui);
+        nextUi.gym.lineupFormIds = normalizeGymLineup(
+          [...nextUi.gym.lineupFormIds, gymLineupAdd.value],
+          gymDefenderFormIds,
+          gymDefenderSpeciesByFormId,
+        );
         await persistTask("gyms", nextUi);
         rerender("gyms");
         return;
@@ -323,6 +476,7 @@ export function createInteractionController({
             roster,
             validFormIds,
             gymDefenderFormIds,
+            gymDefenderSpeciesByFormId,
           });
           nextUi.moreList = ui.moreList;
           nextUi.installMessage = ui.installMessage;
@@ -357,25 +511,72 @@ export function createInteractionController({
       if (ownedControl) {
         const formId = ownedControl.dataset.ownedFormId;
         if (!validFormIds.has(formId)) return;
-        const owned = new Set(roster.ownedFormIds ?? []);
-        if (owned.has(formId)) owned.delete(formId);
-        else owned.add(formId);
         const route = ownedControl.dataset.ownedRoute === "gyms" ? "gyms" : "raids";
         failureRoute = route;
         const nextUi = structuredClone(ui);
         const filters = taskFilters(route, nextUi);
-        await commitRoster({
-          ...roster,
-          ownedFormIds: [...owned].sort(),
-          preferences: {
-            ...(roster.preferences ?? {}),
-            lastTask: { route, filters },
-          },
+        await mutateRoster((current) => {
+          const owned = new Set(current.ownedFormIds ?? []);
+          const counts = { ...(current.ownedFormCounts ?? {}) };
+          if (owned.has(formId)) {
+            owned.delete(formId);
+            delete counts[formId];
+          } else {
+            owned.add(formId);
+            counts[formId] = 1;
+          }
+          return {
+            ...current,
+            schemaVersion: 2,
+            ownedFormIds: [...owned].sort(),
+            ownedFormCounts: Object.fromEntries(
+              Object.entries(counts).sort(([left], [right]) => left.localeCompare(right)),
+            ),
+            preferences: {
+              ...(current.preferences ?? {}),
+              lastTask: { route, filters },
+            },
+          };
         });
         nextUi.lastTask = { route };
         nextUi.interactionMessage = "";
         replaceObject(ui, nextUi);
         rerender(route);
+        return;
+      }
+      const quantityControl = target?.closest?.("[data-roster-quantity-form-id]");
+      if (quantityControl) {
+        const formId = quantityControl.dataset.rosterQuantityFormId;
+        if (!validFormIds.has(formId)) return;
+        failureRoute = "more";
+        const delta = quantityControl.dataset.direction === "decrease" ? -1 : 1;
+        await mutateRoster((current) => {
+          const owned = new Set(current.ownedFormIds ?? []);
+          const counts = Object.fromEntries([...owned].sort().map((ownedFormId) => [
+            ownedFormId,
+            Number.isInteger(current.ownedFormCounts?.[ownedFormId])
+              ? current.ownedFormCounts[ownedFormId]
+              : 1,
+          ]));
+          const nextCount = Math.max(0, Math.min(999, (counts[formId] ?? 0) + delta));
+          if (nextCount === 0) {
+            owned.delete(formId);
+            delete counts[formId];
+          } else {
+            owned.add(formId);
+            counts[formId] = nextCount;
+          }
+          return {
+            ...current,
+            schemaVersion: 2,
+            ownedFormIds: [...owned].sort(),
+            ownedFormCounts: Object.fromEntries(
+              Object.entries(counts).sort(([left], [right]) => left.localeCompare(right)),
+            ),
+          };
+        });
+        ui.rosterMessage = "Roster saved on this device.";
+        rerender("more");
         return;
       }
       const lineupControl = target?.closest?.("[data-gym-lineup-form-id]");
@@ -384,7 +585,13 @@ export function createInteractionController({
         const nextUi = structuredClone(ui);
         const index = nextUi.gym.lineupFormIds.indexOf(formId);
         if (index >= 0) nextUi.gym.lineupFormIds.splice(index, 1);
-        else if (gymDefenderFormIds.has(formId)) nextUi.gym.lineupFormIds.push(formId);
+        else {
+          nextUi.gym.lineupFormIds = normalizeGymLineup(
+            [...nextUi.gym.lineupFormIds, formId],
+            gymDefenderFormIds,
+            gymDefenderSpeciesByFormId,
+          );
+        }
         await persistTask("gyms", nextUi);
         rerender("gyms");
         return;
@@ -438,6 +645,15 @@ export function createInteractionController({
       }
     },
   };
+  let interactionQueue = Promise.resolve();
+  for (const name of ["handleChange", "handleClick"]) {
+    const handler = api[name];
+    api[name] = (...args) => {
+      const operation = interactionQueue.then(() => handler.apply(api, args));
+      interactionQueue = operation.catch(() => {});
+      return operation;
+    };
+  }
   return api;
 }
 
@@ -455,6 +671,9 @@ function displayMove(moveId) {
 
 function raidCounterCard(row, roster) {
   const owned = (roster.ownedFormIds ?? []).includes(row.formId);
+  const ownedCount = owned
+    ? (Number.isInteger(roster.ownedFormCounts?.[row.formId]) ? roster.ownedFormCounts[row.formId] : 1)
+    : 0;
   const multiplier = Number(row.effectiveness ?? 1);
   const dps = multiplier >= 2.56 ? row.dps?.doubleWeakness
     : multiplier >= 1.6 ? row.dps?.superEffective : row.dps?.neutral;
@@ -479,13 +698,15 @@ function raidCounterCard(row, roster) {
     ${movesDisagree && practicalLegacy.length ? `<p><strong>Practical legacy requirement:</strong> ${escapeHtml(practicalLegacy.join(" + "))}</p>` : ""}
     <p>${Number.isFinite(Number(dps)) ? `${Number(dps).toFixed(2)} standardized DPS` : "DPS unavailable"} · ${escapeHtml(row.investmentTier)}</p>
     <p><strong>Availability:</strong> ${escapeHtml(row.availability ?? "Availability not documented")}</p>
-    <button type="button" data-owned-form-id="${escapeHtml(row.formId)}" aria-pressed="${owned}">${owned ? "Remove from owned" : "Mark owned"}</button>
+    <button type="button" data-owned-form-id="${escapeHtml(row.formId)}" aria-pressed="${owned}">${owned ? `Owned ×${ownedCount} · Remove all copies` : "Mark one owned"}</button>
   </li>`;
 }
 
 
 function raidTargetSurface(state, ui, roster) {
-  const targets = state.raidTargetTool?.targets ?? [];
+  const allTargets = state.raidTargetTool?.targets ?? [];
+  const category = allowed(ui.raid.targetCategory, RAID_TARGET_CATEGORY_SET, "all");
+  const targets = raidTargetsForCategory(allTargets, state.core?.forms ?? state.forms ?? {}, category);
   if (!targets.some((row) => row.bossFormId === ui.raid.targetFormId)) {
     ui.raid.targetFormId = targets[0]?.bossFormId ?? "";
   }
@@ -505,6 +726,7 @@ function raidTargetSurface(state, ui, roster) {
   return `<section class="raid-target-view" aria-labelledby="raid-target-title">
     <h2 id="raid-target-title">Raid Target</h2>
     <div class="pvp-controls">
+      <label>Boss category<select data-raid-target-category>${RAID_TARGET_CATEGORIES.map(([value, label]) => option(value, label, category)).join("")}</select></label>
       <label>Exact boss form<select data-raid-target>${targets.map((target) => option(target.bossFormId, target.boss, ui.raid.targetFormId)).join("")}</select></label>
       <label>Encounter level<select data-encounter-level>${option("normal", "Level 20", ui.raid.encounterLevel)}${option("weatherBoosted", "Weather boosted · Level 25", ui.raid.encounterLevel)}</select></label>
       <label>Observed catch CP<input inputmode="numeric" data-observed-cp value="${escapeHtml(ui.raid.observedCp)}"></label>
@@ -541,14 +763,27 @@ function renderRaidSurface(state, ui, roster) {
 
 function gymLineupControls(state, ui) {
   const defenders = state.gym?.defenders ?? [];
+  const eligible = gymEligibleDefenderForms(state.core?.forms ?? {});
   const selected = ui.gym.lineupFormIds.map((formId) => state.core.forms[formId]?.name ?? formId);
+  const selectedSpecies = new Set(ui.gym.lineupFormIds.map(
+    (formId) => state.core.forms[formId]?.dex ?? formId,
+  ));
+  const atCapacity = ui.gym.lineupFormIds.length >= 6;
   return `<section class="gym-section" aria-labelledby="gym-lineup-control-title">
     <p class="status-kicker">Tap in placement order</p><h2 id="gym-lineup-control-title">Defenders already in the gym</h2>
     <p>${selected.length ? escapeHtml(selected.join(" → ")) : "No defenders selected yet."}</p>
-    <div class="placement-controls">${defenders.map((row) => {
+    <p>Up to six defenders; Pokémon GO permits only one form of a species in the same gym.</p>
+    <label class="gym-lineup-picker">Add any eligible defender
+      <select data-gym-lineup-add><option value="">Choose a Pokémon…</option>${eligible.map((form) => {
+        const disabled = atCapacity || selectedSpecies.has(form.dex);
+        return `<option value="${escapeHtml(form.form_id)}"${disabled ? " disabled" : ""}>${escapeHtml(form.name)}</option>`;
+      }).join("")}</select>
+    </label>
+    ${selected.length ? `<div class="placement-controls" aria-label="Selected defenders">${ui.gym.lineupFormIds.map((formId) => `<button type="button" data-gym-lineup-form-id="${escapeHtml(formId)}" aria-pressed="true">Remove ${escapeHtml(state.core.forms[formId]?.name ?? formId)}</button>`).join("")}</div>` : ""}
+    <details><summary>Quick add common defenders</summary><div class="placement-controls">${defenders.map((row) => {
       const active = ui.gym.lineupFormIds.includes(row.formId);
       return `<button type="button" data-gym-lineup-form-id="${escapeHtml(row.formId)}" aria-pressed="${active}">${active ? "Remove" : "Add"} ${escapeHtml(row.pokemon)}</button>`;
-    }).join("")}</div>
+    }).join("")}</div></details>
   </section>`;
 }
 
@@ -599,11 +834,14 @@ function bindInteractions(app, controller) {
   };
   const onClick = (event) => delegate(() => controller.handleClick(event));
   const onChange = (event) => delegate(() => controller.handleChange(event));
+  const onInput = (event) => controller.handleInput(event);
   app.addEventListener("click", onClick);
   app.addEventListener("change", onChange);
+  app.addEventListener("input", onInput);
   return () => {
     app.removeEventListener?.("click", onClick);
     app.removeEventListener?.("change", onChange);
+    app.removeEventListener?.("input", onInput);
   };
 }
 
@@ -612,7 +850,7 @@ export function bootstrap({
   windowObject = globalThis.window,
   documentObject = globalThis.document,
   state = windowObject?.__FIELD_GUIDE_STATE__,
-  roster = { ownedFormIds: [], favorites: [], preferences: {} },
+  roster = { schemaVersion: 2, ownedFormIds: [], ownedFormCounts: {}, favorites: [], preferences: {} },
   releaseState = {},
   releaseManager = null,
   rosterStore = null,
@@ -633,13 +871,16 @@ export function bootstrap({
     raidTargetTool: state.raidTargetTool,
   });
   const validFormIds = new Set(Object.keys(state.core.forms));
-  const gymDefenderFormIds = new Set(
-    (state.gym?.defenders ?? []).map((row) => row.formId),
+  const gymDefenderForms = gymEligibleDefenderForms(state.core.forms);
+  const gymDefenderFormIds = new Set(gymDefenderForms.map((form) => form.form_id));
+  const gymDefenderSpeciesByFormId = new Map(
+    gymDefenderForms.map((form) => [form.form_id, form.dex]),
   );
   const ui = uiState ?? createInteractionState({
     roster,
     validFormIds,
     gymDefenderFormIds,
+    gymDefenderSpeciesByFormId,
   });
   let controller;
   const renderers = {
@@ -685,6 +926,8 @@ export function bootstrap({
         futureProof: state.futureProof,
         coveragePlanner: state.coveragePlanner,
         listId: ui.moreList ?? new URLSearchParams(windowObject.location?.search ?? "").get("list"),
+        roster,
+        rosterQuery: ui.rosterQuery,
         release: releaseView(releaseState),
         update: { ...releaseState, label: releaseLabel(releaseState) },
       }) + interactionNotice(ui);
@@ -702,6 +945,7 @@ export function bootstrap({
     rosterStore,
     validFormIds,
     gymDefenderFormIds,
+    gymDefenderSpeciesByFormId,
     releaseManager,
     installPrompt,
     renderRoute(route) { renderers[route]?.(); },
@@ -731,7 +975,9 @@ export async function startFieldGuide({
   const root = documentObject?.documentElement;
   root?.setAttribute?.("data-offline-ready", "false");
   let active = null;
-  let roster = { schemaVersion: 1, ownedFormIds: [], favorites: [], preferences: {} };
+  let roster = {
+    schemaVersion: 2, ownedFormIds: [], ownedFormCounts: {}, favorites: [], preferences: {},
+  };
   const ui = createInteractionState({ roster });
   let store = rosterStore;
   releaseManager.subscribe((releaseState) => {
@@ -755,11 +1001,13 @@ export async function startFieldGuide({
     try {
       store = store ?? createIndexedDbAdapter();
       roster = await loadRoster(store);
+      const gymDefenderForms = gymEligibleDefenderForms(releaseState.data.forms ?? {});
       replaceObject(ui, createInteractionState({
         roster,
         validFormIds: new Set(Object.keys(releaseState.data.forms ?? {})),
-        gymDefenderFormIds: new Set(
-          (releaseState.data.gym?.defenders ?? []).map((row) => row.formId),
+        gymDefenderFormIds: new Set(gymDefenderForms.map((form) => form.form_id)),
+        gymDefenderSpeciesByFormId: new Map(
+          gymDefenderForms.map((form) => [form.form_id, form.dex]),
         ),
       }));
       active?.router?.stop?.();

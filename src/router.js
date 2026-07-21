@@ -74,6 +74,7 @@ export function createRouter({
     }
     renderer();
     markCurrent(route);
+    windowObject.scrollTo?.(0, 0);
     return route;
   }
 

@@ -1,6 +1,6 @@
 import { APP_VERSION, validateReleaseManifest } from "./src/release-manager.js";
 
-export const SHELL_CACHE = `pogo-shell-v${APP_VERSION}`;
+export const SHELL_CACHE = `pogo-shell-v${APP_VERSION}-r2`;
 export const RELEASE_CACHE_PREFIX = "pogo-release-";
 export const METADATA_CACHE = "pogo-release-metadata";
 
@@ -290,6 +290,28 @@ async function installShell(environment = {}) {
 }
 
 
+export async function cleanupObsoleteShellCaches(environment = {}) {
+  const env = runtime(environment);
+  let cacheNames;
+  try {
+    cacheNames = await env.caches.keys();
+  } catch {
+    return [];
+  }
+  const removed = [];
+  for (const cacheName of cacheNames) {
+    if (cacheName.startsWith("pogo-shell-") && cacheName !== SHELL_CACHE) {
+      try {
+        if (await env.caches.delete(cacheName)) removed.push(cacheName);
+      } catch {
+        // Best-effort cleanup must not strand the newly installed worker.
+      }
+    }
+  }
+  return removed;
+}
+
+
 async function fetchWithinWorker(request, environment = {}) {
   const env = runtime(environment);
   const url = new URL(request.url);
@@ -321,7 +343,7 @@ if (worker) {
     event.waitUntil(installShell().then(() => worker.skipWaiting()));
   });
   worker.addEventListener("activate", (event) => {
-    event.waitUntil(worker.clients.claim());
+    event.waitUntil(cleanupObsoleteShellCaches().then(() => worker.clients.claim()));
   });
   worker.addEventListener("message", (event) => {
     const port = event.ports?.[0];

@@ -148,10 +148,10 @@ export function renderGyms({
   overallIndex = 0,
 } = {}) {
   return `<div class="gyms-view">
+    ${renderPlacementCoach({ placementResult, ownedIndex, overallIndex })}
     ${offenseSection(gym)}
     ${staggerSection(gym)}
     ${defenseSection(gym)}
     ${ownedDefenderEditor(gym.defenders, ownedFormIds)}
-    ${renderPlacementCoach({ placementResult, ownedIndex, overallIndex })}
   </div>`;
 }

@@ -56,7 +56,10 @@ function rankCard(row, lane) {
   return `<li class="raid-card" data-form-id="${escapeHtml(row.formId)}" data-rank="${row.rank}">
     <article aria-labelledby="${headingId}">
       <div class="raid-card-heading"><p class="raid-rank">#${row.rank}</p><h4 id="${headingId}">${escapeHtml(row.pokemon)}</h4></div>
-      <p class="raid-moves"><span>Optimal moves</span><strong>${escapeHtml(displayMove(row.optimalFastMove))} + ${escapeHtml(displayMove(row.optimalChargedMove))}</strong></p>
+      <dl class="raid-moves" aria-label="Optimal raid moves">
+        <div><dt>Quick:</dt><dd>${escapeHtml(displayMove(row.optimalFastMove))}</dd></div>
+        <div><dt>Charged:</dt><dd>${escapeHtml(displayMove(row.optimalChargedMove))}</dd></div>
+      </dl>
       ${eliteLabels(row)}
       <dl class="raid-dps" aria-label="Standardized raid DPS">
         <div><dt>Neutral DPS</dt><dd>${dps(row.dps?.neutral)}</dd></div>

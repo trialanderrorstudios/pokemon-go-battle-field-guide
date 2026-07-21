@@ -152,10 +152,60 @@ function appSection(data) {
 }
 
 
+function ownedCounts(roster = {}) {
+  const provided = roster.ownedFormCounts ?? {};
+  return Object.fromEntries((roster.ownedFormIds ?? []).map((formId) => [
+    formId,
+    Number.isInteger(provided[formId]) && provided[formId] > 0 ? provided[formId] : 1,
+  ]));
+}
+
+
+function rosterSection(data) {
+  const counts = ownedCounts(data.roster);
+  const query = String(data.rosterQuery ?? "").trim().toLocaleLowerCase();
+  const rows = Object.values(data.forms ?? {}).filter((form) => {
+    if (!query) return counts[form.form_id] > 0;
+    return [form.name, form.form_id, form.primary_type, form.secondary_type]
+      .filter(Boolean).join(" ").toLocaleLowerCase().includes(query);
+  }).sort((left, right) => left.name.localeCompare(right.name, undefined, {
+    numeric: true,
+    sensitivity: "base",
+  }) || left.form_id.localeCompare(right.form_id)).slice(0, 50);
+  const totalCopies = Object.values(counts).reduce((sum, count) => sum + count, 0);
+  const cards = rows.map((form) => {
+    const count = counts[form.form_id] ?? 0;
+    const types = [form.primary_type, form.secondary_type].filter(Boolean).join(" / ");
+    return `<li class="roster-row" data-form-id="${escapeHtml(form.form_id)}">
+      <div><h3>${escapeHtml(form.name)}</h3><p>${escapeHtml(types)} · ${escapeHtml(form.form_id)}</p></div>
+      <div class="roster-stepper" aria-label="Copy quantity for ${escapeHtml(form.name)}">
+        <button type="button" data-roster-quantity-form-id="${escapeHtml(form.form_id)}" data-direction="decrease" aria-label="Remove one ${escapeHtml(form.name)} copy"${count === 0 ? " disabled" : ""}>−</button>
+        <output aria-label="${count} copies of ${escapeHtml(form.name)}">${count}</output>
+        <button type="button" data-roster-quantity-form-id="${escapeHtml(form.form_id)}" data-direction="increase" aria-label="Add one ${escapeHtml(form.name)} copy"${count >= 999 ? " disabled" : ""}>+</button>
+      </div>
+    </li>`;
+  }).join("");
+  const empty = query
+    ? "No exact forms match this search."
+    : "Your roster is empty. Search for a Pokémon to add the first copy.";
+  const exactForms = Object.keys(counts).length;
+  return `<section class="more-section roster-section" aria-labelledby="more-roster-title">
+    <p class="status-kicker">Local collection</p><h2 id="more-roster-title">My Roster</h2>
+    <p><strong>${exactForms} exact form${exactForms === 1 ? "" : "s"} · ${totalCopies} total ${totalCopies === 1 ? "copy" : "copies"}</strong></p>
+    <p>Counts describe exact-form copies only; they do not claim battle-ready levels or moves.</p>
+    <label class="roster-search">Search any Pokémon, form, or type
+      <input type="search" data-roster-search value="${escapeHtml(data.rosterQuery ?? "")}" autocomplete="off">
+    </label>
+    <ul class="roster-list">${cards || `<li class="gym-empty">${escapeHtml(empty)}</li>`}</ul>
+  </section>`;
+}
+
+
 export function renderMore(data = {}) {
   if (MORE_LISTS[data.listId]) return renderMoreList(data.listId, data);
   return `<div class="more-view">
     <a class="safe-escape" href="./#more">Back to More</a>
+    ${rosterSection(data)}
     <section class="more-section" aria-labelledby="more-investment-title">
       <p class="status-kicker">Spend Stardust and Candy deliberately</p><h2 id="more-investment-title">Investment</h2>
       <div class="more-route-grid">${routeCard("budget")}${routeCard("future")}</div>

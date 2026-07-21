@@ -122,6 +122,111 @@ h1 {
   color: var(--muted);
 }
 
+.home-view {
+  display: grid;
+  gap: 0.55rem;
+  width: 100%;
+  max-width: 34rem;
+  margin-inline: auto;
+}
+
+.home-view > h2,
+.home-view > p {
+  margin: 0;
+}
+
+.home-view > h2 {
+  font-size: clamp(1.35rem, 6vw, 1.75rem);
+  line-height: 1.15;
+}
+
+.home-view > p:not(.status-kicker) {
+  color: var(--muted);
+  font-size: 0.82rem;
+}
+
+.home-view > p strong {
+  color: var(--green);
+}
+
+.home-view form {
+  display: grid;
+  gap: 0.45rem;
+  margin: 0.35rem 0 0.2rem;
+  padding: 0.8rem;
+}
+
+.home-view form label {
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 750;
+}
+
+#global-search {
+  width: 100%;
+  min-width: 0;
+  min-height: 44px;
+  padding: 0.65rem 0.75rem;
+  border: 1px solid var(--cyan);
+  border-radius: 0.7rem;
+  background: #08131e;
+  color: var(--text);
+  font: inherit;
+  -webkit-appearance: none;
+  appearance: none;
+}
+
+#global-search:focus-visible {
+  outline: 3px solid var(--focus);
+  outline-offset: 2px;
+}
+
+.home-task-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.65rem;
+}
+
+.home-task-card {
+  display: flex;
+  min-width: 0;
+  min-height: 7rem;
+  align-items: flex-start;
+  justify-content: center;
+  flex-direction: column;
+  gap: 0.35rem;
+  margin: 0;
+  padding: 0.8rem;
+  text-decoration: none;
+}
+
+.home-task-card h3,
+.home-task-card p {
+  margin: 0;
+}
+
+.home-task-card h3 {
+  color: var(--text);
+  font-size: 1rem;
+  line-height: 1.2;
+}
+
+.home-task-card p {
+  color: var(--muted);
+  font-size: 0.78rem;
+  line-height: 1.35;
+}
+
+.home-task-card:focus-visible {
+  outline: 3px solid var(--focus);
+  outline-offset: 2px;
+}
+
+.home-task-card:active {
+  border-color: var(--cyan);
+  background: #173348;
+}
+
 .tab-bar {
   position: fixed;
   z-index: 20;
@@ -239,15 +344,41 @@ h1 {
 
 .raid-moves {
   display: grid;
-  gap: 0.12rem;
+  gap: 0.35rem;
   margin-top: 0.6rem;
 }
 
-.raid-moves span,
+.raid-moves div {
+  display: grid;
+  grid-template-columns: 4.8rem minmax(0, 1fr);
+  gap: 0.5rem;
+  min-width: 0;
+  padding: 0.4rem 0.55rem;
+  border-radius: 0.55rem;
+  background: #08131eaa;
+}
+
+.raid-moves dt,
 .raid-dps dt,
 .raid-practical dt {
   color: var(--muted);
   font-size: 0.75rem;
+}
+
+.raid-moves dt {
+  color: var(--cyan);
+  font-weight: 800;
+}
+
+.raid-moves div:nth-child(2) dt {
+  color: var(--amber);
+}
+
+.raid-moves dd {
+  min-width: 0;
+  margin: 0;
+  overflow-wrap: anywhere;
+  font-weight: 750;
 }
 
 .raid-dps,
@@ -400,6 +531,44 @@ h1 {
   font: inherit;
   font-weight: 750;
   cursor: pointer;
+}
+
+.gym-lineup-picker {
+  display: grid;
+  gap: 0.35rem;
+  color: var(--muted);
+  font-size: 0.8rem;
+  font-weight: 750;
+}
+
+.gym-lineup-picker select {
+  width: 100%;
+  min-height: 44px;
+  padding: 0.6rem;
+  border: 1px solid var(--cyan);
+  border-radius: 0.7rem;
+  background: #102b3d;
+  color: var(--text);
+  font: inherit;
+}
+
+.gym-lineup-picker select:focus-visible {
+  outline: 3px solid var(--focus);
+  outline-offset: 2px;
+}
+
+.gym-section > details > summary {
+  display: flex;
+  align-items: center;
+  min-height: 44px;
+  padding: 0.55rem 0.2rem;
+  cursor: pointer;
+  font-weight: 750;
+}
+
+.gym-section > details > summary:focus-visible {
+  outline: 3px solid var(--focus);
+  outline-offset: 2px;
 }
 
 .placement-controls button:focus-visible {
@@ -669,6 +838,92 @@ h1 {
   width: 1px;
   height: 1px;
   opacity: 0;
+}
+
+.roster-search {
+  display: grid;
+  gap: 0.35rem;
+  color: var(--muted);
+  font-size: 0.8rem;
+  font-weight: 750;
+}
+
+.roster-search input {
+  width: 100%;
+  min-height: 44px;
+  padding: 0.65rem 0.75rem;
+  border: 1px solid var(--cyan);
+  border-radius: 0.7rem;
+  background: #08131e;
+  color: var(--text);
+  font: inherit;
+}
+
+.roster-search input:focus-visible,
+.roster-stepper button:focus-visible {
+  outline: 3px solid var(--focus);
+  outline-offset: 2px;
+}
+
+.roster-list {
+  display: grid;
+  gap: 0.55rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.roster-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 0.65rem;
+  align-items: center;
+  min-width: 0;
+  padding: 0.7rem;
+  border: 1px solid var(--line);
+  border-radius: 0.75rem;
+  background: #0d1a26;
+}
+
+.roster-row h3,
+.roster-row p {
+  margin: 0;
+}
+
+.roster-row p {
+  color: var(--muted);
+  font-size: 0.72rem;
+}
+
+.roster-stepper {
+  display: grid;
+  grid-template-columns: 44px 2.2rem 44px;
+  align-items: center;
+  text-align: center;
+}
+
+.roster-stepper button {
+  min-width: 44px;
+  min-height: 44px;
+  border: 1px solid var(--cyan);
+  background: #102b3d;
+  color: var(--text);
+  font: inherit;
+  font-size: 1.15rem;
+  font-weight: 850;
+}
+
+.roster-stepper button:first-child {
+  border-radius: 0.65rem 0 0 0.65rem;
+}
+
+.roster-stepper button:last-child {
+  border-radius: 0 0.65rem 0.65rem 0;
+}
+
+.roster-stepper output {
+  min-width: 2.2rem;
+  font-weight: 800;
 }
 
 @media (min-width: 36rem) {

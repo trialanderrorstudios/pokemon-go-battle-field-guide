@@ -1,9 +1,13 @@
-export const ROSTER_SCHEMA = 1;
+export const ROSTER_SCHEMA = 2;
+const ROSTER_DB_VERSION = 1;
 
-const ROSTER_FIELDS = new Set(["schemaVersion", "ownedFormIds", "favorites", "preferences"]);
+const ROSTER_FIELDS = new Set([
+  "schemaVersion", "ownedFormIds", "ownedFormCounts", "favorites", "preferences",
+]);
 const EMPTY_ROSTER = Object.freeze({
   schemaVersion: ROSTER_SCHEMA,
   ownedFormIds: Object.freeze([]),
+  ownedFormCounts: Object.freeze({}),
   favorites: Object.freeze([]),
   preferences: Object.freeze({}),
 });
@@ -64,6 +68,49 @@ function normalizeFormIds(value, field, validFormIds) {
 }
 
 
+function normalizeFormCounts(value, ownedFormIds, validFormIds) {
+  if (value === undefined) {
+    return Object.fromEntries(ownedFormIds.map((formId) => [formId, 1]));
+  }
+  if (!isPlainObject(value)) {
+    throw new RosterImportError(
+      "ownedFormCounts must be an object keyed by exact form ID.",
+      "invalid_form_counts",
+      { field: "ownedFormCounts" },
+    );
+  }
+  const entries = Object.entries(value);
+  if (entries.some(([formId, count]) => (
+    !formId || !Number.isInteger(count) || count < 1 || count > 999
+  ))) {
+    throw new RosterImportError(
+      "ownedFormCounts values must be whole numbers from 1 to 999.",
+      "invalid_form_counts",
+      { field: "ownedFormCounts" },
+    );
+  }
+  const unknown = validFormIds
+    ? entries.map(([formId]) => formId).filter((formId) => !validFormIds.has(formId)).sort()
+    : [];
+  if (unknown.length) {
+    throw new RosterImportError(
+      `ownedFormCounts contains unknown exact form IDs: ${unknown.join(", ")}.`,
+      "unknown_form_ids",
+      { field: "ownedFormCounts", rejectedIds: unknown },
+    );
+  }
+  const countIds = entries.map(([formId]) => formId).sort();
+  if (JSON.stringify(countIds) !== JSON.stringify(ownedFormIds)) {
+    throw new RosterImportError(
+      "ownedFormIds and ownedFormCounts must describe the same exact forms.",
+      "inconsistent_form_counts",
+      { field: "ownedFormCounts" },
+    );
+  }
+  return Object.fromEntries(entries.sort(([left], [right]) => left.localeCompare(right)));
+}
+
+
 function normalizeRoster(payload, validFormIds = null) {
   if (!isPlainObject(payload)) {
     throw new RosterImportError(
@@ -80,7 +127,7 @@ function normalizeRoster(payload, validFormIds = null) {
       { fields: unknownFields },
     );
   }
-  if (payload.schemaVersion !== ROSTER_SCHEMA) {
+  if (payload.schemaVersion !== 1 && payload.schemaVersion !== ROSTER_SCHEMA) {
     throw new RosterImportError(
       `Unsupported roster schema ${String(payload.schemaVersion)}; expected ${ROSTER_SCHEMA}.`,
       "unsupported_schema",
@@ -95,9 +142,15 @@ function normalizeRoster(payload, validFormIds = null) {
       { field: "preferences" },
     );
   }
+  const ownedFormIds = normalizeFormIds(payload.ownedFormIds, "ownedFormIds", validFormIds);
   return {
     schemaVersion: ROSTER_SCHEMA,
-    ownedFormIds: normalizeFormIds(payload.ownedFormIds, "ownedFormIds", validFormIds),
+    ownedFormIds,
+    ownedFormCounts: normalizeFormCounts(
+      payload.schemaVersion === 1 ? undefined : payload.ownedFormCounts,
+      ownedFormIds,
+      validFormIds,
+    ),
     favorites: normalizeFormIds(payload.favorites ?? [], "favorites", validFormIds),
     preferences: structuredClone(preferences),
   };
@@ -116,7 +169,11 @@ function stableJson(value) {
 export async function loadRoster(store) {
   const value = await store.read();
   if (value === null || value === undefined) return structuredClone(EMPTY_ROSTER);
-  return normalizeRoster(value);
+  const normalized = normalizeRoster(value);
+  if (value.schemaVersion !== ROSTER_SCHEMA && typeof store.replace === "function") {
+    await store.replace(normalized);
+  }
+  return normalized;
 }
 
 
@@ -153,7 +210,7 @@ export function createIndexedDbAdapter({
   }
 
   const open = () => new Promise((resolve, reject) => {
-    const request = indexedDBObject.open(databaseName, ROSTER_SCHEMA);
+    const request = indexedDBObject.open(databaseName, ROSTER_DB_VERSION);
     request.onupgradeneeded = () => {
       if (!request.result.objectStoreNames.contains(storeName)) request.result.createObjectStore(storeName);
     };
