@@ -8,7 +8,9 @@ import {
   loadRoster,
 } from "./storage.js";
 import { scorePlacement } from "./placement.js";
-import { escapeHtml, renderHome } from "./views/home.js";
+import { escapeHtml, ownedStarButton, renderHome } from "./views/home.js";
+import { renderBasics } from "./views/basics.js";
+import { handleSpriteError, spriteHtml } from "./sprites.js";
 import { renderGyms } from "./views/gyms.js";
 import { renderMore } from "./views/more.js";
 import { createPvpState, renderPvp } from "./views/pvp.js";
@@ -31,24 +33,27 @@ function basePathFrom(location) {
 }
 
 
-function renderSearchResults(results) {
+function renderSearchResults(results, forms, roster) {
   if (!results.length) return "<p>No local matches.</p>";
+  const owned = new Set(roster?.ownedFormIds ?? []);
   return `<ul>${results.slice(0, 10).map((result) => (
-    `<li><strong>${escapeHtml(result.name)}</strong> <span>${escapeHtml(result.resultCategory)}</span></li>`
+    `<li class="search-result-card${owned.has(result.formId) ? " is-owned" : ""}">${spriteHtml(result.formId, forms, result.name, forms?.[result.formId]?.primary_type)}<strong>${escapeHtml(result.name)}</strong> <span>${escapeHtml(result.resultCategory)}</span>${ownedStarButton({ formId: result.formId, name: result.name, owned: owned.has(result.formId), route: "search" })}</li>`
   )).join("")}</ul>`;
 }
 
 
-function bindSearch(documentObject, index) {
+export function bindSearch(documentObject, index, forms, roster) {
   const form = documentObject.querySelector("[data-global-search]");
   const input = form?.querySelector("input[type='search']");
   const output = form?.querySelector("[data-search-results]");
-  if (!input || !output) return;
-  input.addEventListener("input", () => {
+  if (!input || !output) return () => {};
+  const render = () => {
     output.innerHTML = input.value.trim()
-      ? renderSearchResults(search(index, input.value))
+      ? renderSearchResults(search(index, input.value), forms, roster)
       : "";
-  });
+  };
+  input.addEventListener("input", render);
+  return render;
 }
 
 
@@ -78,11 +83,28 @@ function releaseView(releaseState = {}) {
   return manifest ? {
     releaseId: manifest.releaseId,
     dataCutoff: manifest.dataCutoff,
+    notes: manifest.notes ?? null,
     releaseNotes: manifest.releaseNotes,
     doClaim: manifest.doClaim,
     doNotClaim: manifest.doNotClaim,
     shellRevision: APP_SHELL_REVISION,
   } : null;
+}
+
+
+// ponytail: dismissal is a single localStorage flag per release id, not a
+// roster-backed preference — it's disposable UI state, not data worth an
+// IndexedDB write or cross-device sync.
+function whatsNewDismissedKey(releaseId) {
+  return `whats-new-dismissed:${releaseId}`;
+}
+
+
+function whatsNewCard(releaseState, storage) {
+  const manifest = releaseState.manifest;
+  if (!manifest?.releaseId || !manifest?.notes) return null;
+  if (storage?.getItem?.(whatsNewDismissedKey(manifest.releaseId)) === "1") return null;
+  return { releaseId: manifest.releaseId, dataCutoff: manifest.dataCutoff, notes: manifest.notes };
 }
 
 
@@ -336,6 +358,8 @@ export function createInteractionController({
   navigateMore = null,
   installPrompt = null,
   onRosterExport = null,
+  searchRefresh = () => {},
+  storage = null,
 } = {}) {
   if (!ui || !roster) throw new TypeError("Interaction state and roster are required.");
 
@@ -515,11 +539,7 @@ export function createInteractionController({
       if (ownedControl) {
         const formId = ownedControl.dataset.ownedFormId;
         if (!validFormIds.has(formId)) return;
-        const route = ownedControl.dataset.ownedRoute === "gyms" ? "gyms" : "raids";
-        failureRoute = route;
-        const nextUi = structuredClone(ui);
-        const filters = taskFilters(route, nextUi);
-        await mutateRoster((current) => {
+        const toggleOwnedFields = (current) => {
           const owned = new Set(current.ownedFormIds ?? []);
           const counts = { ...(current.ownedFormCounts ?? {}) };
           if (owned.has(formId)) {
@@ -530,18 +550,30 @@ export function createInteractionController({
             counts[formId] = 1;
           }
           return {
-            ...current,
-            schemaVersion: 2,
             ownedFormIds: [...owned].sort(),
             ownedFormCounts: Object.fromEntries(
               Object.entries(counts).sort(([left], [right]) => left.localeCompare(right)),
             ),
-            preferences: {
-              ...(current.preferences ?? {}),
-              lastTask: { route, filters },
-            },
           };
-        });
+        };
+        if (ownedControl.dataset.ownedRoute === "search") {
+          await mutateRoster((current) => ({ ...current, schemaVersion: 2, ...toggleOwnedFields(current) }));
+          searchRefresh();
+          return;
+        }
+        const route = ownedControl.dataset.ownedRoute === "gyms" ? "gyms" : "raids";
+        failureRoute = route;
+        const nextUi = structuredClone(ui);
+        const filters = taskFilters(route, nextUi);
+        await mutateRoster((current) => ({
+          ...current,
+          schemaVersion: 2,
+          ...toggleOwnedFields(current),
+          preferences: {
+            ...(current.preferences ?? {}),
+            lastTask: { route, filters },
+          },
+        }));
         nextUi.lastTask = { route };
         nextUi.interactionMessage = "";
         replaceObject(ui, nextUi);
@@ -634,8 +666,13 @@ export function createInteractionController({
         rerender("more");
         return;
       }
-      const action = target?.closest?.("[data-action]")?.dataset?.action;
-      if (action === "apply-update") await releaseManager?.applyUpdate();
+      const actionEl = target?.closest?.("[data-action]");
+      const action = actionEl?.dataset?.action;
+      if (action === "dismiss-whats-new") {
+        const releaseId = actionEl.dataset.releaseId;
+        if (releaseId) storage?.setItem?.(whatsNewDismissedKey(releaseId), "1");
+        rerender("home");
+      } else if (action === "apply-update") await releaseManager?.applyUpdate();
       else if (action === "rollback-release") await releaseManager?.rollback();
       else if (action === "check-update") await releaseManager?.initialize();
       else if (action === "install-app") {
@@ -690,14 +727,15 @@ function raidCounterCard(row, roster) {
   const optimalMoves = `${moveWithElite(row.optimalFastMove, row.optimalEliteFastTM, "Fast")} + ${moveWithElite(row.optimalChargedMove, row.optimalEliteChargedTM, "Charged")}`;
   const movesDisagree = row.fastMove !== row.optimalFastMove
     || row.chargedMove !== row.optimalChargedMove;
-  return `<li class="raid-card" data-form-id="${escapeHtml(row.formId)}">
+  return `<li class="raid-card${owned ? " is-owned" : ""}" data-form-id="${escapeHtml(row.formId)}">
     <p class="raid-rank">Type rank #${escapeHtml(row.typeRank ?? row.rank)} · ${escapeHtml(multiplier)}×</p>
     <h4>${escapeHtml(row.pokemon)}</h4>
     <p><strong>Optimal DPS moves:</strong> ${optimalMoves}</p>
     ${movesDisagree ? `<p><strong>Practical moves:</strong> ${practicalMoves}</p>` : ""}
     <p>${Number.isFinite(Number(dps)) ? `${Number(dps).toFixed(2)} standardized DPS` : "DPS unavailable"} · ${escapeHtml(row.investmentTier)}</p>
     <p><strong>Availability:</strong> ${escapeHtml(row.availability ?? "Availability not documented")}</p>
-    <button type="button" data-owned-form-id="${escapeHtml(row.formId)}" aria-pressed="${owned}">${owned ? `Owned ×${ownedCount} · Remove all copies` : "Mark one owned"}</button>
+    ${ownedStarButton({ formId: row.formId, name: row.pokemon, owned, route: "raids" })}
+    <span class="owned-count">${owned ? `Owned ×${ownedCount}` : "Not owned"}</span>
   </li>`;
 }
 
@@ -734,13 +772,15 @@ function raidTargetSurface(state, ui, roster) {
     <p><strong>Level 20 encounter:</strong> 10/10/10 minimum ${escapeHtml(plan.target.normal.minimumRaidIVCP)} · hundo ${escapeHtml(plan.target.normal.hundoCP)}</p>
     <p><strong>Level 25 weather-boosted encounter:</strong> 10/10/10 minimum ${escapeHtml(plan.target.weatherBoosted.minimumRaidIVCP)} · hundo ${escapeHtml(plan.target.weatherBoosted.hundoCP)}</p>
     <p><strong>Weather boost:</strong> ${escapeHtml(plan.weatherBoostConditions.join(", ") || "No boosting weather documented")}</p>
-    <p aria-live="polite">${escapeHtml(plan.hundoVerdict.message)}</p>
+    <p aria-live="polite">${plan.hundoVerdict.label ? `<strong>${escapeHtml(plan.hundoVerdict.label)}</strong> — ` : ""}${escapeHtml(plan.hundoVerdict.message)}</p>
     ${plan.target.encounterNote ? `<p>${escapeHtml(plan.target.encounterNote)}</p>` : ""}
     <div class="placement-controls" aria-label="Counter lanes">
       ${Object.entries(lanes).map(([lane, [label]]) => `<button type="button" data-counter-lane="${lane}" aria-pressed="${lane === ui.raid.counterLane}">${escapeHtml(label)}</button>`).join("")}
     </div>
     <h3>${escapeHtml(laneLabel)}</h3>
-    ${rows.length ? `<ol class="raid-card-list">${rows.map((row) => raidCounterCard(row, roster)).join("")}</ol>` : "<p>No owned qualifying counter is marked yet.</p>"}
+    ${rows.length ? `<ol class="raid-card-list">${rows.map((row) => raidCounterCard(row, roster)).join("")}</ol>` : (ui.raid.counterLane === "owned"
+      ? "<p>Star Pokémon you own and this fills in with your best raid team.</p>"
+      : "<p>No owned qualifying counter is marked yet.</p>")}
     <p class="raid-method-note">${escapeHtml(plan.caveat)}</p>
   </section>`;
 }
@@ -756,7 +796,7 @@ function renderRaidSurface(state, ui, roster) {
   </div>`;
   return `<div class="raids-view">${controls}${ui.raid.view === "target"
     ? raidTargetSurface(state, ui, roster)
-    : renderRaids({ attackingType: ui.raid.attackingType, raids: state.raids })}</div>`;
+    : renderRaids({ attackingType: ui.raid.attackingType, raids: state.raids, forms: state.core.forms })}</div>`;
 }
 
 
@@ -839,10 +879,14 @@ function bindInteractions(app, controller) {
   app.addEventListener("click", onClick);
   app.addEventListener("change", onChange);
   app.addEventListener("input", onInput);
+  // "error" does not bubble, so this must be a capturing listener; it swaps
+  // any broken sprite <img> for its fallback circle without inline JS.
+  app.addEventListener("error", handleSpriteError, true);
   return () => {
     app.removeEventListener?.("click", onClick);
     app.removeEventListener?.("change", onChange);
     app.removeEventListener?.("input", onInput);
+    app.removeEventListener?.("error", handleSpriteError, true);
   };
 }
 
@@ -883,7 +927,9 @@ export function bootstrap({
     gymDefenderFormIds,
     gymDefenderSpeciesByFormId,
   });
+  const storage = windowObject.localStorage ?? null;
   let controller;
+  let searchRefresh = () => {};
   const renderers = {
     home() {
       app.innerHTML = interactionNotice(ui) + renderHome({
@@ -891,10 +937,27 @@ export function bootstrap({
         offlineStatus: state.offlineStatus ?? offlineLabel(releaseState),
         updateStatus: state.updateStatus ?? releaseLabel(releaseState),
         continueTask: continueTaskFor(state, ui),
+        currentBosses: state.currentBosses,
+        raidTargetTool: state.raidTargetTool,
+        forms: state.core.forms,
+        whatsNew: whatsNewCard(releaseState, storage),
       });
-      bindSearch(documentObject, index);
+      searchRefresh = bindSearch(documentObject, index, state.core.forms, roster);
+    },
+    basics() {
+      app.innerHTML = renderBasics();
     },
     raids() {
+      const bossParam = new URLSearchParams(windowObject.location?.search ?? "").get("boss");
+      if (bossParam && validFormIds.has(bossParam)) {
+        ui.raid.targetFormId = bossParam;
+        ui.raid.view = "target";
+        // Consume the deep-link param once so later re-renders (e.g. picking a
+        // different boss target) aren't silently overridden back to it.
+        const url = new URL(windowObject.location.href);
+        url.searchParams.delete("boss");
+        windowObject.history.replaceState({}, "", url.href);
+      }
       app.innerHTML = interactionNotice(ui) + (state.raids && state.raidTargetTool
         ? renderRaidSurface(state, ui, roster)
         : fallbackSections.raids);
@@ -962,6 +1025,8 @@ export function bootstrap({
     onRosterExport(payload) {
       downloadRoster(payload, { documentObject, windowObject });
     },
+    searchRefresh: () => searchRefresh(),
+    storage,
   });
   router.start();
   const stopInteractions = bindInteractions(app, controller);

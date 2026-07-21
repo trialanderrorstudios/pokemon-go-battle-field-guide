@@ -1,4 +1,5 @@
 import { escapeHtml } from "./home.js";
+import { spriteHtml } from "../sprites.js";
 
 
 export const PVP_LEAGUES = Object.freeze(["great", "ultra", "master"]);
@@ -111,7 +112,7 @@ function pvpCard(row, forms, { showLeague = false, publishedRank = false } = {})
   return `<li class="pvp-card" data-form-id="${escapeHtml(row.formId)}">
     <article aria-labelledby="${cardId}">
       ${showLeague ? `<p class="pvp-league-label">${escapeHtml(leagueName(row.league))}</p>` : ""}
-      <div class="pvp-card-heading"><p class="pvp-rank">${publishedRank ? "Published rank " : ""}#${escapeHtml(row.rank)}</p><h3 id="${cardId}">${escapeHtml(row.pokemon)}</h3></div>
+      <div class="pvp-card-heading">${spriteHtml(row.formId, forms, row.pokemon, forms?.[row.formId]?.primary_type)}<p class="pvp-rank">${publishedRank ? "Published rank " : ""}#${escapeHtml(row.rank)}</p><h3 id="${cardId}">${escapeHtml(row.pokemon)}</h3></div>
       <p class="pvp-types">${escapeHtml(typesFor(forms, row.formId))}${row.shadow ? " · <strong>Shadow form</strong>" : " · Regular form"}</p>
       <dl class="pvp-moves">
         <div><dt>Fast move</dt><dd>${moveWithElite(row.fastMove, eliteMoves, "Fast")}</dd></div>

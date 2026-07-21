@@ -97,23 +97,62 @@ function encounterBand(target, encounterLevel) {
 }
 
 
-function hundoVerdict(observedCp, band) {
+const HUNDO_TIP = "Higher CP after a raid = better stats. Boosted catches are stronger AND cost less to power up.";
+
+// Bands are the observed CP's position between the encounter's 10/10/10 floor and 15/15/15 ceiling.
+// ponytail: linear position in the CP range, not a simulated IV-combo distribution — "honest" means
+// derived from the documented min/hundo CPs, not a claim of exact percentile statistics.
+function hundoVerdict(observedCp, band, boostedBand) {
   if (observedCp === undefined || observedCp === null || observedCp === "") {
-    return { status: "not-entered", message: "Enter the catch-screen CP to compare." };
+    return { status: "not-entered", label: "", message: "Enter the catch-screen CP to compare." };
   }
   const cp = Number(observedCp);
   if (!Number.isInteger(cp) || cp <= 0) {
-    return { status: "invalid", message: "Enter a positive whole-number CP from the catch screen." };
+    return { status: "invalid", label: "", message: "Enter a positive whole-number CP from the catch screen." };
   }
-  if (cp === band.hundoCP) {
-    return { status: "hundo", message: "Hundo CP — this is the 15/15/15 maximum at this encounter level." };
+
+  // A raid catch can only exceed the normal-encounter hundo CP if it was weather-boosted (Level 25 stats).
+  const boosted = Boolean(boostedBand) && cp > band.hundoCP;
+  const activeBand = boosted ? boostedBand : band;
+  const boostNote = boosted ? " Weather-boosted catch detected from the CP." : "";
+
+  // cp > band.hundoCP but < boostedBand.minimumRaidIVCP is the gap between the two encounter
+  // levels — no real raid catch lands there, so it's out of range even though it looked "boosted".
+  if (cp > activeBand.hundoCP || cp < activeBand.minimumRaidIVCP) {
+    return {
+      status: "outside-range",
+      label: "",
+      message: "That CP doesn't fit a possible catch at this encounter level — double-check the number or the encounter level.",
+    };
   }
-  if (cp >= band.minimumRaidIVCP && cp < band.hundoCP) {
-    return { status: "in-range-not-hundo", message: "Within the raid IV range, but not the hundo CP." };
+  if (cp === activeBand.hundoCP) {
+    return {
+      status: "hundo",
+      label: "Perfect (hundo!)",
+      message: `15/15/15 — the maximum possible stats at this encounter level.${boostNote} ${HUNDO_TIP}`,
+    };
+  }
+
+  const range = activeBand.hundoCP - activeBand.minimumRaidIVCP;
+  const fraction = range > 0 ? (cp - activeBand.minimumRaidIVCP) / range : 0;
+  if (fraction >= 0.75) {
+    return {
+      status: "great",
+      label: "Great — close to hundo",
+      message: `Close to hundo stats.${boostNote} ${HUNDO_TIP}`,
+    };
+  }
+  if (fraction >= 0.4) {
+    return {
+      status: "fine",
+      label: "Fine",
+      message: `Usable stats, but not standout.${boostNote} ${HUNDO_TIP}`,
+    };
   }
   return {
-    status: "outside-range",
-    message: "Outside the expected 10/10/10–15/15/15 range for this encounter level.",
+    status: "low",
+    label: "Low",
+    message: `Near the bottom of the stat range for this encounter level.${boostNote} ${HUNDO_TIP}`,
   };
 }
 
@@ -142,17 +181,18 @@ export function buildRaidPlan({
   const shadowRows = raids.shadow ?? [];
   const owned = new Set((ownedFormIds ?? []).filter((formId) => typeof formId === "string"));
   const [bandName, band] = encounterBand(target, encounterLevel);
+  const OWNED_TEAM_SIZE = 6; // a raid lobby only fits 6 Pokémon
 
   return {
     target,
     encounterLevel: bandName,
     encounterBand: band,
-    hundoVerdict: hundoVerdict(observedCp, band),
+    hundoVerdict: hundoVerdict(observedCp, band, bandName === "normal" ? target.weatherBoosted : null),
     weatherBoostConditions: [...(target.weatherBoostConditions ?? [])],
     weaknesses,
     regularCounters: counterLane(regularRows, bossTypes, { limit }),
     shadowCounters: counterLane(shadowRows, bossTypes, { limit }),
-    ownedCounters: counterLane([...regularRows, ...shadowRows], bossTypes, { limit, owned }),
+    ownedCounters: counterLane([...regularRows, ...shadowRows], bossTypes, { limit: OWNED_TEAM_SIZE, owned }),
     caveat: tool.caveat ?? "Counter order is a quick practical guide; live battle conditions can change results.",
   };
 }

@@ -1,4 +1,4 @@
-const ROUTES = Object.freeze(["home", "raids", "gyms", "pvp", "more"]);
+const ROUTES = Object.freeze(["home", "raids", "gyms", "pvp", "more", "basics"]);
 const ROUTE_SET = new Set(ROUTES);
 
 

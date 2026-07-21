@@ -212,6 +212,15 @@ function appSection(data) {
 }
 
 
+function shareSection() {
+  return `<section class="more-section" aria-labelledby="more-share-title">
+    <p class="status-kicker">Tell a friend</p><h2 id="more-share-title">Share this app</h2>
+    <p>Scan this code on another phone to open the Battle Field Guide.</p>
+    <img class="share-qr" src="./icons/share-qr.svg" alt="QR code that opens the Battle Field Guide" width="220" height="220">
+  </section>`;
+}
+
+
 function ownedCounts(roster = {}) {
   const provided = roster.ownedFormCounts ?? {};
   return Object.fromEntries((roster.ownedFormIds ?? []).map((formId) => [
@@ -251,7 +260,7 @@ function rosterSection(data) {
   const exactForms = Object.keys(counts).length;
   return `<section class="more-section roster-section" aria-labelledby="more-roster-title">
     <p class="status-kicker">Local collection</p><h2 id="more-roster-title">My Roster</h2>
-    <p><strong>${exactForms} exact form${exactForms === 1 ? "" : "s"} · ${totalCopies} total ${totalCopies === 1 ? "copy" : "copies"}</strong></p>
+    <p><strong>${exactForms} exact form${exactForms === 1 ? "" : "s"} · ${totalCopies} total ${totalCopies === 1 ? "copy" : "copies"}</strong> <span class="owned-chip">Owned: ${exactForms}</span></p>
     <p>Counts describe exact-form copies only; they do not claim battle-ready levels or moves.</p>
     <label class="roster-search">Search any Pokémon, form, or type
       <input type="search" data-roster-search value="${escapeHtml(data.rosterQuery ?? "")}" autocomplete="off">
@@ -265,6 +274,10 @@ export function renderMore(data = {}) {
   if (MORE_LISTS[data.listId]) return renderMoreList(data.listId, data);
   return `<div class="more-view">
     <a class="safe-escape" href="./#more">Back to More</a>
+    <section class="more-section" aria-labelledby="more-basics-title">
+      <p class="status-kicker">New to Pokémon GO battles?</p><h2 id="more-basics-title">Battle Basics</h2>
+      <a class="safe-escape" href="./#basics">Read the plain-language basics</a>
+    </section>
     ${rosterSection(data)}
     <section class="more-section" aria-labelledby="more-investment-title">
       <p class="status-kicker">Spend Stardust and Candy deliberately</p><h2 id="more-investment-title">Investment</h2>
@@ -276,5 +289,6 @@ export function renderMore(data = {}) {
     </section>
     ${dataSection(data)}
     ${appSection(data)}
+    ${shareSection()}
   </div>`;
 }

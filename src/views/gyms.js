@@ -1,4 +1,5 @@
 import { escapeHtml } from "./home.js";
+import { spriteHtml } from "../sprites.js";
 
 
 function displayMove(moveId) {
@@ -63,6 +64,7 @@ function staggerSection(gym) {
 
 function defenderCard(row, forms) {
   return `<li class="gym-card"><article>
+    ${spriteHtml(row.formId, forms, row.pokemon, forms?.[row.formId]?.primary_type)}
     <p class="gym-rank">${escapeHtml(row.defenseTier)}-tier defender</p>
     <h3>${escapeHtml(row.pokemon)}</h3>
     <p><strong>${movePair(row, forms)}</strong></p>
@@ -125,8 +127,7 @@ function ownedDefenderEditor(defenders, ownedFormIds) {
       <legend>Placement-eligible defender forms</legend>
       ${(defenders ?? []).map((row) => {
         const isOwned = owned.has(row.formId);
-        const action = isOwned ? "Remove" : "Mark";
-        return `<button type="button" data-owned-form-id="${escapeHtml(row.formId)}" data-owned-route="gyms" aria-pressed="${isOwned}" aria-label="${action} ${escapeHtml(row.pokemon)} exact form ${escapeHtml(row.formId)} ${isOwned ? "from" : "as"} owned">${escapeHtml(row.pokemon)} · ${escapeHtml(row.formId)} · ${isOwned ? "Owned" : "Not owned"}</button>`;
+        return `<button type="button" class="owned-star${isOwned ? " is-owned" : ""}" data-owned-form-id="${escapeHtml(row.formId)}" data-owned-route="gyms" aria-pressed="${isOwned}" aria-label="I own ${escapeHtml(row.pokemon)}"><span aria-hidden="true">${isOwned ? "★" : "☆"}</span> ${escapeHtml(row.pokemon)} · ${escapeHtml(row.formId)}</button>`;
       }).join("")}
     </fieldset>
   </section>`;

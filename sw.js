@@ -7,6 +7,10 @@ export const METADATA_CACHE = "pogo-release-metadata";
 const METADATA_PATH = "__field-guide-release-metadata__.json";
 const COMPLETE_PATH = "__verified-release__.json";
 const MANIFEST_PATH = "release-manifest.json";
+// Sprites are dex-keyed static assets fetched once at build time by
+// scripts/fetch-sprites.mjs (web/sprites/1.png .. 1025.png) — they belong in
+// the app shell like the other icons, not the versioned data-release cache.
+const SPRITE_DEX_COUNT = 1025;
 const SHELL_FILES = Object.freeze([
   "./",
   "./index.html",
@@ -16,18 +20,22 @@ const SHELL_FILES = Object.freeze([
   "./icons/icon-192.png",
   "./icons/icon-512.png",
   "./icons/apple-touch-icon.png",
+  "./icons/share-qr.svg",
   "./src/app.js",
   "./src/placement.js",
   "./src/raid-target.js",
   "./src/release-manager.js",
   "./src/router.js",
   "./src/search.js",
+  "./src/sprites.js",
   "./src/storage.js",
+  "./src/views/basics.js",
   "./src/views/gyms.js",
   "./src/views/home.js",
   "./src/views/more.js",
   "./src/views/pvp.js",
   "./src/views/raids.js",
+  ...Array.from({ length: SPRITE_DEX_COUNT }, (_, index) => `./sprites/${index + 1}.png`),
 ]);
 
 

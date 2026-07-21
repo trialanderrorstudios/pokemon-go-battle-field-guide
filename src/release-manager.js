@@ -1,5 +1,5 @@
 export const APP_VERSION = 1;
-export const APP_SHELL_REVISION = "r7";
+export const APP_SHELL_REVISION = "r9";
 export const MANIFEST_SCHEMA_VERSION = 1;
 export const DATA_SCHEMA_VERSION = 1;
 export const RELEASE_STATES = Object.freeze([
@@ -66,6 +66,9 @@ export function validateReleaseManifest(manifest, { appVersion = APP_VERSION } =
   }
   if (!Array.isArray(manifest.releaseNotes) || manifest.releaseNotes.some((note) => typeof note !== "string")) {
     throw new TypeError("Unsupported release notes.");
+  }
+  if (manifest.notes !== undefined && (typeof manifest.notes !== "string" || !manifest.notes.trim())) {
+    throw new TypeError("Unsupported release notes summary.");
   }
   for (const field of ["doClaim", "doNotClaim"]) {
     if (typeof manifest[field] !== "string" || !manifest[field].trim()) {
