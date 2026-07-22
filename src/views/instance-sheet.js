@@ -36,10 +36,14 @@ function instanceRow(instance, form) {
 // Manual quick-add sheet for per-copy detail (CP, IVs, moves) on top of the
 // binary owned-star roster. Move pickers are chips over the form's own
 // release-data fast/charged move lists — never free text.
-export function renderInstanceSheet({ form, instances = [], draft = null, error = "" } = {}) {
+export function renderInstanceSheet({
+  form, instances = [], draft = null, error = "", focusInstanceId = null,
+} = {}) {
   if (!form || !draft) return "";
   const legal = legalMoves(form);
-  const existing = instances.filter((instance) => instance.formId === form.form_id);
+  const existing = instances.filter((instance) => (
+    instance.formId === form.form_id && (!focusInstanceId || instance.id === focusInstanceId)
+  ));
   const chargedSelected = new Set(draft.chargedMoves ?? []);
   return `<div class="move-sheet-backdrop" data-instance-sheet-backdrop>
     <div class="move-sheet instance-sheet" role="dialog" aria-modal="true" aria-labelledby="instance-sheet-title">

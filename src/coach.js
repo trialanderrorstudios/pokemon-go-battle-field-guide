@@ -61,7 +61,7 @@ function worthRaidingThisWeek(data, roster, now = new Date()) {
 }
 
 
-function powerUpNext(data, roster) {
+export function powerUpNext(data, roster) {
   const forms = formsOf(data);
   const owned = new Set(roster?.ownedFormIds ?? []);
   const candidates = futureImpactRows(data?.futureProof ?? []).filter((row) => owned.has(row.formId));
@@ -73,6 +73,7 @@ function powerUpNext(data, roster) {
     const cost = powerUpCost(fromLevel, 40);
     return {
       formId: row.formId,
+      instanceId: bestInstance?.id ?? null,
       name: row.pokemon,
       investmentTier: row.investmentTier,
       recommendation: row.recommendation,

@@ -338,6 +338,11 @@ export function renderMore(data = {}) {
     </section>
     ${displaySection(data)}
     ${rosterSection(data)}
+    <section class="more-section triage-route-callout" aria-labelledby="more-triage-title">
+      <p class="status-kicker">Turn your roster into decisions</p><h2 id="more-triage-title">Triage My Box</h2>
+      <p>See what to keep, power up, use in leagues, or review for transfer.</p>
+      <a class="safe-escape" href="./#triage" data-route="triage">Open Triage My Box</a>
+    </section>
     ${rosterShareSection(data)}
     <section class="more-section" aria-labelledby="more-investment-title">
       <p class="status-kicker">Spend ${jargonTerm("stardust", "Stardust")} and ${jargonTerm("candy", "Candy")} deliberately</p><h2 id="more-investment-title">Investment</h2>

@@ -232,6 +232,7 @@ export function renderHome({
     <h3 class="home-section-title">What are you fighting?</h3>
     <div class="home-task-grid">
       ${continued}
+      ${taskCard({ href: "./#triage", title: "Triage My Box", detail: "Keep, invest, battle, or transfer — one safe decision per Pokémon." })}
       ${taskCard({ href: "./#coach", title: "Weekly Coach", detail: "This week's raid picks, power-ups, buddy, and PvP team in one place." })}
       ${taskCard({ href: "./#raids", title: "Raid Target", detail: "Check hundo CP and the best counters." })}
       ${taskCard({ href: "./#gyms", title: "Gym Plan", detail: "Attack, stagger, or choose the next defender." })}

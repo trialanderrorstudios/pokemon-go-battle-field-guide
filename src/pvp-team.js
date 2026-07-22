@@ -7,6 +7,7 @@ import { coverageNote } from "./effectiveness.js";
 
 export const LEAGUE_CP_CAP = Object.freeze({ great: 1500, ultra: 2500, master: null });
 export const MY_TEAM_SLOTS = Object.freeze(["Lead", "Safe Switch", "Closer"]);
+export const PVP_GOOD_QUALITY_THRESHOLD = 0.95;
 
 // Headroom on the star-only "probably eligible" heuristic: a species whose
 // max-normal-level CP sits a little over the cap is still routinely built
@@ -23,20 +24,20 @@ function statProduct(form, ivs, level) {
 }
 
 
-function qualityHint(form, instance, row) {
+export function qualityHint(form, instance, row) {
   if (!row?.rankOne?.statProduct) return null;
   const level = solveLevel(form, instance.ivs, instance.cp);
   if (level === null) return null;
   const ratio = statProduct(form, instance.ivs, level) / row.rankOne.statProduct;
   let tier = "weak";
   if (ratio >= 0.99) tier = "excellent";
-  else if (ratio >= 0.95) tier = "good";
+  else if (ratio >= PVP_GOOD_QUALITY_THRESHOLD) tier = "good";
   else if (ratio >= 0.90) tier = "usable";
   return { ratio, percent: Math.round(ratio * 1000) / 10, tier };
 }
 
 
-function detailedEligibility(instance, league) {
+export function detailedEligibility(instance, league) {
   const cap = LEAGUE_CP_CAP[league];
   if (cap === null) {
     return { kind: "detailed", eligible: true, assumption: false, reason: "Master League has no CP cap." };
@@ -53,7 +54,7 @@ function detailedEligibility(instance, league) {
 }
 
 
-function starEligibility(form, league) {
+export function starEligibility(form, league) {
   const cap = LEAGUE_CP_CAP[league];
   if (cap === null) {
     return {

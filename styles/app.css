@@ -2338,3 +2338,227 @@ h1 {
   box-shadow: 0 0 0 5px rgba(24, 32, 56, 0.85);
   outline-offset: 2px;
 }
+
+/* Triage My Box — bounded, thumb-friendly roster decisions inside the dex screen. */
+.triage-view {
+  display: grid;
+  gap: 0.8rem;
+  width: 100%;
+  max-width: 44rem;
+  margin-inline: auto;
+}
+
+.triage-view h2,
+.triage-view h3,
+.triage-view p {
+  margin-block: 0;
+}
+
+.triage-guide,
+.triage-copy,
+.triage-empty,
+.triage-no-matches,
+.triage-explainer {
+  padding: 0.85rem;
+  border: 1px solid var(--line);
+  border-radius: 0.8rem;
+  background: var(--panel);
+}
+
+.triage-guide,
+.triage-copy,
+.triage-empty,
+.triage-explainer[open] {
+  display: grid;
+  gap: 0.7rem;
+}
+
+.triage-guide-actions,
+.triage-filters,
+.triage-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.triage-guide button,
+.triage-filters button,
+.triage-copy button,
+.triage-show-more {
+  min-width: 48px;
+  min-height: 48px;
+  padding: 0.55rem 0.75rem;
+  border: 1px solid var(--cyan);
+  border-radius: 0.7rem;
+  background: var(--panel-raised);
+  color: var(--text);
+  font: inherit;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.triage-filters button {
+  flex: 1 1 calc(33.333% - 0.5rem);
+}
+
+.triage-filters button[aria-pressed="true"] {
+  border-color: var(--focus);
+  background: color-mix(in srgb, var(--cyan) 22%, var(--panel-raised));
+  box-shadow: inset 0 -3px 0 var(--cyan);
+}
+
+.triage-guide button:focus-visible,
+.triage-filters button:focus-visible,
+.triage-copy button:focus-visible,
+.triage-show-more:focus-visible,
+.triage-entry-open:focus-visible,
+.triage-explainer summary:focus-visible {
+  outline: 3px solid var(--focus);
+  box-shadow: 0 0 0 5px rgba(24, 32, 56, 0.85);
+  outline-offset: 2px;
+}
+
+.triage-window-status,
+.triage-because,
+.triage-invest-cost,
+.triage-copy-status {
+  color: var(--muted);
+  font-size: 0.84rem;
+}
+
+.triage-list {
+  display: grid;
+  gap: 0.65rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.triage-entry article {
+  display: grid;
+  gap: 0.55rem;
+  padding: 0.7rem;
+  border: 1px solid var(--line);
+  border-radius: 0.8rem;
+  background: var(--panel);
+}
+
+.triage-entry-open {
+  display: grid;
+  grid-template-columns: 48px minmax(0, 1fr) auto;
+  gap: 0.65rem;
+  align-items: center;
+  width: 100%;
+  min-height: 64px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.triage-entry-identity {
+  display: grid;
+  gap: 0.12rem;
+  min-width: 0;
+}
+
+.triage-entry-identity strong,
+.triage-entry-identity span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.triage-entry-identity span {
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+.triage-badges {
+  justify-content: flex-end;
+}
+
+.triage-badge,
+.triage-assumed {
+  display: inline-flex;
+  align-items: center;
+  width: fit-content;
+  min-height: 24px;
+  padding: 0.15rem 0.5rem;
+  border: 1px solid currentColor;
+  border-radius: 999px;
+  font-family: var(--dx-mono);
+  font-size: 0.68rem;
+  font-weight: 850;
+  letter-spacing: 0.03em;
+}
+
+.triage-badge[data-triage-bucket="KEEP"] { color: var(--green); }
+.triage-badge[data-triage-bucket="INVEST"] { color: var(--amber); }
+.triage-badge[data-triage-bucket="PVP"] { color: var(--cyan); }
+.triage-badge[data-triage-bucket="CANDY"] { color: var(--danger); }
+.triage-badge[data-triage-bucket="UNRATED"],
+.triage-assumed { color: var(--muted); }
+
+.triage-assumed {
+  margin: 0;
+  text-transform: none;
+}
+
+.triage-copy textarea {
+  width: 100%;
+  min-height: 8rem;
+  padding: 0.7rem;
+  border: 1px solid var(--amber);
+  border-radius: 0.7rem;
+  background: var(--screen-bg);
+  color: var(--text);
+  font: 0.82rem/1.5 var(--dx-mono);
+  user-select: text;
+  resize: vertical;
+}
+
+.triage-explainer summary {
+  min-height: 48px;
+  padding-block: 0.7rem;
+  color: var(--cyan);
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.triage-explainer dl {
+  display: grid;
+  gap: 0.6rem;
+  margin: 0;
+}
+
+.triage-explainer dl div {
+  display: grid;
+  grid-template-columns: 5rem minmax(0, 1fr);
+  gap: 0.5rem;
+}
+
+.triage-explainer dt {
+  color: var(--cyan);
+  font-family: var(--dx-mono);
+  font-weight: 850;
+}
+
+.triage-explainer dd {
+  margin: 0;
+  color: var(--muted);
+}
+
+@media (max-width: 24rem) {
+  .triage-entry-open {
+    grid-template-columns: 48px minmax(0, 1fr);
+  }
+
+  .triage-badges {
+    grid-column: 1 / -1;
+    justify-content: flex-start;
+  }
+}

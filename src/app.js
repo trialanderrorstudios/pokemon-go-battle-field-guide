@@ -49,6 +49,15 @@ import {
 } from "./swap.js";
 import { renderSwap } from "./views/swap.js";
 import { renderCoach } from "./views/coach.js";
+import { triageRoster } from "./triage.js";
+import {
+  advanceTriageView,
+  candyTransferText,
+  createTriageViewState,
+  renderTriage,
+  retreatTriageView,
+  setTriageFilter,
+} from "./views/triage.js";
 
 
 function usableState(state) {
@@ -203,10 +212,16 @@ function whatsNewCard(releaseState, storage) {
 // single localStorage key, not release-scoped, since the card's content is
 // static orientation copy rather than per-release notes.
 const START_HERE_DISMISSED_KEY = "start-here-dismissed";
+const TRIAGE_GUIDE_DISMISSED_KEY = "triage-guide-dismissed";
 
 
 function showStartHere(storage) {
   return storage?.getItem?.(START_HERE_DISMISSED_KEY) !== "1";
+}
+
+
+function showTriageGuide(storage) {
+  return storage?.getItem?.(TRIAGE_GUIDE_DISMISSED_KEY) !== "1";
 }
 
 
@@ -433,6 +448,7 @@ export function createInteractionState({
     }),
     drill: createDrillState({ storage }),
     swap: createSwapState(),
+    triage: createTriageViewState(),
     lastTask: savedTask ? { route: savedTask.route } : null,
     moreList: null,
     installMessage: "",
@@ -469,8 +485,12 @@ export function createInteractionController({
   navigateMore = null,
   installPrompt = null,
   onRosterExport = null,
+  onClipboardCopy = null,
   onRosterShareCopy = null,
+  onTriageCopy = null,
   onFeedbackExport = null,
+  getTriageResult = () => ({ entries: [] }),
+  onRosterChanged = () => {},
   searchRefresh = () => {},
   storage = null,
   rerenderCurrent = () => {},
@@ -478,12 +498,17 @@ export function createInteractionController({
 } = {}) {
   if (!ui || !roster) throw new TypeError("Interaction state and roster are required.");
 
+  const clearTriageCopyStatus = (state = ui) => {
+    if (state.triage) state.triage.copyStatus = "";
+  };
   let rosterWriteQueue = Promise.resolve();
   const enqueueRosterWrite = (buildNext) => {
     const operation = rosterWriteQueue.then(async () => {
       const snapshot = structuredClone(buildNext(structuredClone(roster)));
       if (rosterStore?.replace) await rosterStore.replace(snapshot);
       replaceObject(roster, snapshot);
+      clearTriageCopyStatus();
+      onRosterChanged();
       return snapshot;
     });
     rosterWriteQueue = operation.catch(() => {});
@@ -504,14 +529,17 @@ export function createInteractionController({
     });
     nextUi.lastTask = { route };
     nextUi.interactionMessage = "";
+    clearTriageCopyStatus(nextUi);
     replaceObject(ui, nextUi);
   };
   const rerender = (route) => renderRoute(route);
 
   const api = {
     onRosterExport,
-    onRosterShareCopy,
+    onRosterShareCopy: onRosterShareCopy ?? onClipboardCopy,
+    onTriageCopy: onTriageCopy ?? onClipboardCopy,
     onFeedbackExport,
+    getTriageResult,
     handleFailure(error) {
       ui.interactionMessage = `Could not save changes: ${error?.message ?? error}`;
       rerender(failureRoute);
@@ -618,7 +646,7 @@ export function createInteractionController({
       if (instanceCp && ui.instanceSheet) {
         ui.instanceSheet.draft.cp = instanceCp.value;
         ui.instanceSheet.error = "";
-        rerender("more");
+        rerender(ui.instanceSheet.returnRoute ?? "more");
         return;
       }
       const instanceIv = target?.closest?.("[data-instance-iv]");
@@ -626,13 +654,13 @@ export function createInteractionController({
         const raw = instanceIv.value;
         ui.instanceSheet.draft.ivs[instanceIv.dataset.instanceIv] = raw === "" ? "" : Number(raw);
         ui.instanceSheet.error = "";
-        rerender("more");
+        rerender(ui.instanceSheet.returnRoute ?? "more");
         return;
       }
       const instanceNickname = target?.closest?.("[data-instance-nickname]");
       if (instanceNickname && ui.instanceSheet) {
         ui.instanceSheet.draft.nickname = instanceNickname.value;
-        rerender("more");
+        rerender(ui.instanceSheet.returnRoute ?? "more");
         return;
       }
       const pvpFilter = target?.closest?.("[data-pvp-filter]");
@@ -663,6 +691,8 @@ export function createInteractionController({
             : { async replace() {} };
           const imported = await importRoster(payload, validFormIds, validatingStore);
           replaceObject(roster, imported);
+          clearTriageCopyStatus();
+          onRosterChanged();
           const nextUi = createInteractionState({
             roster,
             validFormIds,
@@ -740,7 +770,22 @@ export function createInteractionController({
       const openInstanceSheet = target?.closest?.("[data-open-instance-sheet-form-id]");
       if (openInstanceSheet) {
         const formId = openInstanceSheet.dataset.openInstanceSheetFormId;
-        if (validFormIds.has(formId)) ui.instanceSheet = { formId, draft: blankInstanceDraft(), error: "" };
+        const instanceId = openInstanceSheet.dataset.openInstanceSheetInstanceId;
+        const instance = instanceId
+          ? (roster.instances ?? []).find((row) => row.id === instanceId && row.formId === formId)
+          : null;
+        const returnRoute = openInstanceSheet.dataset.instanceSheetReturnRoute === "triage" || instance
+          ? "triage"
+          : "more";
+        if (validFormIds.has(formId)) {
+          ui.instanceSheet = {
+            formId,
+            draft: instance ? draftFromInstance(instance) : blankInstanceDraft(),
+            error: "",
+            focusInstanceId: instance?.id ?? null,
+            returnRoute,
+          };
+        }
         rerenderCurrent();
         return;
       }
@@ -755,20 +800,31 @@ export function createInteractionController({
       const editInstance = target?.closest?.("[data-edit-instance-id]");
       if (editInstance && ui.instanceSheet) {
         const instance = (roster.instances ?? []).find((row) => row.id === editInstance.dataset.editInstanceId);
-        if (instance) ui.instanceSheet = { formId: ui.instanceSheet.formId, draft: draftFromInstance(instance), error: "" };
+        if (instance) {
+          ui.instanceSheet = {
+            ...ui.instanceSheet,
+            draft: draftFromInstance(instance),
+            error: "",
+            focusInstanceId: ui.instanceSheet.returnRoute === "triage" ? instance.id : null,
+          };
+        }
         rerenderCurrent();
         return;
       }
       const deleteInstance = target?.closest?.("[data-delete-instance-id]");
       if (deleteInstance) {
         const instanceId = deleteInstance.dataset.deleteInstanceId;
-        failureRoute = "more";
+        const returnRoute = ui.instanceSheet?.returnRoute ?? "more";
+        failureRoute = returnRoute;
         await mutateRoster((current) => ({
           ...current,
           instances: (current.instances ?? []).filter((row) => row.id !== instanceId),
         }));
-        if (ui.instanceSheet?.draft?.editingId === instanceId) ui.instanceSheet.draft = blankInstanceDraft();
-        rerender("more");
+        if (ui.instanceSheet?.draft?.editingId === instanceId) {
+          if (returnRoute === "triage") ui.instanceSheet = null;
+          else ui.instanceSheet.draft = blankInstanceDraft();
+        }
+        rerender(returnRoute);
         return;
       }
       const fastMoveChip = target?.closest?.("[data-instance-fast-move]");
@@ -837,6 +893,24 @@ export function createInteractionController({
         rerender("raids");
         return;
       }
+      const triageFilter = target?.closest?.("[data-triage-filter]");
+      if (triageFilter) {
+        ui.triage = setTriageFilter(ui.triage, triageFilter.dataset.triageFilter);
+        rerender("triage");
+        return;
+      }
+      const triageShowMore = target?.closest?.("[data-triage-show-more]");
+      if (triageShowMore) {
+        ui.triage = advanceTriageView(ui.triage);
+        rerender("triage");
+        return;
+      }
+      const triagePrevious = target?.closest?.("[data-triage-previous]");
+      if (triagePrevious) {
+        ui.triage = retreatTriageView(ui.triage);
+        rerender("triage");
+        return;
+      }
       const ownedControl = target?.closest?.("[data-owned-form-id]");
       if (ownedControl) {
         const formId = ownedControl.dataset.ownedFormId;
@@ -878,6 +952,7 @@ export function createInteractionController({
         }));
         nextUi.lastTask = { route };
         nextUi.interactionMessage = "";
+        clearTriageCopyStatus(nextUi);
         replaceObject(ui, nextUi);
         rerender(route);
         return;
@@ -1027,6 +1102,17 @@ export function createInteractionController({
       } else if (action === "dismiss-start-here") {
         storage?.setItem?.(START_HERE_DISMISSED_KEY, "1");
         rerender("home");
+      } else if (action === "dismiss-triage-guide") {
+        storage?.setItem?.(TRIAGE_GUIDE_DISMISSED_KEY, "1");
+        rerender("triage");
+      } else if (action === "open-triage-explainer") {
+        ui.triage.explainerOpen = true;
+        rerender("triage");
+      } else if (action === "copy-triage-candy") {
+        const payload = candyTransferText(api.getTriageResult?.());
+        const copied = Boolean(payload) && await api.onTriageCopy?.(payload);
+        ui.triage.copyStatus = copied ? "success" : "failure";
+        rerender("triage");
       } else if (action === "dismiss-update-banner") {
         const releaseId = releaseManager?.state?.candidate?.releaseId;
         if (releaseId) storage?.setItem?.(updateBannerDismissedKey(releaseId), "1");
@@ -1057,9 +1143,14 @@ export function createInteractionController({
         (api.onFeedbackExport ?? onFeedbackExport)?.(payload);
         rerender("more");
       } else if (action === "cancel-edit-instance") {
-        if (ui.instanceSheet) ui.instanceSheet.draft = blankInstanceDraft();
-        rerender("more");
+        const returnRoute = ui.instanceSheet?.returnRoute ?? "more";
+        if (ui.instanceSheet) {
+          if (returnRoute === "triage") ui.instanceSheet = null;
+          else ui.instanceSheet.draft = blankInstanceDraft();
+        }
+        rerender(returnRoute);
       } else if (action === "save-instance") {
+        const returnRoute = ui.instanceSheet?.returnRoute ?? "more";
         if (ui.instanceSheet) {
           const form = forms[ui.instanceSheet.formId];
           const editingId = ui.instanceSheet.draft.editingId;
@@ -1067,18 +1158,21 @@ export function createInteractionController({
             const instance = buildInstance(form, ui.instanceSheet.draft);
             const original = editingId ? (roster.instances ?? []).find((row) => row.id === editingId) : null;
             const saved = original ? { ...instance, id: original.id, addedAt: original.addedAt } : instance;
-            failureRoute = "more";
+            failureRoute = returnRoute;
             await mutateRoster((current) => ({
               ...current,
               instances: [...(current.instances ?? []).filter((row) => row.id !== editingId), saved],
             }));
-            ui.instanceSheet.draft = blankInstanceDraft();
-            ui.instanceSheet.error = "";
+            if (returnRoute === "triage") ui.instanceSheet = null;
+            else {
+              ui.instanceSheet.draft = blankInstanceDraft();
+              ui.instanceSheet.error = "";
+            }
           } catch (error) {
             ui.instanceSheet.error = error?.message ?? String(error);
           }
         }
-        rerender("more");
+        rerender(returnRoute);
       } else if (action === "swap-continue-team") {
         ui.swap = advanceSwapToOpponent(ui.swap);
         rerender("swap");
@@ -1444,6 +1538,11 @@ export function bootstrap({
   let controller;
   let searchRefresh = () => {};
   let currentRoute = "home";
+  let triageResult = null;
+  const getTriageResult = () => {
+    if (!triageResult) triageResult = triageRoster({ data: state, roster });
+    return triageResult;
+  };
   const renderers = {
     home() {
       app.innerHTML = interactionNotice(ui) + renderHome({
@@ -1523,6 +1622,14 @@ export function bootstrap({
     coach() {
       app.innerHTML = interactionNotice(ui) + renderCoach({ data: state, roster });
     },
+    triage() {
+      app.innerHTML = interactionNotice(ui) + renderTriage({
+        result: getTriageResult(),
+        forms: state.core.forms,
+        state: ui.triage,
+        showGuide: showTriageGuide(storage),
+      });
+    },
     more() {
       app.innerHTML = renderMore({
         ...state.core,
@@ -1561,6 +1668,7 @@ export function bootstrap({
           instances: roster.instances ?? [],
           draft: ui.instanceSheet.draft,
           error: ui.instanceSheet.error,
+          focusInstanceId: ui.instanceSheet.focusInstanceId,
         });
       }
       updateLeds(documentObject, releaseState, roster);
@@ -1597,7 +1705,7 @@ export function bootstrap({
     onFeedbackExport(payload) {
       downloadFile("pokemon-go-field-guide-feedback.json", payload, { documentObject, windowObject });
     },
-    async onRosterShareCopy(payload) {
+    async onClipboardCopy(payload) {
       const clipboard = windowObject.navigator?.clipboard;
       if (!clipboard?.writeText) return false;
       try {
@@ -1607,6 +1715,8 @@ export function bootstrap({
         return false;
       }
     },
+    getTriageResult,
+    onRosterChanged() { triageResult = null; },
     searchRefresh: () => searchRefresh(),
     rerenderCurrent: () => renderers[currentRoute]?.(),
     rootElement: documentObject.documentElement,
