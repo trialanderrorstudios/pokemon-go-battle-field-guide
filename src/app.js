@@ -1354,8 +1354,18 @@ function raidTargetSurface(state, ui, roster) {
     `<span class="type-weak-badge${row.effectiveness >= 2.56 ? " is-double" : ""}">${typeChip(row.attackingType)}${row.effectiveness >= 2.56 ? "4x" : "2x"}</span>`
   )).join("") : "None documented"}</p>
     </div>
-    <p><strong>Level 20 encounter:</strong> 10/10/10 minimum ${escapeHtml(plan.target.normal.minimumRaidIVCP)} · ${jargonTerm("hundo", "hundo")} ${escapeHtml(plan.target.normal.hundoCP)}</p>
-    <p><strong>Level 25 weather-boosted encounter:</strong> 10/10/10 minimum ${escapeHtml(plan.target.weatherBoosted.minimumRaidIVCP)} · ${jargonTerm("hundo", "hundo")} ${escapeHtml(plan.target.weatherBoosted.hundoCP)}</p>
+    <div class="raid-cp-lines">
+      <div class="raid-cp-set">
+        <p><strong>Level 20 encounter:</strong></p>
+        <p><strong>Min CP:</strong> 10/10/10: ${escapeHtml(plan.target.normal.minimumRaidIVCP)}</p>
+        <p><strong>${jargonTerm("hundo", "Hundo CP")}:</strong> ${escapeHtml(plan.target.normal.hundoCP)}</p>
+      </div>
+      <div class="raid-cp-set">
+        <p><strong>Level 25 weather-boosted encounter:</strong></p>
+        <p><strong>Min CP:</strong> 10/10/10: ${escapeHtml(plan.target.weatherBoosted.minimumRaidIVCP)}</p>
+        <p><strong>${jargonTerm("hundo", "Hundo CP")}:</strong> ${escapeHtml(plan.target.weatherBoosted.hundoCP)}</p>
+      </div>
+    </div>
     <p><strong>${jargonTerm("weather-boost", "Weather boost")}:</strong> ${escapeHtml(plan.weatherBoostConditions.join(", ") || "No boosting weather documented")}</p>
     <p aria-live="polite">${plan.hundoVerdict.label ? `<strong>${escapeHtml(plan.hundoVerdict.label)}</strong> — ` : ""}${escapeHtml(plan.hundoVerdict.message)}</p>
     ${plan.target.encounterNote ? `<p>${escapeHtml(plan.target.encounterNote)}</p>` : ""}

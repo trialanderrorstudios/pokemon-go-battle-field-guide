@@ -4,6 +4,7 @@ import { spriteHtml } from "../sprites.js";
 import { displayMoveName, moveLink } from "./move-sheet.js";
 import { buildMyTeam, LEAGUE_CP_CAP, MY_TEAM_SLOTS, myTeamOverridesFor } from "../pvp-team.js";
 import { xlPowerUpCost } from "../raid-target.js";
+import { typeChip } from "./types.js";
 
 
 export const PVP_LEAGUES = Object.freeze(["great", "ultra", "master"]);
@@ -72,6 +73,13 @@ function yesNo(value) {
 function typesFor(forms, formId) {
   const form = forms?.[formId];
   return [form?.primary_type, form?.secondary_type].filter(Boolean).join(" / ") || "Types unavailable";
+}
+
+
+function typeChipsFor(forms, formId) {
+  const form = forms?.[formId];
+  const types = [form?.primary_type, form?.secondary_type].filter(Boolean);
+  return types.length ? types.map(typeChip).join("") : "Types unavailable";
 }
 
 
@@ -194,12 +202,12 @@ function teamCard(team, pvp, forms) {
       const name = row?.pokemon ?? form?.name ?? member.formId;
       const eliteMoves = new Set(form?.elite_moves ?? []);
       const moves = row
-        ? `<span class="pvp-team-moves">Quick: ${moveWithElite(row.fastMove, eliteMoves, "Fast")} · Charged: ${(row.chargedMoves ?? []).map((move) => moveWithElite(move, eliteMoves, "Charged")).join(" + ")}</span>`
+        ? `<span class="pvp-team-quick">Quick: ${moveWithElite(row.fastMove, eliteMoves, "Fast")}</span><span class="pvp-team-charged">Charged: ${(row.chargedMoves ?? []).map((move) => moveWithElite(move, eliteMoves, "Charged")).join(" + ")}</span>`
         : "";
       const ideal = row?.rankOne
         ? `<span class="pvp-team-ideal">Ideal: ${row.rankOne.ivs.attack}/${row.rankOne.ivs.defense}/${row.rankOne.ivs.stamina} IVs @ ${row.rankOne.cp} CP</span>`
         : "";
-      return `<li data-form-id="${escapeHtml(member.formId)}">${spriteHtml(member.formId, forms, name, form?.primary_type)}<strong>${escapeHtml(member.role)}:</strong> ${escapeHtml(name)} <span>${escapeHtml(typesFor(forms, member.formId))}</span>${moves}${ideal}</li>`;
+      return `<li data-form-id="${escapeHtml(member.formId)}">${spriteHtml(member.formId, forms, name, form?.primary_type)}<strong>${escapeHtml(member.role)}:</strong> ${escapeHtml(name)} <span class="pvp-team-types">${typeChipsFor(forms, member.formId)}</span>${moves}${ideal}</li>`;
     }).join("")}</ol>
     <p><strong>Battle plan:</strong> ${escapeHtml(team.plan)}</p>
     <p><strong>Shared weaknesses:</strong> ${escapeHtml(shared)}</p>
@@ -313,6 +321,14 @@ function myTeamSection(league, pvp, pvpTeams, roster, forms) {
   return `<section class="pvp-section pvp-myteam" aria-labelledby="pvp-myteam-title-${escapeHtml(league)}" data-my-team-league="${escapeHtml(league)}">
     <p class="status-kicker">Your roster, ranked for this league</p>
     <h2 id="pvp-myteam-title-${escapeHtml(league)}">My Team · ${escapeHtml(leagueName(league))}${cap ? ` (${cap} CP cap)` : " (no CP cap)"}</h2>
+    <details class="pvp-roles-teach">
+      <summary>What do "Lead," "Safe Switch," and "Closer" mean?</summary>
+      <dl>
+        <div><dt>Lead</dt><dd>Starts first in the match. Good Leads pressure the opponent early and force them to burn shields — they have fast moves that build toward charged moves quickly, so they gain momentum.</dd></div>
+        <div><dt>Safe Switch</dt><dd>Swapped in when you need breathing room. A Safe Switch usually covers weaknesses in your Lead and resists common threats, so it's neutral against most matchups and buys you time.</dd></div>
+        <div><dt>Closer</dt><dd>Finishes the match when shields are gone. Closers are strong once they have free rein with charged moves, so they clean up after the early game.</dd></div>
+      </dl>
+    </details>
     ${team.isEmpty
       ? `<p class="pvp-empty">${escapeHtml(team.fallbackMessage)}</p>${myTeamFallback(league, team.fallbackTeam, forms)}`
       : `<ol class="pvp-myteam-slots">${MY_TEAM_SLOTS.map((slot, index) => myTeamMemberCard(league, slot, team.members[index], options)).join("")}</ol>

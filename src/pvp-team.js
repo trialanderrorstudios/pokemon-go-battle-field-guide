@@ -3,7 +3,8 @@
 // eligibility, quality, coverage, and move-delta notes. Pure data layer —
 // web/src/views/pvp.js renders it.
 import { calculateCp, cpMultiplier, solveLevel } from "./instances.js";
-import { coverageNote } from "./effectiveness.js";
+import { coverageNote, weaknessesOf } from "./effectiveness.js";
+import { ATTACK_TYPES } from "./raid-target.js";
 
 export const LEAGUE_CP_CAP = Object.freeze({ great: 1500, ultra: 2500, master: null });
 export const MY_TEAM_SLOTS = Object.freeze(["Lead", "Safe Switch", "Closer"]);
@@ -227,3 +228,5 @@ export function buildMyTeam({ league, pvp = {}, pvpTeams = [], roster = {}, form
     coverageNote: filled.length >= 2 ? coverageNote(filled.map((member) => member.form)) : "",
   };
 }
+
+

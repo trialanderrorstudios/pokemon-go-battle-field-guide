@@ -1527,10 +1527,56 @@ h1 {
   gap: 0.4rem;
 }
 
-.pvp-team-members span {
+.pvp-team-members span:not(.pvp-team-types) {
   display: block;
   color: var(--muted);
   font-size: 0.78rem;
+}
+
+.pvp-team-members .pvp-team-types {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  align-items: center;
+}
+
+.pvp-team-weaknesses {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  align-items: center;
+}
+
+.pvp-roles-teach {
+  margin: 0.75rem 0;
+  padding: 0.65rem;
+  border: 1px solid var(--line);
+  border-radius: 0.6rem;
+  background: var(--panel);
+}
+
+.pvp-roles-teach summary {
+  cursor: pointer;
+  color: var(--cyan);
+  font-weight: 750;
+}
+
+.pvp-roles-teach dl {
+  margin: 0.75rem 0 0;
+  display: grid;
+  gap: 0.5rem;
+}
+
+.pvp-roles-teach dt {
+  color: var(--muted);
+  font-size: 0.73rem;
+  font-weight: 800;
+}
+
+.pvp-roles-teach dd {
+  margin: 0.12rem 0 0 0;
+  font-size: 0.86rem;
+  line-height: 1.4;
 }
 
 .pvp-full-rankings {
@@ -1544,7 +1590,9 @@ h1 {
   cursor: pointer;
 }
 
-.pvp-team-members .pvp-team-moves {
+.pvp-team-members .pvp-team-quick,
+.pvp-team-members .pvp-team-charged {
+  display: block;
   margin-top: 0.28rem;
   color: var(--text);
   line-height: 1.5;
