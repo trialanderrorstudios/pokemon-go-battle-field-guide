@@ -10,6 +10,7 @@ import {
 } from "./storage.js";
 import { scorePlacement } from "./placement.js";
 import { jargonTerm } from "./glossary.js";
+import { dismissGuide, renderGuide, showGuide } from "./guide.js";
 import { escapeHtml, ownedStarButton, renderHome } from "./views/home.js";
 import { renderBasics } from "./views/basics.js";
 import { renderMaxBasics } from "./views/maxbasics.js";
@@ -23,6 +24,16 @@ import { moveLink, renderMoveSheet } from "./views/move-sheet.js";
 import { renderInstanceSheet } from "./views/instance-sheet.js";
 import { bestInstanceForForm, buildInstance, instanceLevel } from "./instances.js";
 import { parsePokeGenieCsv } from "./poke-genie-import.js";
+import {
+  completeDefense,
+  deleteDefenseEntry,
+  exportPlayerLog,
+  importPlayerLog,
+  loadDefenseLog,
+  saveDefenseLog,
+  setLocalPlayerName,
+  startDefense,
+} from "./gym-defense-log.js";
 import { exportFeedback, recordFeedback } from "./feedback.js";
 import { applyTextSize, loadTextSize, saveTextSize } from "./text-size.js";
 import { applyTheme, loadTheme, saveTheme } from "./theme.js";
@@ -208,16 +219,7 @@ function whatsNewCard(releaseState, storage) {
 }
 
 
-// ponytail: same disposable-flag pattern as the what's-new dismissal — a
-// single localStorage key, not release-scoped, since the card's content is
-// static orientation copy rather than per-release notes.
-const START_HERE_DISMISSED_KEY = "start-here-dismissed";
 const TRIAGE_GUIDE_DISMISSED_KEY = "triage-guide-dismissed";
-
-
-function showStartHere(storage) {
-  return storage?.getItem?.(START_HERE_DISMISSED_KEY) !== "1";
-}
 
 
 function showTriageGuide(storage) {
@@ -410,6 +412,20 @@ function blankInstanceDraft() {
 }
 
 
+function blankDefenseLogDraft() {
+  return {
+    pokemon: "",
+    gymName: "",
+    startedAt: "",
+    completingId: null,
+    completeDraft: { endedAt: "", coins: "" },
+    importText: "",
+    message: "",
+    shareOpen: false,
+  };
+}
+
+
 function draftFromInstance(instance) {
   return {
     editingId: instance.id,
@@ -460,6 +476,8 @@ export function createInteractionState({
     rosterShareOpen: false,
     textSize: loadTextSize(storage),
     theme: loadTheme(storage),
+    defenseLog: loadDefenseLog(storage),
+    defenseLogDraft: blankDefenseLogDraft(),
   };
 }
 
@@ -495,6 +513,7 @@ export function createInteractionController({
   storage = null,
   rerenderCurrent = () => {},
   rootElement = null,
+  scrollToTop = () => {},
 } = {}) {
   if (!ui || !roster) throw new TypeError("Interaction state and roster are required.");
 
@@ -639,6 +658,54 @@ export function createInteractionController({
           gymDefenderSpeciesByFormId,
         );
         await persistTask("gyms", nextUi);
+        rerender("gyms");
+        return;
+      }
+      const defenseLogPokemon = target?.closest?.("[data-defense-log-pokemon]");
+      if (defenseLogPokemon) {
+        ui.defenseLogDraft.pokemon = defenseLogPokemon.value;
+        rerender("gyms");
+        return;
+      }
+      const defenseLogGym = target?.closest?.("[data-defense-log-gym]");
+      if (defenseLogGym) {
+        ui.defenseLogDraft.gymName = defenseLogGym.value;
+        rerender("gyms");
+        return;
+      }
+      const defenseLogStart = target?.closest?.("[data-defense-log-start]");
+      if (defenseLogStart) {
+        ui.defenseLogDraft.startedAt = defenseLogStart.value;
+        rerender("gyms");
+        return;
+      }
+      const defenseLogPlayerName = target?.closest?.("[data-defense-log-player-name]");
+      if (defenseLogPlayerName) {
+        try {
+          ui.defenseLog = setLocalPlayerName(ui.defenseLog, defenseLogPlayerName.value);
+          saveDefenseLog(storage, ui.defenseLog);
+          ui.defenseLogDraft.message = "";
+        } catch (error) {
+          ui.defenseLogDraft.message = error?.message ?? String(error);
+        }
+        rerender("gyms");
+        return;
+      }
+      const defenseLogCompleteEnd = target?.closest?.("[data-defense-log-complete-end]");
+      if (defenseLogCompleteEnd) {
+        ui.defenseLogDraft.completeDraft.endedAt = defenseLogCompleteEnd.value;
+        rerender("gyms");
+        return;
+      }
+      const defenseLogCompleteCoins = target?.closest?.("[data-defense-log-complete-coins]");
+      if (defenseLogCompleteCoins) {
+        ui.defenseLogDraft.completeDraft.coins = defenseLogCompleteCoins.value;
+        rerender("gyms");
+        return;
+      }
+      const defenseLogImportText = target?.closest?.("[data-defense-log-import-text]");
+      if (defenseLogImportText) {
+        ui.defenseLogDraft.importText = defenseLogImportText.value;
         rerender("gyms");
         return;
       }
@@ -1099,9 +1166,6 @@ export function createInteractionController({
         const releaseId = actionEl.dataset.releaseId;
         if (releaseId) storage?.setItem?.(whatsNewDismissedKey(releaseId), "1");
         rerender("home");
-      } else if (action === "dismiss-start-here") {
-        storage?.setItem?.(START_HERE_DISMISSED_KEY, "1");
-        rerender("home");
       } else if (action === "dismiss-triage-guide") {
         storage?.setItem?.(TRIAGE_GUIDE_DISMISSED_KEY, "1");
         rerender("triage");
@@ -1113,6 +1177,16 @@ export function createInteractionController({
         const copied = Boolean(payload) && await api.onTriageCopy?.(payload);
         ui.triage.copyStatus = copied ? "success" : "failure";
         rerender("triage");
+      } else if (action === "dismiss-guide") {
+        const route = actionEl.dataset.guideRoute;
+        if (route) dismissGuide(route, storage);
+        rerenderCurrent();
+      } else if (action === "show-guide") {
+        const route = actionEl.dataset.guideRoute;
+        if (route) showGuide(route, storage);
+        rerenderCurrent();
+      } else if (action === "scroll-app-top") {
+        scrollToTop();
       } else if (action === "dismiss-update-banner") {
         const releaseId = releaseManager?.state?.candidate?.releaseId;
         if (releaseId) storage?.setItem?.(updateBannerDismissedKey(releaseId), "1");
@@ -1173,6 +1247,61 @@ export function createInteractionController({
           }
         }
         rerender(returnRoute);
+      } else if (action === "defense-log-start") {
+        try {
+          ui.defenseLog = startDefense(ui.defenseLog, ui.defenseLogDraft);
+          saveDefenseLog(storage, ui.defenseLog);
+          ui.defenseLogDraft = blankDefenseLogDraft();
+        } catch (error) {
+          ui.defenseLogDraft.message = error?.message ?? String(error);
+        }
+        rerender("gyms");
+      } else if (action === "defense-log-open-complete") {
+        ui.defenseLogDraft.completingId = actionEl.dataset.defenseEntryId ?? null;
+        ui.defenseLogDraft.completeDraft = { endedAt: "", coins: "" };
+        ui.defenseLogDraft.message = "";
+        rerender("gyms");
+      } else if (action === "defense-log-cancel-complete") {
+        ui.defenseLogDraft.completingId = null;
+        rerender("gyms");
+      } else if (action === "defense-log-complete") {
+        try {
+          ui.defenseLog = completeDefense(ui.defenseLog, ui.defenseLogDraft.completingId, ui.defenseLogDraft.completeDraft);
+          saveDefenseLog(storage, ui.defenseLog);
+          ui.defenseLogDraft.completingId = null;
+          ui.defenseLogDraft.completeDraft = { endedAt: "", coins: "" };
+          ui.defenseLogDraft.message = "";
+        } catch (error) {
+          ui.defenseLogDraft.message = error?.message ?? String(error);
+        }
+        rerender("gyms");
+      } else if (action === "defense-log-delete") {
+        const entryId = actionEl.dataset.defenseEntryId;
+        ui.defenseLog = deleteDefenseEntry(ui.defenseLog, entryId);
+        saveDefenseLog(storage, ui.defenseLog);
+        if (ui.defenseLogDraft.completingId === entryId) ui.defenseLogDraft.completingId = null;
+        rerender("gyms");
+      } else if (action === "defense-log-toggle-share") {
+        ui.defenseLogDraft.shareOpen = !ui.defenseLogDraft.shareOpen;
+        rerender("gyms");
+      } else if (action === "defense-log-copy-share") {
+        const payload = exportPlayerLog(ui.defenseLog);
+        const copied = await (api.onRosterShareCopy ?? onRosterShareCopy)?.(payload);
+        ui.defenseLogDraft.message = copied
+          ? "Copied your leaderboard text to clipboard."
+          : "Could not copy automatically — select and copy the text above.";
+        rerender("gyms");
+      } else if (action === "defense-log-import") {
+        try {
+          const { log: nextLog, playerName, importedCount } = importPlayerLog(ui.defenseLog, ui.defenseLogDraft.importText);
+          ui.defenseLog = nextLog;
+          saveDefenseLog(storage, ui.defenseLog);
+          ui.defenseLogDraft.importText = "";
+          ui.defenseLogDraft.message = `Imported ${importedCount} ${importedCount === 1 ? "entry" : "entries"} for ${playerName}.`;
+        } catch (error) {
+          ui.defenseLogDraft.message = error?.message ?? String(error);
+        }
+        rerender("gyms");
       } else if (action === "swap-continue-team") {
         ui.swap = advanceSwapToOpponent(ui.swap);
         rerender("swap");
@@ -1565,7 +1694,6 @@ export function bootstrap({
         raidTargetTool: state.raidTargetTool,
         forms: state.core.forms,
         whatsNew: whatsNewCard(releaseState, storage),
-        showStartHere: showStartHere(storage),
       });
       searchRefresh = bindSearch(documentObject, index, state.core.forms, roster);
     },
@@ -1609,6 +1737,8 @@ export function bootstrap({
           ownedFormIds: roster.ownedFormIds,
           ownedIndex: ui.gym.ownedIndex,
           overallIndex: ui.gym.overallIndex,
+          defenseLog: ui.defenseLog,
+          defenseLogDraft: ui.defenseLogDraft,
         })}`
         : fallbackSections.gyms);
     },
@@ -1663,6 +1793,12 @@ export function bootstrap({
     renderers[route] = () => {
       currentRoute = route;
       base();
+      // Prepend into #app so the guide scrolls with the view instead of
+      // sitting in fixed chrome above the bezel. insertAdjacentHTML (not a
+      // second innerHTML assignment) only parses the new fragment, so it
+      // doesn't tear down nodes base() already bound live listeners to
+      // (e.g. home's search input via bindSearch).
+      app.insertAdjacentHTML("afterbegin", renderGuide(route, storage));
       if (ui.moveSheet) {
         app.innerHTML += renderMoveSheet({
           moveId: ui.moveSheet,
@@ -1730,10 +1866,13 @@ export function bootstrap({
     searchRefresh: () => searchRefresh(),
     rerenderCurrent: () => renderers[currentRoute]?.(),
     rootElement: documentObject.documentElement,
+    scrollToTop: () => app.scrollTo?.(0, 0),
     storage,
   });
   router.start();
-  const stopInteractions = bindInteractions(app, controller, [documentObject.getElementById?.("update-banner")]);
+  const stopInteractions = bindInteractions(app, controller, [
+    documentObject.getElementById?.("update-banner"),
+  ]);
   return { status: "ready", router, searchIndex: index, controller, ui, stopInteractions };
 }
 

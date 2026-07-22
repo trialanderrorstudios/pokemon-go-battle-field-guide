@@ -99,6 +99,10 @@ export function renderCurrentBosses({ currentBosses, raidTargetTool, forms, now 
 
 
 function formatEventWhen(startsAt, endsAt) {
+  // typeof guard first: new Date(null) is the 1970 epoch (a valid date, not
+  // NaN), so a missing startsAt would otherwise render "Dec 31"/"Jan 1" 1970
+  // instead of the blank line the sort guard already tolerates elsewhere.
+  if (typeof startsAt !== "string") return "";
   const start = new Date(startsAt);
   if (Number.isNaN(start.valueOf())) return "";
   const options = { month: "short", day: "numeric" };
@@ -109,15 +113,75 @@ function formatEventWhen(startsAt, endsAt) {
 }
 
 
-const MAX_EVENT_KINDS = new Set(["max-battles", "max-mondays"]);
+// Beginner one-liner per event TYPE — static, fact-checked teach copy, not
+// scraped per-event content. Shown once per type group, not per card.
+// Unknown/future types fall back to a generic blurb (forward-compat).
+const EVENT_TYPE_INFO = {
+  "pokemon-spotlight-hour": { badge: "Spotlight Hour", blurb: "One species gets a catch bonus for a single hour." },
+  "community-day": { badge: "Community Day", blurb: "Boosted spawns of one species for a few hours, often with an exclusive move if it evolves during the window." },
+  "raid-hour": { badge: "Raid Hour", blurb: "One raid boss gets an extra hour of raids in the evening." },
+  "max-battles": { badge: "Max Battles", blurb: "A featured Dynamax/Gigantamax boss at Power Spots for the day." },
+  "max-mondays": { badge: "Max Mondays", blurb: "A featured Dynamax boss at Power Spots all Monday." },
+  "raid-battles": { badge: "Raid Rotation", blurb: "The regular raid rotation window for a boss — not a special event, just when it's active." },
+  "raid-day": { badge: "Raid Day", blurb: "A themed day of extra-boosted raids for one boss, often with a costume or shiny bump." },
+  "go-battle-league": { badge: "GO Battle League", blurb: "The current PvP season's active league lineup." },
+  "go-pass": { badge: "GO Pass", blurb: "A monthly pass with timed research and rewards." },
+  "pokemon-go-fest": { badge: "GO Fest", blurb: "Niantic's flagship event — usually ticketed or global, with themed spawns and raids." },
+  "choose-your-path": { badge: "Choose Your Path", blurb: "A themed event where picking a path or team changes its bonuses." },
+  "season": { badge: "Season", blurb: "The multi-month season backdrop — sets ongoing spawns, bonuses, and research." },
+  "event": { badge: "Event", blurb: "A themed event — check the link for its specific bonuses." },
+};
 
-export function eventCard({ eventId, kind, name, formId, startsAt, endsAt, action } = {}, { forms, now = new Date() } = {}) {
+function eventTypeInfo(kind, fallbackLabel) {
+  return EVENT_TYPE_INFO[kind] ?? { badge: fallbackLabel ?? kind ?? "Event", blurb: "Check the link for details." };
+}
+
+
+function spawnsChip(hasSpawns) {
+  return hasSpawns ? `<p class="event-spawns-chip">Boosted wild spawns during this event.</p>` : "";
+}
+
+
+// Mirrors src/pogo_encyclopedia/public_safety.py _ALLOWED_EVENT_LINK, but
+// full-match (^...$): that guard only strips the allowlisted shape out of
+// scanned text, it never confirms a `link` field IS nothing but that shape.
+// A feed-supplied javascript:/data: URI has no phone/email/path/origin-URL/tel
+// pattern to trip, so it sails through the build-time scan untouched and
+// would otherwise land verbatim in this href — validate here, the one place
+// that turns feed data into a live link, so every caller is covered.
+const ALLOWED_EVENT_LINK = /^https:\/\/leekduck\.com\/events\/[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?\/?$/i;
+
+function safeEventLink(link) {
+  return typeof link === "string" && ALLOWED_EVENT_LINK.test(link) ? link : null;
+}
+
+
+// Rich cards (formId resolved) keep the beginner action line. Generic cards
+// (feed doesn't carry a subject Pokemon for this type) show only what the
+// feed itself provides, plus a link out — no scraping, no guessing.
+export function eventCard({ eventId, name, formId, startsAt, endsAt, action, hasSpawns, link } = {}, { forms, now = new Date() } = {}) {
   const stale = typeof endsAt === "string" && !Number.isNaN(Date.parse(endsAt)) && new Date(endsAt) < now;
+  const safeLink = safeEventLink(link);
   return `<div class="fallback-section home-event-card" data-event-id="${escapeHtml(eventId)}">
-    <div class="home-event-heading">${formId ? spriteHtml(formId, forms, name, forms?.[formId]?.primary_type) : ""}<h4>${escapeHtml(name)}</h4>${MAX_EVENT_KINDS.has(kind) ? `<span class="event-kind-badge">MAX</span>` : ""}</div>
+    <div class="home-event-heading">${formId ? spriteHtml(formId, forms, name, forms?.[formId]?.primary_type) : ""}<h4>${escapeHtml(name)}</h4></div>
     <p class="event-when">${escapeHtml(formatEventWhen(startsAt, endsAt))}</p>
-    <p class="event-action">${escapeHtml(action)}</p>
+    ${action ? `<p class="event-action">${escapeHtml(action)}</p>` : ""}
+    ${!action && safeLink ? `<p class="event-action"><a class="event-external-link" href="${escapeHtml(safeLink)}" target="_blank" rel="noopener">Full details ↗ (leaves the app)</a></p>` : ""}
+    ${spawnsChip(hasSpawns)}
     ${stale ? `<p class="boss-stale">May be outdated — check in-game.</p>` : ""}
+  </div>`;
+}
+
+
+// Groups by feed eventType so beginners see a type badge + one plain-language
+// line about what that TYPE of event is, once, above its cards — instead of
+// a flat list mixing raid hours with GO Fest with seasons.
+function eventTypeGroup(kind, events, { forms, now }) {
+  const info = eventTypeInfo(kind, events[0]?.typeLabel);
+  return `<div class="home-event-type-group">
+    <p class="event-type-heading"><span class="event-type-badge">${escapeHtml(info.badge)}</span></p>
+    <p class="event-type-blurb">${escapeHtml(info.blurb)}</p>
+    <div class="home-event-grid">${events.map((event) => eventCard(event, { forms, now })).join("")}</div>
   </div>`;
 }
 
@@ -125,9 +189,15 @@ export function eventCard({ eventId, kind, name, formId, startsAt, endsAt, actio
 export function renderCurrentEvents({ currentEvents, forms, now = new Date() } = {}) {
   const events = currentEvents?.events ?? [];
   if (!events.length) return "";
+  const groups = new Map();
+  for (const event of events) {
+    const key = event.kind ?? "event";
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(event);
+  }
   return `<section class="home-event-section" aria-labelledby="home-event-title">
     <h3 id="home-event-title">Upcoming events</h3>
-    <div class="home-event-grid">${events.map((event) => eventCard(event, { forms, now })).join("")}</div>
+    ${[...groups.entries()].map(([kind, group]) => eventTypeGroup(kind, group, { forms, now })).join("")}
   </section>`;
 }
 
@@ -188,17 +258,6 @@ function whatsNewCard(whatsNew) {
 }
 
 
-function startHereCard(showStartHere) {
-  if (!showStartHere) return "";
-  return `<div class="fallback-section whats-new-card start-here-card" role="note">
-    <p><strong>New to battling? Start here</strong></p>
-    <p>Raids are timed team fights against a giant boss Pokémon guarding a gym — beat it with other trainers before time runs out for a chance to catch it. Gyms hold defending Pokémon placed by other trainers; attack one to clear it, then place your own Pokémon to defend it. PvP means fighting another trainer's team of three Pokémon instead of the game's bosses and defenders. Each mode rewards different Pokémon and strategy, so it's worth learning the basics before you dive in. Start with the plain-language basics, the type chart, or the glossary below.</p>
-    <p class="start-here-links"><a class="safe-escape" href="./#basics">Battle Basics</a> · <a class="safe-escape" href="./#types">Type Chart</a> · <a class="safe-escape" href="./#glossary">Glossary</a></p>
-    <button type="button" data-action="dismiss-start-here">Got it</button>
-  </div>`;
-}
-
-
 export function renderHome({
   cutoff,
   offlineStatus = "Offline setup incomplete",
@@ -209,7 +268,6 @@ export function renderHome({
   raidTargetTool = null,
   forms = {},
   whatsNew = null,
-  showStartHere = false,
 } = {}) {
   const continueRoute = CONTINUE_ROUTES.has(continueTask?.route)
     ? continueTask.route
@@ -242,7 +300,6 @@ export function renderHome({
     </div>
     ${whatsNewCard(whatsNew)}
     ${renderCurrentBosses({ currentBosses, raidTargetTool, forms })}
-    ${startHereCard(showStartHere)}
     <div class="home-task-grid home-task-grid-secondary">
       ${taskCard({ href: "./#more", title: "My Roster", detail: "Use the Pokémon you already own." })}
       ${taskCard({ href: "./#basics", title: "Battle Basics", detail: "New here? Start with the plain-language basics." })}
