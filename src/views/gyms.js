@@ -1,12 +1,6 @@
 import { escapeHtml } from "./home.js";
 import { spriteHtml } from "../sprites.js";
-
-
-function displayMove(moveId) {
-  return String(moveId ?? "Unknown move").toLowerCase().split("_")
-    .map((word) => word ? word[0].toUpperCase() + word.slice(1) : "")
-    .join(" ");
-}
+import { moveLink } from "./move-sheet.js";
 
 
 function sectionHeading(kicker, title, id) {
@@ -16,7 +10,7 @@ function sectionHeading(kicker, title, id) {
 
 function moveWithElite(moveId, form, kind) {
   const elite = new Set(form?.elite_moves ?? []).has(moveId);
-  return `${escapeHtml(displayMove(moveId))}${elite ? ` <small class="elite-tm">Elite ${escapeHtml(kind)} TM</small>` : ""}`;
+  return moveLink(moveId, { elite, kind });
 }
 
 

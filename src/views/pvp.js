@@ -1,5 +1,8 @@
 import { escapeHtml } from "./home.js";
+import { jargonTerm } from "../glossary.js";
 import { spriteHtml } from "../sprites.js";
+import { displayMoveName, moveLink } from "./move-sheet.js";
+import { buildMyTeam, LEAGUE_CP_CAP, MY_TEAM_SLOTS, myTeamOverridesFor } from "../pvp-team.js";
 
 
 export const PVP_LEAGUES = Object.freeze(["great", "ultra", "master"]);
@@ -23,7 +26,7 @@ export function createPvpState({ preferences = {}, filters = {} } = {}) {
     form: allowed(requested.form, FORM_FILTERS, "all"),
     investment: allowed(requested.investment, INVESTMENT_FILTERS, "all"),
     league: allowed(requested.league, new Set(PVP_LEAGUE_FILTERS), "all"),
-    view: allowed(requested.view, VIEWS, "rankings"),
+    view: allowed(requested.view, VIEWS, "teams"),
   };
 }
 
@@ -54,13 +57,6 @@ export function selectPvpRows(pvp = {}, state = createPvpState()) {
 }
 
 
-function titleCase(value) {
-  return String(value ?? "").toLowerCase().split("_")
-    .map((part) => part ? `${part[0].toUpperCase()}${part.slice(1)}` : "")
-    .join(" ");
-}
-
-
 function leagueName(league) {
   if (league === "all") return "All leagues";
   return `${league[0].toUpperCase()}${league.slice(1)} League`;
@@ -79,8 +75,7 @@ function typesFor(forms, formId) {
 
 
 function moveWithElite(moveId, eliteMoves, kind) {
-  const elite = eliteMoves.has(moveId);
-  return `${escapeHtml(titleCase(moveId))}${elite ? ` <small class="elite-tm">Elite ${escapeHtml(kind)} TM</small>` : ""}`;
+  return moveLink(moveId, { elite: eliteMoves.has(moveId), kind });
 }
 
 
@@ -97,8 +92,8 @@ function controls(state) {
     ${state.view === "rankings" ? `${filterSelect("form", "Form", state.form, [["all", "Regular + Shadow"], ["regular", "Regular only"], ["shadow", "Shadow only"]])}
     ${filterSelect("investment", "Investment", state.investment, [["all", "All tiers"], ["S+", "S+"], ["S", "S"], ["A", "A"], ["B", "B"], ["C", "C"]])}` : ""}
     <fieldset><legend>View</legend>
-      <button type="button" data-pvp-view="rankings" aria-pressed="${state.view === "rankings"}">Rankings</button>
       <button type="button" data-pvp-view="teams" aria-pressed="${state.view === "teams"}">Teams</button>
+      <button type="button" data-pvp-view="rankings" aria-pressed="${state.view === "rankings"}">Rankings</button>
     </fieldset>
   </form>`;
 }
@@ -113,17 +108,17 @@ function pvpCard(row, forms, { showLeague = false, publishedRank = false } = {})
     <article aria-labelledby="${cardId}">
       ${showLeague ? `<p class="pvp-league-label">${escapeHtml(leagueName(row.league))}</p>` : ""}
       <div class="pvp-card-heading">${spriteHtml(row.formId, forms, row.pokemon, forms?.[row.formId]?.primary_type)}<p class="pvp-rank">${publishedRank ? "Published rank " : ""}#${escapeHtml(row.rank)}</p><h3 id="${cardId}">${escapeHtml(row.pokemon)}</h3></div>
-      <p class="pvp-types">${escapeHtml(typesFor(forms, row.formId))}${row.shadow ? " · <strong>Shadow form</strong>" : " · Regular form"}</p>
+      <p class="pvp-types">${escapeHtml(typesFor(forms, row.formId))}${row.shadow ? ` · <strong>${jargonTerm("shadow", "Shadow form")}</strong>` : " · Regular form"}</p>
       <dl class="pvp-moves">
-        <div><dt>Fast move</dt><dd>${moveWithElite(row.fastMove, eliteMoves, "Fast")}</dd></div>
-        <div><dt>Charged moves</dt><dd>${(row.chargedMoves ?? []).map((move) => moveWithElite(move, eliteMoves, "Charged")).join(" + ")}</dd></div>
+        <div><dt>${jargonTerm("fast-move", "Fast move")}</dt><dd>${moveWithElite(row.fastMove, eliteMoves, "Fast")}</dd></div>
+        <div><dt>${jargonTerm("charged-move", "Charged moves")}</dt><dd>${(row.chargedMoves ?? []).map((move) => moveWithElite(move, eliteMoves, "Charged")).join(" + ")}</dd></div>
       </dl>
       <dl class="pvp-stats" aria-label="Independently calculated rank-1 IVs">
-        <div><dt>Rank-1 IVs</dt><dd>${escapeHtml(`${ivs.attack ?? "—"}/${ivs.defense ?? "—"}/${ivs.stamina ?? "—"}`)}</dd></div>
+        <div><dt>${jargonTerm("iv", "Rank-1 IVs")}</dt><dd>${escapeHtml(`${ivs.attack ?? "—"}/${ivs.defense ?? "—"}/${ivs.stamina ?? "—"}`)}</dd></div>
         <div><dt>Level</dt><dd>${escapeHtml(rankOne.level ?? "—")}</dd></div>
-        <div><dt>CP</dt><dd>${escapeHtml(rankOne.cp ?? "—")}</dd></div>
+        <div><dt>${jargonTerm("cp", "CP")}</dt><dd>${escapeHtml(rankOne.cp ?? "—")}</dd></div>
         <div><dt>Stat product</dt><dd>${escapeHtml(rankOne.statProduct ?? "—")}</dd></div>
-        <div><dt>XL</dt><dd>${yesNo(rankOne.xlRequired)}</dd></div>
+        <div><dt>${jargonTerm("candy", "XL")}</dt><dd>${yesNo(rankOne.xlRequired)}</dd></div>
         <div><dt>Best Buddy</dt><dd>${yesNo(rankOne.bestBuddyRequired)}</dd></div>
       </dl>
       <dl class="pvp-guidance">
@@ -184,7 +179,7 @@ function teamCard(team, pvp, forms) {
       const moves = row
         ? `<span class="pvp-team-moves">Quick: ${moveWithElite(row.fastMove, eliteMoves, "Fast")} · Charged: ${(row.chargedMoves ?? []).map((move) => moveWithElite(move, eliteMoves, "Charged")).join(" + ")}</span>`
         : "";
-      return `<li data-form-id="${escapeHtml(member.formId)}"><strong>${escapeHtml(member.role)}:</strong> ${escapeHtml(name)} <span>${escapeHtml(typesFor(forms, member.formId))}</span>${moves}</li>`;
+      return `<li data-form-id="${escapeHtml(member.formId)}">${spriteHtml(member.formId, forms, name, form?.primary_type)}<strong>${escapeHtml(member.role)}:</strong> ${escapeHtml(name)} <span>${escapeHtml(typesFor(forms, member.formId))}</span>${moves}</li>`;
     }).join("")}</ol>
     <p><strong>Battle plan:</strong> ${escapeHtml(team.plan)}</p>
     <p><strong>Shared weaknesses:</strong> ${escapeHtml(shared)}</p>
@@ -211,26 +206,115 @@ function alternativesView(alternatives, forms, state) {
 }
 
 
-function teamsView(pvp, teams, alternatives, forms, state) {
+function myTeamOwnedOptions(roster, forms) {
+  return [...new Set(roster?.ownedFormIds ?? [])]
+    .map((formId) => forms?.[formId] && { formId, name: forms[formId].name })
+    .filter(Boolean)
+    .sort((left, right) => left.name.localeCompare(right.name));
+}
+
+
+function myTeamSlotSelect(league, slot, currentFormId, options) {
+  return `<label class="pvp-myteam-override">Override
+    <select data-my-team-slot="${escapeHtml(slot)}" data-my-team-league="${escapeHtml(league)}">
+      <option value="">Auto</option>
+      ${options.map((option) => (
+        `<option value="${escapeHtml(option.formId)}"${option.formId === currentFormId ? " selected" : ""}>${escapeHtml(option.name)}</option>`
+      )).join("")}
+    </select>
+  </label>`;
+}
+
+
+export function myTeamMoveDeltaLines(member) {
+  if (!member?.moveDelta) return [];
+  const { fastMoveMissing, fastMoveNeeded, chargedMovesMissing, chargedMovesNeeded } = member.moveDelta;
+  const lines = [];
+  if (fastMoveMissing) lines.push("Fast move not recorded — add it to check.");
+  else if (fastMoveNeeded) lines.push(`needs Fast TM: ${displayMoveName(fastMoveNeeded)}`);
+  if (chargedMovesMissing) lines.push("Charged moves not recorded — add them to check.");
+  else if (chargedMovesNeeded.length) lines.push(`needs Charged TM: ${chargedMovesNeeded.map(displayMoveName).join(" + ")}`);
+  return lines;
+}
+
+
+function myTeamMemberCard(league, slot, member, options) {
+  if (!member) {
+    return `<li class="pvp-myteam-slot pvp-myteam-empty" data-my-team-slot-empty="${escapeHtml(slot)}">
+      <strong>${escapeHtml(slot)}</strong>
+      <p>No eligible Pokémon owned for this slot yet — star and detail more to fill it.</p>
+      ${myTeamSlotSelect(league, slot, "", options)}
+    </li>`;
+  }
+  const moveLines = myTeamMoveDeltaLines(member);
+  const quality = member.quality
+    ? `<p class="pvp-myteam-quality">${escapeHtml(member.quality.tier)} · ${escapeHtml(member.quality.percent)}% of rank-1 stat product</p>`
+    : "";
+  return `<li class="pvp-myteam-slot" data-form-id="${escapeHtml(member.formId)}">
+    <strong>${escapeHtml(slot)}</strong>${member.roleSource === "generic" ? " <small>(generic guidance — not in this league's ranked list)</small>" : ""}
+    <p>${escapeHtml(member.form?.name ?? member.formId)} <span>${escapeHtml(typesFor({ [member.formId]: member.form }, member.formId))}</span></p>
+    <p class="pvp-myteam-eligibility${member.eligibility.assumption ? " pvp-myteam-assumption" : ""}">${member.eligibility.assumption ? "Assumption: " : ""}${escapeHtml(member.eligibility.reason)}</p>
+    ${quality}
+    ${moveLines.length ? `<ul class="pvp-myteam-move-delta">${moveLines.map((line) => `<li>${escapeHtml(line)}</li>`).join("")}</ul>` : ""}
+    ${myTeamSlotSelect(league, slot, member.formId, options)}
+  </li>`;
+}
+
+
+function myTeamFallback(league, team, forms) {
+  if (!team) return `<p class="pvp-empty">No suggested team is available for ${escapeHtml(leagueName(league))} yet.</p>`;
+  return `<div class="pvp-myteam-fallback">
+    <p><strong>Suggested starting point:</strong> ${escapeHtml(team.name)}</p>
+    <ol class="pvp-team-members">${(team.members ?? []).map((member) => (
+      `<li><strong>${escapeHtml(member.role)}:</strong> ${escapeHtml(forms?.[member.formId]?.name ?? member.formId)}</li>`
+    )).join("")}</ol>
+  </div>`;
+}
+
+
+function myTeamSection(league, pvp, pvpTeams, roster, forms) {
+  const overrides = myTeamOverridesFor(roster?.preferences, league);
+  const team = buildMyTeam({ league, pvp, pvpTeams, roster, forms, overrides });
+  const options = myTeamOwnedOptions(roster, forms);
+  const cap = LEAGUE_CP_CAP[league];
+  return `<section class="pvp-section pvp-myteam" aria-labelledby="pvp-myteam-title-${escapeHtml(league)}" data-my-team-league="${escapeHtml(league)}">
+    <p class="status-kicker">Your roster, ranked for this league</p>
+    <h2 id="pvp-myteam-title-${escapeHtml(league)}">My Team · ${escapeHtml(leagueName(league))}${cap ? ` (${cap} CP cap)` : " (no CP cap)"}</h2>
+    ${team.isEmpty
+      ? `<p class="pvp-empty">${escapeHtml(team.fallbackMessage)}</p>${myTeamFallback(league, team.fallbackTeam, forms)}`
+      : `<ol class="pvp-myteam-slots">${MY_TEAM_SLOTS.map((slot, index) => myTeamMemberCard(league, slot, team.members[index], options)).join("")}</ol>
+      ${team.coverageNote ? `<p class="pvp-myteam-coverage">${escapeHtml(team.coverageNote)}</p>` : ""}`}
+  </section>`;
+}
+
+
+function teamsView(pvp, teams, alternatives, forms, roster, state) {
   const leagueTeams = state.league === "all"
     ? (teams ?? [])
     : (teams ?? []).filter((team) => team.league === state.league);
-  return `<section class="pvp-section" aria-labelledby="pvp-teams-title">
+  const myTeamLeagues = state.league === "all" ? PVP_LEAGUES : [state.league];
+  return `${myTeamLeagues.map((league) => myTeamSection(league, pvp, teams, roster, forms)).join("")}
+  <section class="pvp-section" aria-labelledby="pvp-teams-title">
     <p class="status-kicker">${leagueTeams.length} current example teams</p>
     <h2 id="pvp-teams-title">${escapeHtml(leagueName(state.league))} team suggestions</h2>
     <p class="pvp-summary">Example teams are plans, not guaranteed wins. Shared and acknowledged weaknesses stay visible.</p>
     <ul class="pvp-team-list">${leagueTeams.map((team) => teamCard(team, pvp, forms)).join("")}</ul>
-  </section>${alternativesView(alternatives, forms, state)}`;
+  </section>${alternativesView(alternatives, forms, state)}
+  <details class="pvp-full-rankings">
+    <summary>Full rankings</summary>
+    ${rankingsView(pvp, forms, { ...state, form: "all", investment: "all" })}
+  </details>`;
 }
 
 
-export function renderPvp({ pvp = {}, pvpTeams = [], pvpAlternatives = [], forms = {}, state } = {}) {
+export function renderPvp({ pvp = {}, pvpTeams = [], pvpAlternatives = [], forms = {}, roster = {}, state } = {}) {
   const normalized = createPvpState({ filters: state });
   return `<div class="pvp-view">
     <a class="safe-escape" href="./#pvp">Reset PvP filters</a>
+    <a class="safe-escape" href="./#swap">Battle Swap — who should I lead?</a>
     ${controls(normalized)}
     ${normalized.view === "teams"
-      ? teamsView(pvp, pvpTeams, pvpAlternatives, forms, normalized)
+      ? teamsView(pvp, pvpTeams, pvpAlternatives, forms, roster, normalized)
       : rankingsView(pvp, forms, normalized)}
   </div>`;
 }

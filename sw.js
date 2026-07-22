@@ -11,7 +11,7 @@ const MANIFEST_PATH = "release-manifest.json";
 // scripts/fetch-sprites.mjs (web/sprites/1.png .. 1025.png) — they belong in
 // the app shell like the other icons, not the versioned data-release cache.
 const SPRITE_DEX_COUNT = 1025;
-const SHELL_FILES = Object.freeze([
+export const SHELL_FILES = Object.freeze([
   "./",
   "./index.html",
   "./manifest.webmanifest",
@@ -22,19 +22,38 @@ const SHELL_FILES = Object.freeze([
   "./icons/apple-touch-icon.png",
   "./icons/share-qr.svg",
   "./src/app.js",
+  "./src/coach.js",
+  "./src/effectiveness.js",
+  "./src/glossary.js",
   "./src/placement.js",
+  "./src/pvp-team.js",
   "./src/raid-target.js",
   "./src/release-manager.js",
   "./src/router.js",
+  "./src/drill.js",
+  "./src/feedback.js",
+  "./src/instances.js",
+  "./src/moves.js",
+  "./src/poke-genie-import.js",
   "./src/search.js",
   "./src/sprites.js",
+  "./src/swap.js",
+  "./src/text-size.js",
   "./src/storage.js",
+  "./src/type-chart.js",
   "./src/views/basics.js",
+  "./src/views/coach.js",
+  "./src/views/glossary.js",
+  "./src/views/drill.js",
   "./src/views/gyms.js",
   "./src/views/home.js",
+  "./src/views/instance-sheet.js",
   "./src/views/more.js",
+  "./src/views/move-sheet.js",
   "./src/views/pvp.js",
   "./src/views/raids.js",
+  "./src/views/swap.js",
+  "./src/views/types.js",
   ...Array.from({ length: SPRITE_DEX_COUNT }, (_, index) => `./sprites/${index + 1}.png`),
 ]);
 

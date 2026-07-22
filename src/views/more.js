@@ -1,4 +1,7 @@
 import { escapeHtml } from "./home.js";
+import { jargonTerm } from "../glossary.js";
+import { moveLink } from "./move-sheet.js";
+import { stableRosterJson } from "../storage.js";
 
 
 export const MORE_LISTS = Object.freeze({
@@ -77,8 +80,8 @@ function attackerListCard(row, listId) {
   const eliteFast = usesOptimalFast ? row.optimalEliteFastTM : row.eliteFastTM;
   const eliteCharged = usesOptimalCharged ? row.optimalEliteChargedTM : row.eliteChargedTM;
   const movePair = [
-    fastMove ? `${escapeHtml(titleCase(fastMove))}${eliteFast ? ' <small class="elite-tm">Elite Fast TM</small>' : ""}` : "",
-    chargedMove ? `${escapeHtml(titleCase(chargedMove))}${eliteCharged ? ' <small class="elite-tm">Elite Charged TM</small>' : ""}` : "",
+    fastMove ? moveLink(fastMove, { elite: eliteFast, kind: "Fast" }) : "",
+    chargedMove ? moveLink(chargedMove, { elite: eliteCharged, kind: "Charged" }) : "",
   ].filter(Boolean).join(" + ");
   const isPriorityList = listId === "future" || listId === "megas";
   const priority = isPriorityList ? ` data-impact-priority="${row.impactPriority}"` : "";
@@ -119,7 +122,7 @@ export function renderMoreList(listId, data = {}) {
     <p class="status-kicker">${escapeHtml(definition.group)} guide · ${rows.length} entries</p>
     <h1 id="more-list-title">${escapeHtml(definition.title)}</h1>
     ${listId === "future" ? '<p class="pvp-summary">Priority order favors S+ investment, multi-type coverage, and practical type rank. It does not compare raw DPS across unrelated types.</p>' : ""}
-    ${listId === "megas" ? '<p class="pvp-summary">Only one Mega/Primal can be active at a time. This deduplicated priority order favors availability and rotation status, S+ investment, multi-type coverage, and practical type rank.</p>' : ""}
+    ${listId === "megas" ? `<p class="pvp-summary">Only one ${jargonTerm("mega", "Mega")}/${jargonTerm("primal", "Primal")} can be active at a time. This deduplicated priority order favors availability and rotation status, S+ investment, multi-type coverage, and practical type rank.</p>` : ""}
     <ul class="more-card-list">${rows.map((row) => (
       listId === "coverage" ? coverageListCard(row) : attackerListCard(row, listId)
     )).join("")}</ul>
@@ -177,6 +180,7 @@ function dataSection(data) {
     </div>
     <h3>Methodology</h3>${methodologyRows(data.meta, data.methodology)}
     <details class="source-details"><summary>Sources and digests (${sources.length})</summary>
+      <p class="rotation-credit">This week's raid bosses and events are synced from ScrapedDuck, a maintained mirror of LeekDuck.com.</p>
       <ul class="source-list">${sources.map(sourceCard).join("")}</ul>
     </details>
   </section>`;
@@ -206,8 +210,28 @@ function appSection(data) {
     <p>Roster JSON stays on this device. Imports are strictly validated before replacing your local roster.</p>
     <label class="file-action">Choose roster JSON<input type="file" accept="application/json,.json" data-action="roster-import"></label>
     <button type="button" data-action="roster-export">Export roster JSON</button>
+    <p>Import a Poke Genie CSV export to bulk-add ownership, CP, and IVs. This app doesn't import moves yet, so add those afterward via "Add details" on My Roster.</p>
+    <label class="file-action">Choose Poke Genie CSV<input type="file" accept="text/csv,.csv" data-action="poke-genie-import"></label>
+    <h3>Feedback</h3>
+    <p>Every "Helpful?" thumbs tap is stored on this device only, never sent anywhere. Export the raw list if you want to review or share it yourself.</p>
+    <button type="button" data-action="feedback-export">Export feedback JSON</button>
     <h3>Release notes</h3>
     ${releaseNotes.length ? `<ul>${releaseNotes.map((note) => `<li>${escapeHtml(note)}</li>`).join("")}</ul>` : "<p>No release notes loaded.</p>"}
+  </section>`;
+}
+
+
+const TEXT_SIZE_LABELS = Object.freeze({ S: "Small", M: "Medium", L: "Large" });
+
+function displaySection(data) {
+  const current = Object.hasOwn(TEXT_SIZE_LABELS, data.textSize) ? data.textSize : "M";
+  return `<section class="more-section" aria-labelledby="more-display-title">
+    <p class="status-kicker">Ergonomics</p><h2 id="more-display-title">Text size</h2>
+    <div class="app-actions" role="group" aria-label="Text size">
+      ${Object.entries(TEXT_SIZE_LABELS).map(([size, label]) => (
+        `<button type="button" data-text-size="${size}" aria-pressed="${size === current}">${label}</button>`
+      )).join("")}
+    </div>
   </section>`;
 }
 
@@ -217,6 +241,23 @@ function shareSection() {
     <p class="status-kicker">Tell a friend</p><h2 id="more-share-title">Share this app</h2>
     <p>Scan this code on another phone to open the Battle Field Guide.</p>
     <img class="share-qr" src="./icons/share-qr.svg" alt="QR code that opens the Battle Field Guide" width="220" height="220">
+  </section>`;
+}
+
+
+// No zero-dep QR encoder in this repo (round 2 shipped a build-time app-link
+// QR only, not a runtime encoder for arbitrary text) — this shares the
+// roster the same way import already accepts: plain JSON, copy-and-paste.
+function rosterShareSection(data) {
+  const open = Boolean(data.rosterShareOpen);
+  return `<section class="more-section" aria-labelledby="more-roster-share-title">
+    <p class="status-kicker">Send your roster to a friend</p><h2 id="more-roster-share-title">Share your roster as text</h2>
+    <p>No in-app QR reader here yet, so this is copy-and-paste: send the text below to a friend, and they paste it into their own "Choose roster JSON" import.</p>
+    <button type="button" data-action="toggle-roster-share" aria-expanded="${open}">${open ? "Hide roster text" : "Show roster text"}</button>
+    ${open ? `
+    <pre class="roster-share-text">${escapeHtml(stableRosterJson(data.roster ?? {}))}</pre>
+    <button type="button" data-action="copy-roster-share">Copy to clipboard</button>
+    <p class="roster-share-privacy">This stays on your device until you copy or send it yourself.</p>` : ""}
   </section>`;
 }
 
@@ -242,9 +283,14 @@ function rosterSection(data) {
     sensitivity: "base",
   }) || left.form_id.localeCompare(right.form_id)).slice(0, 50);
   const totalCopies = Object.values(counts).reduce((sum, count) => sum + count, 0);
+  const instanceCounts = (data.roster?.instances ?? []).reduce((byForm, instance) => {
+    byForm[instance.formId] = (byForm[instance.formId] ?? 0) + 1;
+    return byForm;
+  }, {});
   const cards = rows.map((form) => {
     const count = counts[form.form_id] ?? 0;
     const types = [form.primary_type, form.secondary_type].filter(Boolean).join(" / ");
+    const detailCount = instanceCounts[form.form_id] ?? 0;
     return `<li class="roster-row" data-form-id="${escapeHtml(form.form_id)}">
       <div><h3>${escapeHtml(form.name)}</h3><p>${escapeHtml(types)} · ${escapeHtml(form.form_id)}</p></div>
       <div class="roster-stepper" aria-label="Copy quantity for ${escapeHtml(form.name)}">
@@ -252,6 +298,7 @@ function rosterSection(data) {
         <output aria-label="${count} copies of ${escapeHtml(form.name)}">${count}</output>
         <button type="button" data-roster-quantity-form-id="${escapeHtml(form.form_id)}" data-direction="increase" aria-label="Add one ${escapeHtml(form.name)} copy"${count >= 999 ? " disabled" : ""}>+</button>
       </div>
+      <button type="button" class="roster-add-details" data-open-instance-sheet-form-id="${escapeHtml(form.form_id)}">${detailCount ? `Details (${detailCount})` : "Add details"}</button>
     </li>`;
   }).join("");
   const empty = query
@@ -277,10 +324,13 @@ export function renderMore(data = {}) {
     <section class="more-section" aria-labelledby="more-basics-title">
       <p class="status-kicker">New to Pokémon GO battles?</p><h2 id="more-basics-title">Battle Basics</h2>
       <a class="safe-escape" href="./#basics">Read the plain-language basics</a>
+      <a class="safe-escape" href="./#glossary">See every term in the Glossary</a>
     </section>
+    ${displaySection(data)}
     ${rosterSection(data)}
+    ${rosterShareSection(data)}
     <section class="more-section" aria-labelledby="more-investment-title">
-      <p class="status-kicker">Spend Stardust and Candy deliberately</p><h2 id="more-investment-title">Investment</h2>
+      <p class="status-kicker">Spend ${jargonTerm("stardust", "Stardust")} and ${jargonTerm("candy", "Candy")} deliberately</p><h2 id="more-investment-title">Investment</h2>
       <div class="more-route-grid">${routeCard("budget")}${routeCard("future")}</div>
     </section>
     <section class="more-section" aria-labelledby="more-collection-title">

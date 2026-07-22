@@ -2,7 +2,7 @@ export const ROSTER_SCHEMA = 2;
 const ROSTER_DB_VERSION = 1;
 
 const ROSTER_FIELDS = new Set([
-  "schemaVersion", "ownedFormIds", "ownedFormCounts", "favorites", "preferences",
+  "schemaVersion", "ownedFormIds", "ownedFormCounts", "favorites", "preferences", "instances",
 ]);
 const EMPTY_ROSTER = Object.freeze({
   schemaVersion: ROSTER_SCHEMA,
@@ -10,7 +10,11 @@ const EMPTY_ROSTER = Object.freeze({
   ownedFormCounts: Object.freeze({}),
   favorites: Object.freeze([]),
   preferences: Object.freeze({}),
+  instances: Object.freeze([]),
 });
+const INSTANCE_FIELDS = new Set([
+  "id", "formId", "cp", "ivs", "fastMove", "chargedMoves", "nickname", "addedAt",
+]);
 
 
 export class RosterImportError extends Error {
@@ -111,6 +115,125 @@ function normalizeFormCounts(value, ownedFormIds, validFormIds) {
 }
 
 
+function normalizeIvs(value, index) {
+  if (!isPlainObject(value)) {
+    throw new RosterImportError(
+      `instances[${index}].ivs must be an object with atk, def, sta.`,
+      "invalid_instance",
+      { field: "instances", index },
+    );
+  }
+  const ivs = {};
+  for (const key of ["atk", "def", "sta"]) {
+    const raw = value[key];
+    if (!Number.isInteger(raw) || raw < 0 || raw > 15) {
+      throw new RosterImportError(
+        `instances[${index}].ivs.${key} must be a whole number from 0 to 15.`,
+        "invalid_instance",
+        { field: "instances", index },
+      );
+    }
+    ivs[key] = raw;
+  }
+  return ivs;
+}
+
+
+function normalizeInstance(value, index, validFormIds) {
+  if (!isPlainObject(value)) {
+    throw new RosterImportError(
+      `instances[${index}] must be a plain object.`,
+      "invalid_instance",
+      { field: "instances", index },
+    );
+  }
+  const unknownFields = Object.keys(value).filter((field) => !INSTANCE_FIELDS.has(field)).sort();
+  if (unknownFields.length) {
+    throw new RosterImportError(
+      `instances[${index}] contains unsupported fields: ${unknownFields.join(", ")}.`,
+      "unknown_fields",
+      { field: "instances", index, fields: unknownFields },
+    );
+  }
+  if (typeof value.id !== "string" || !value.id) {
+    throw new RosterImportError(
+      `instances[${index}].id must be a non-empty string.`, "invalid_instance", { field: "instances", index },
+    );
+  }
+  if (typeof value.formId !== "string" || !value.formId || (validFormIds && !validFormIds.has(value.formId))) {
+    throw new RosterImportError(
+      `instances[${index}].formId is not a known exact form ID.`, "unknown_form_ids", { field: "instances", index },
+    );
+  }
+  if (!Number.isInteger(value.cp) || value.cp <= 0) {
+    throw new RosterImportError(
+      `instances[${index}].cp must be a positive whole number.`, "invalid_instance", { field: "instances", index },
+    );
+  }
+  const ivs = normalizeIvs(value.ivs, index);
+  // fastMove/chargedMoves are optional: bulk-import sources (e.g. Poke Genie
+  // CSV) carry verified CP/IVs but no move data. When present, still hold
+  // them to the same shape manual entry requires.
+  if (value.fastMove !== undefined && (typeof value.fastMove !== "string" || !value.fastMove)) {
+    throw new RosterImportError(
+      `instances[${index}].fastMove must be a non-empty string.`, "invalid_instance", { field: "instances", index },
+    );
+  }
+  if (value.chargedMoves !== undefined && (
+    !Array.isArray(value.chargedMoves) || value.chargedMoves.length < 1 || value.chargedMoves.length > 2
+    || value.chargedMoves.some((moveId) => typeof moveId !== "string" || !moveId)
+    || new Set(value.chargedMoves).size !== value.chargedMoves.length
+  )) {
+    throw new RosterImportError(
+      `instances[${index}].chargedMoves must be 1-2 distinct move ID strings.`, "invalid_instance", { field: "instances", index },
+    );
+  }
+  if (value.nickname !== undefined && (typeof value.nickname !== "string" || !value.nickname)) {
+    throw new RosterImportError(
+      `instances[${index}].nickname must be a non-empty string if present.`, "invalid_instance", { field: "instances", index },
+    );
+  }
+  if (typeof value.addedAt !== "string" || Number.isNaN(Date.parse(value.addedAt))) {
+    throw new RosterImportError(
+      `instances[${index}].addedAt must be an ISO date string.`, "invalid_instance", { field: "instances", index },
+    );
+  }
+  return {
+    id: value.id,
+    formId: value.formId,
+    cp: value.cp,
+    ivs,
+    ...(value.fastMove !== undefined ? { fastMove: value.fastMove } : {}),
+    ...(value.chargedMoves !== undefined ? { chargedMoves: [...value.chargedMoves] } : {}),
+    ...(value.nickname !== undefined ? { nickname: value.nickname } : {}),
+    addedAt: value.addedAt,
+  };
+}
+
+
+// Additive to the round-2 roster schema: an array of manually entered,
+// per-copy detail records. Old rosters without "instances" stay valid — this
+// defaults to [] rather than being required.
+function normalizeInstances(value, validFormIds) {
+  if (value === undefined) return [];
+  if (!Array.isArray(value)) {
+    throw new RosterImportError("instances must be an array.", "invalid_instance", { field: "instances" });
+  }
+  const seenIds = new Set();
+  const normalized = value.map((entry, index) => {
+    const instance = normalizeInstance(entry, index, validFormIds);
+    if (seenIds.has(instance.id)) {
+      throw new RosterImportError(
+        `instances contains duplicate id: ${instance.id}.`, "duplicate_instance_id", { field: "instances", index },
+      );
+    }
+    seenIds.add(instance.id);
+    return instance;
+  });
+  return normalized.sort((left, right) => left.id.localeCompare(right.id));
+}
+
+
 function normalizeRoster(payload, validFormIds = null) {
   if (!isPlainObject(payload)) {
     throw new RosterImportError(
@@ -153,6 +276,7 @@ function normalizeRoster(payload, validFormIds = null) {
     ),
     favorites: normalizeFormIds(payload.favorites ?? [], "favorites", validFormIds),
     preferences: structuredClone(preferences),
+    instances: normalizeInstances(payload.instances, validFormIds),
   };
 }
 
@@ -163,6 +287,40 @@ function stableJson(value) {
     return `{${Object.keys(value).sort().map((key) => `${JSON.stringify(key)}:${stableJson(value[key])}`).join(",")}}`;
   }
   return JSON.stringify(value);
+}
+
+
+// Same stable shape as stableJson(), but formats an in-memory roster object
+// directly — no store round-trip — for immediate export/share/copy actions.
+export function stableRosterJson(roster) {
+  const ownedFormIds = [...(roster.ownedFormIds ?? [])].sort();
+  const ownedFormCounts = Object.fromEntries(ownedFormIds.map((formId) => [
+    formId,
+    Number.isInteger(roster.ownedFormCounts?.[formId]) && roster.ownedFormCounts[formId] > 0
+      ? roster.ownedFormCounts[formId]
+      : 1,
+  ]));
+  const instances = (roster.instances ?? [])
+    .filter((instance) => isPlainObject(instance) && typeof instance.id === "string")
+    .map((instance) => ({
+      id: instance.id,
+      formId: instance.formId,
+      cp: instance.cp,
+      ivs: { atk: instance.ivs?.atk, def: instance.ivs?.def, sta: instance.ivs?.sta },
+      ...(instance.fastMove ? { fastMove: instance.fastMove } : {}),
+      ...(instance.chargedMoves?.length ? { chargedMoves: [...instance.chargedMoves] } : {}),
+      ...(instance.nickname ? { nickname: instance.nickname } : {}),
+      addedAt: instance.addedAt,
+    }))
+    .sort((left, right) => left.id.localeCompare(right.id));
+  return `${JSON.stringify({
+    schemaVersion: ROSTER_SCHEMA,
+    ownedFormIds,
+    ownedFormCounts,
+    favorites: [...(roster.favorites ?? [])].sort(),
+    preferences: roster.preferences ?? {},
+    instances,
+  })}\n`;
 }
 
 

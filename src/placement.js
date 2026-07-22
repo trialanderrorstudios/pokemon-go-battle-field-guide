@@ -1,43 +1,8 @@
-const ATTACK_TYPES = [
-  "Bug", "Dark", "Dragon", "Electric", "Fairy", "Fighting", "Fire", "Flying", "Ghost",
-  "Grass", "Ground", "Ice", "Normal", "Poison", "Psychic", "Rock", "Steel", "Water",
-];
-
-const SUPER = {
-  Bug: ["Dark", "Grass", "Psychic"], Dark: ["Ghost", "Psychic"], Dragon: ["Dragon"],
-  Electric: ["Flying", "Water"], Fairy: ["Dark", "Dragon", "Fighting"],
-  Fighting: ["Dark", "Ice", "Normal", "Rock", "Steel"], Fire: ["Bug", "Grass", "Ice", "Steel"],
-  Flying: ["Bug", "Fighting", "Grass"], Ghost: ["Ghost", "Psychic"],
-  Grass: ["Ground", "Rock", "Water"], Ground: ["Electric", "Fire", "Poison", "Rock", "Steel"],
-  Ice: ["Dragon", "Flying", "Grass", "Ground"], Normal: [], Poison: ["Fairy", "Grass"],
-  Psychic: ["Fighting", "Poison"], Rock: ["Bug", "Fire", "Flying", "Ice"],
-  Steel: ["Fairy", "Ice", "Rock"], Water: ["Fire", "Ground", "Rock"],
-};
-const RESISTED = {
-  Bug: ["Fairy", "Fighting", "Fire", "Flying", "Ghost", "Poison", "Steel"],
-  Dark: ["Dark", "Fairy", "Fighting"], Dragon: ["Steel"], Electric: ["Dragon", "Electric", "Grass"],
-  Fairy: ["Fire", "Poison", "Steel"], Fighting: ["Bug", "Fairy", "Flying", "Poison", "Psychic"],
-  Fire: ["Dragon", "Fire", "Rock", "Water"], Flying: ["Electric", "Rock", "Steel"], Ghost: ["Dark"],
-  Grass: ["Bug", "Dragon", "Fire", "Flying", "Grass", "Poison", "Steel"], Ground: ["Bug", "Grass"],
-  Ice: ["Fire", "Ice", "Steel", "Water"], Normal: ["Rock", "Steel"],
-  Poison: ["Ghost", "Ground", "Poison", "Rock"], Psychic: ["Psychic", "Steel"],
-  Rock: ["Fighting", "Ground", "Steel"], Steel: ["Electric", "Fire", "Steel", "Water"],
-  Water: ["Dragon", "Grass", "Water"],
-};
-const DOUBLE_RESISTED = {
-  Dragon: ["Fairy"], Electric: ["Ground"], Fighting: ["Ghost"], Ghost: ["Normal"],
-  Ground: ["Flying"], Normal: ["Ghost"], Poison: ["Steel"], Psychic: ["Dark"],
-};
+import { ATTACK_TYPES, effectivenessOf } from "./type-chart.js";
 
 
 function effectiveness(attackingType, form) {
-  let multiplier = 1;
-  for (const defendingType of [form.primary_type, form.secondary_type].filter(Boolean)) {
-    if (DOUBLE_RESISTED[attackingType]?.includes(defendingType)) multiplier *= 0.390625;
-    else if (SUPER[attackingType]?.includes(defendingType)) multiplier *= 1.6;
-    else if (RESISTED[attackingType]?.includes(defendingType)) multiplier *= 0.625;
-  }
-  return multiplier;
+  return effectivenessOf(attackingType, [form.primary_type, form.secondary_type]);
 }
 
 

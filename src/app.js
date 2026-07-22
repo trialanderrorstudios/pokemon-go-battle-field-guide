@@ -1,20 +1,52 @@
 import { createRouter, ROUTES } from "./router.js";
 import { APP_SHELL_REVISION, ReleaseManager } from "./release-manager.js";
-import { ATTACK_TYPES, buildRaidPlan } from "./raid-target.js";
+import { ATTACK_TYPES, becauseLine, buildRaidPlan, powerUpCost } from "./raid-target.js";
 import { buildSearchIndex, search } from "./search.js";
 import {
   createIndexedDbAdapter,
   importRoster,
   loadRoster,
+  stableRosterJson,
 } from "./storage.js";
 import { scorePlacement } from "./placement.js";
+import { jargonTerm } from "./glossary.js";
 import { escapeHtml, ownedStarButton, renderHome } from "./views/home.js";
 import { renderBasics } from "./views/basics.js";
+import { renderTypes, typeChip } from "./views/types.js";
+import { renderGlossary } from "./views/glossary.js";
 import { handleSpriteError, spriteHtml } from "./sprites.js";
 import { renderGyms } from "./views/gyms.js";
 import { renderMore } from "./views/more.js";
+import { buildMoveIndex } from "./moves.js";
+import { moveLink, renderMoveSheet } from "./views/move-sheet.js";
+import { renderInstanceSheet } from "./views/instance-sheet.js";
+import { bestInstanceForForm, buildInstance, instanceLevel } from "./instances.js";
+import { parsePokeGenieCsv } from "./poke-genie-import.js";
+import { exportFeedback, recordFeedback } from "./feedback.js";
+import { applyTextSize, loadTextSize, saveTextSize } from "./text-size.js";
 import { createPvpState, renderPvp } from "./views/pvp.js";
+import { withMyTeamOverride } from "./pvp-team.js";
 import { renderRaids } from "./views/raids.js";
+import {
+  advanceDrillQuestion,
+  answerDrillQuestion,
+  createDrillState,
+  restartDrillRound,
+  setDrillMode,
+} from "./drill.js";
+import { renderDrill } from "./views/drill.js";
+import {
+  advanceSwapToOpponent,
+  backToSwapOpponent,
+  backToSwapTeam,
+  createSwapState,
+  selectSwapOpponent,
+  setSwapLeague,
+  setSwapOpponentQuery,
+  toggleSwapManualPick,
+} from "./swap.js";
+import { renderSwap } from "./views/swap.js";
+import { renderCoach } from "./views/coach.js";
 
 
 function usableState(state) {
@@ -108,6 +140,17 @@ function whatsNewCard(releaseState, storage) {
 }
 
 
+// ponytail: same disposable-flag pattern as the what's-new dismissal — a
+// single localStorage key, not release-scoped, since the card's content is
+// static orientation copy rather than per-release notes.
+const START_HERE_DISMISSED_KEY = "start-here-dismissed";
+
+
+function showStartHere(storage) {
+  return storage?.getItem?.(START_HERE_DISMISSED_KEY) !== "1";
+}
+
+
 function placementFor(state, roster) {
   if (!state.gym || !state.placement || !state.core?.forms) return undefined;
   try {
@@ -151,30 +194,12 @@ function replaceObject(target, value) {
 }
 
 
-function stableRosterJson(roster) {
-  const ownedFormIds = [...(roster.ownedFormIds ?? [])].sort();
-  const ownedFormCounts = Object.fromEntries(ownedFormIds.map((formId) => [
-    formId,
-    Number.isInteger(roster.ownedFormCounts?.[formId]) && roster.ownedFormCounts[formId] > 0
-      ? roster.ownedFormCounts[formId]
-      : 1,
-  ]));
-  return `${JSON.stringify({
-    schemaVersion: 2,
-    ownedFormIds,
-    ownedFormCounts,
-    favorites: [...(roster.favorites ?? [])].sort(),
-    preferences: roster.preferences ?? {},
-  })}\n`;
-}
-
-
-function downloadRoster(payload, { documentObject, windowObject }) {
+function downloadFile(filename, payload, { documentObject, windowObject }) {
   if (!documentObject?.createElement || !windowObject?.URL?.createObjectURL || typeof Blob === "undefined") return;
   const url = windowObject.URL.createObjectURL(new Blob([payload], { type: "application/json" }));
   const link = documentObject.createElement("a");
   link.href = url;
-  link.download = "pokemon-go-field-guide-roster.json";
+  link.download = filename;
   link.click();
   windowObject.URL.revokeObjectURL(url);
 }
@@ -229,6 +254,7 @@ function raidState(filters = {}, validFormIds = null) {
     targetFormId: validFormId(filters.targetFormId, validFormIds, "0150-normal"),
     targetCategory: allowed(filters.targetCategory, RAID_TARGET_CATEGORY_SET, "all"),
     view: allowed(filters.view, RAID_VIEWS, "rankings"),
+    showAll: Boolean(filters.showAll),
   };
 }
 
@@ -305,11 +331,29 @@ function gymState(
 }
 
 
+function blankInstanceDraft() {
+  return { editingId: null, cp: "", ivs: { atk: "", def: "", sta: "" }, fastMove: "", chargedMoves: [], nickname: "" };
+}
+
+
+function draftFromInstance(instance) {
+  return {
+    editingId: instance.id,
+    cp: instance.cp,
+    ivs: { ...instance.ivs },
+    fastMove: instance.fastMove ?? "",
+    chargedMoves: [...(instance.chargedMoves ?? [])],
+    nickname: instance.nickname ?? "",
+  };
+}
+
+
 export function createInteractionState({
   roster = {},
   validFormIds = null,
   gymDefenderFormIds = validFormIds,
   gymDefenderSpeciesByFormId = null,
+  storage = null,
 } = {}) {
   const savedTask = plainObject(roster.preferences?.lastTask)
     && TASK_ROUTES.has(roster.preferences.lastTask.route)
@@ -328,12 +372,18 @@ export function createInteractionState({
       preferences: roster.preferences ?? {},
       filters: savedTask?.route === "pvp" ? taskFilters : {},
     }),
+    drill: createDrillState({ storage }),
+    swap: createSwapState(),
     lastTask: savedTask ? { route: savedTask.route } : null,
     moreList: null,
     installMessage: "",
     rosterMessage: "",
     rosterQuery: "",
     interactionMessage: "",
+    moveSheet: null,
+    instanceSheet: null,
+    rosterShareOpen: false,
+    textSize: loadTextSize(storage),
   };
 }
 
@@ -351,6 +401,7 @@ export function createInteractionController({
   roster,
   rosterStore = null,
   validFormIds = new Set(),
+  forms = {},
   gymDefenderFormIds = validFormIds,
   gymDefenderSpeciesByFormId = null,
   renderRoute = () => {},
@@ -358,8 +409,12 @@ export function createInteractionController({
   navigateMore = null,
   installPrompt = null,
   onRosterExport = null,
+  onRosterShareCopy = null,
+  onFeedbackExport = null,
   searchRefresh = () => {},
   storage = null,
+  rerenderCurrent = () => {},
+  rootElement = null,
 } = {}) {
   if (!ui || !roster) throw new TypeError("Interaction state and roster are required.");
 
@@ -395,23 +450,40 @@ export function createInteractionController({
 
   const api = {
     onRosterExport,
+    onRosterShareCopy,
+    onFeedbackExport,
     handleFailure(error) {
       ui.interactionMessage = `Could not save changes: ${error?.message ?? error}`;
       rerender(failureRoute);
     },
     handleInput(event) {
       const rosterSearch = event?.target?.closest?.("[data-roster-search]");
-      if (!rosterSearch) return;
-      ui.rosterQuery = String(rosterSearch.value ?? "").slice(0, 80);
-      const caret = Math.min(
-        Number.isInteger(rosterSearch.selectionStart) ? rosterSearch.selectionStart : ui.rosterQuery.length,
-        ui.rosterQuery.length,
-      );
-      const ownerDocument = rosterSearch.ownerDocument;
-      rerender("more");
-      const nextSearch = ownerDocument?.querySelector?.("[data-roster-search]");
-      nextSearch?.focus?.({ preventScroll: true });
-      nextSearch?.setSelectionRange?.(caret, caret);
+      if (rosterSearch) {
+        ui.rosterQuery = String(rosterSearch.value ?? "").slice(0, 80);
+        const caret = Math.min(
+          Number.isInteger(rosterSearch.selectionStart) ? rosterSearch.selectionStart : ui.rosterQuery.length,
+          ui.rosterQuery.length,
+        );
+        const ownerDocument = rosterSearch.ownerDocument;
+        rerender("more");
+        const nextSearch = ownerDocument?.querySelector?.("[data-roster-search]");
+        nextSearch?.focus?.({ preventScroll: true });
+        nextSearch?.setSelectionRange?.(caret, caret);
+        return;
+      }
+      const swapOpponentQuery = event?.target?.closest?.("[data-swap-opponent-query]");
+      if (swapOpponentQuery) {
+        ui.swap = setSwapOpponentQuery(ui.swap, swapOpponentQuery.value);
+        const caret = Math.min(
+          Number.isInteger(swapOpponentQuery.selectionStart) ? swapOpponentQuery.selectionStart : ui.swap.opponentQuery.length,
+          ui.swap.opponentQuery.length,
+        );
+        const ownerDocument = swapOpponentQuery.ownerDocument;
+        rerender("swap");
+        const nextInput = ownerDocument?.querySelector?.("[data-swap-opponent-query]");
+        nextInput?.focus?.({ preventScroll: true });
+        nextInput?.setSelectionRange?.(caret, caret);
+      }
     },
     async handleChange(event) {
       const target = event?.target;
@@ -482,11 +554,42 @@ export function createInteractionController({
         rerender("gyms");
         return;
       }
+      const instanceCp = target?.closest?.("[data-instance-cp]");
+      if (instanceCp && ui.instanceSheet) {
+        ui.instanceSheet.draft.cp = instanceCp.value;
+        ui.instanceSheet.error = "";
+        rerender("more");
+        return;
+      }
+      const instanceIv = target?.closest?.("[data-instance-iv]");
+      if (instanceIv && ui.instanceSheet) {
+        const raw = instanceIv.value;
+        ui.instanceSheet.draft.ivs[instanceIv.dataset.instanceIv] = raw === "" ? "" : Number(raw);
+        ui.instanceSheet.error = "";
+        rerender("more");
+        return;
+      }
+      const instanceNickname = target?.closest?.("[data-instance-nickname]");
+      if (instanceNickname && ui.instanceSheet) {
+        ui.instanceSheet.draft.nickname = instanceNickname.value;
+        rerender("more");
+        return;
+      }
       const pvpFilter = target?.closest?.("[data-pvp-filter]");
       if (pvpFilter) {
         const nextUi = structuredClone(ui);
         nextUi.pvp = createPvpState({ filters: { ...nextUi.pvp, [pvpFilter.dataset.pvpFilter]: pvpFilter.value } });
         await persistTask("pvp", nextUi);
+        rerender("pvp");
+        return;
+      }
+      const myTeamSlot = target?.closest?.("[data-my-team-slot]");
+      if (myTeamSlot) {
+        const { myTeamSlot: slot, myTeamLeague: league } = myTeamSlot.dataset;
+        await mutateRoster((current) => ({
+          ...current,
+          preferences: withMyTeamOverride(current.preferences, league, slot, myTeamSlot.value),
+        }));
         rerender("pvp");
         return;
       }
@@ -505,6 +608,7 @@ export function createInteractionController({
             validFormIds,
             gymDefenderFormIds,
             gymDefenderSpeciesByFormId,
+            storage,
           });
           nextUi.moreList = ui.moreList;
           nextUi.installMessage = ui.installMessage;
@@ -516,9 +620,131 @@ export function createInteractionController({
         }
         rerender("more");
       }
+      const pokeGenieImport = target?.closest?.('[data-action="poke-genie-import"]')
+        ?? (target?.dataset?.action === "poke-genie-import" ? target : null);
+      if (pokeGenieImport?.files?.[0]) {
+        try {
+          const text = await pokeGenieImport.files[0].text();
+          const { instances: parsed, errors } = parsePokeGenieCsv(text, forms);
+          failureRoute = "more";
+          if (parsed.length) {
+            await mutateRoster((current) => {
+              const owned = new Set(current.ownedFormIds ?? []);
+              const counts = { ...(current.ownedFormCounts ?? {}) };
+              for (const instance of parsed) {
+                owned.add(instance.formId);
+                counts[instance.formId] = Math.min(
+                  999,
+                  (Number.isInteger(counts[instance.formId]) ? counts[instance.formId] : 0) + 1,
+                );
+              }
+              return {
+                ...current,
+                schemaVersion: 2,
+                ownedFormIds: [...owned].sort(),
+                ownedFormCounts: Object.fromEntries(
+                  Object.entries(counts).sort(([left], [right]) => left.localeCompare(right)),
+                ),
+                instances: [...(current.instances ?? []), ...parsed],
+              };
+            });
+          }
+          const skipped = errors.length
+            ? ` ${errors.length} row${errors.length === 1 ? "" : "s"} skipped: ${errors.slice(0, 3).join(" ")}${errors.length > 3 ? ".." : ""}`
+            : "";
+          ui.rosterMessage = parsed.length
+            ? `Imported ${parsed.length} Pokémon from Poke Genie CSV. Add moves for them via "Add details" on My Roster.${skipped}`
+            : `Poke Genie import found nothing to add.${skipped}`;
+        } catch (error) {
+          ui.rosterMessage = `Poke Genie import failed: ${error?.message ?? error}`;
+        }
+        rerender("more");
+      }
     },
     async handleClick(event) {
       const target = event?.target;
+      const moveTrigger = target?.closest?.("[data-move-id]");
+      if (moveTrigger) {
+        ui.moveSheet = moveTrigger.dataset.moveId;
+        rerenderCurrent();
+        return;
+      }
+      const moveSheetClose = target?.closest?.('[data-action="close-move-sheet"]')
+        ?? (target?.dataset?.action === "close-move-sheet" ? target : null);
+      const moveSheetBackdrop = target?.closest?.("[data-move-sheet-backdrop]");
+      if (moveSheetClose || (moveSheetBackdrop && target === moveSheetBackdrop)) {
+        ui.moveSheet = null;
+        rerenderCurrent();
+        return;
+      }
+      const openInstanceSheet = target?.closest?.("[data-open-instance-sheet-form-id]");
+      if (openInstanceSheet) {
+        const formId = openInstanceSheet.dataset.openInstanceSheetFormId;
+        if (validFormIds.has(formId)) ui.instanceSheet = { formId, draft: blankInstanceDraft(), error: "" };
+        rerenderCurrent();
+        return;
+      }
+      const instanceSheetClose = target?.closest?.('[data-action="close-instance-sheet"]')
+        ?? (target?.dataset?.action === "close-instance-sheet" ? target : null);
+      const instanceSheetBackdrop = target?.closest?.("[data-instance-sheet-backdrop]");
+      if (instanceSheetClose || (instanceSheetBackdrop && target === instanceSheetBackdrop)) {
+        ui.instanceSheet = null;
+        rerenderCurrent();
+        return;
+      }
+      const editInstance = target?.closest?.("[data-edit-instance-id]");
+      if (editInstance && ui.instanceSheet) {
+        const instance = (roster.instances ?? []).find((row) => row.id === editInstance.dataset.editInstanceId);
+        if (instance) ui.instanceSheet = { formId: ui.instanceSheet.formId, draft: draftFromInstance(instance), error: "" };
+        rerenderCurrent();
+        return;
+      }
+      const deleteInstance = target?.closest?.("[data-delete-instance-id]");
+      if (deleteInstance) {
+        const instanceId = deleteInstance.dataset.deleteInstanceId;
+        failureRoute = "more";
+        await mutateRoster((current) => ({
+          ...current,
+          instances: (current.instances ?? []).filter((row) => row.id !== instanceId),
+        }));
+        if (ui.instanceSheet?.draft?.editingId === instanceId) ui.instanceSheet.draft = blankInstanceDraft();
+        rerender("more");
+        return;
+      }
+      const fastMoveChip = target?.closest?.("[data-instance-fast-move]");
+      if (fastMoveChip && ui.instanceSheet) {
+        ui.instanceSheet.draft.fastMove = fastMoveChip.dataset.instanceFastMove;
+        ui.instanceSheet.error = "";
+        rerenderCurrent();
+        return;
+      }
+      const chargedMoveChip = target?.closest?.("[data-instance-charged-move]");
+      if (chargedMoveChip && ui.instanceSheet) {
+        const moveId = chargedMoveChip.dataset.instanceChargedMove;
+        const selected = new Set(ui.instanceSheet.draft.chargedMoves);
+        if (selected.has(moveId)) selected.delete(moveId);
+        else if (selected.size < 2) selected.add(moveId);
+        ui.instanceSheet.draft.chargedMoves = [...selected];
+        ui.instanceSheet.error = "";
+        rerenderCurrent();
+        return;
+      }
+      const textSizeControl = target?.closest?.("[data-text-size]");
+      if (textSizeControl) {
+        const size = saveTextSize(storage, textSizeControl.dataset.textSize);
+        applyTextSize(rootElement, size);
+        ui.textSize = size;
+        rerender("more");
+        return;
+      }
+      const feedbackButton = target?.closest?.("[data-feedback-verdict]");
+      if (feedbackButton) {
+        const { feedbackSurface, feedbackFormId, feedbackVerdict } = feedbackButton.dataset;
+        recordFeedback(storage, feedbackSurface, feedbackFormId, feedbackVerdict);
+        ui.interactionMessage = "Thanks for the feedback.";
+        rerenderCurrent();
+        return;
+      }
       const raidView = target?.closest?.("[data-raid-view]");
       if (raidView) {
         const nextUi = structuredClone(ui);
@@ -531,6 +757,14 @@ export function createInteractionController({
       if (counterLane) {
         const nextUi = structuredClone(ui);
         nextUi.raid = raidState({ ...nextUi.raid, counterLane: counterLane.dataset.counterLane }, validFormIds);
+        await persistTask("raids", nextUi);
+        rerender("raids");
+        return;
+      }
+      const raidShowAll = target?.closest?.("[data-raid-show-all]");
+      if (raidShowAll) {
+        const nextUi = structuredClone(ui);
+        nextUi.raid = raidState({ ...nextUi.raid, showAll: !nextUi.raid.showAll }, validFormIds);
         await persistTask("raids", nextUi);
         rerender("raids");
         return;
@@ -650,6 +884,24 @@ export function createInteractionController({
         rerender("pvp");
         return;
       }
+      const swapLeague = target?.closest?.("[data-swap-league]");
+      if (swapLeague) {
+        ui.swap = setSwapLeague(ui.swap, swapLeague.dataset.swapLeague);
+        rerender("swap");
+        return;
+      }
+      const swapManualPick = target?.closest?.("[data-swap-manual-form-id]");
+      if (swapManualPick) {
+        ui.swap = toggleSwapManualPick(ui.swap, swapManualPick.dataset.swapManualFormId);
+        rerender("swap");
+        return;
+      }
+      const swapOpponentPick = target?.closest?.("[data-swap-opponent-form-id]");
+      if (swapOpponentPick) {
+        ui.swap = selectSwapOpponent(ui.swap, swapOpponentPick.dataset.swapOpponentFormId);
+        rerender("swap");
+        return;
+      }
       const moreList = target?.closest?.("[data-more-list]");
       if (moreList) {
         event.preventDefault?.();
@@ -666,11 +918,46 @@ export function createInteractionController({
         rerender("more");
         return;
       }
+      const drillChoice = target?.closest?.("[data-drill-choice]");
+      if (drillChoice) {
+        const nextUi = structuredClone(ui);
+        nextUi.drill = answerDrillQuestion(nextUi.drill, drillChoice.dataset.drillChoice, storage);
+        replaceObject(ui, nextUi);
+        rerender("drill");
+        return;
+      }
+      const drillNext = target?.closest?.("[data-drill-next]");
+      if (drillNext) {
+        const nextUi = structuredClone(ui);
+        nextUi.drill = advanceDrillQuestion(nextUi.drill);
+        replaceObject(ui, nextUi);
+        rerender("drill");
+        return;
+      }
+      const drillRestart = target?.closest?.("[data-drill-restart]");
+      if (drillRestart) {
+        const nextUi = structuredClone(ui);
+        nextUi.drill = restartDrillRound(nextUi.drill);
+        replaceObject(ui, nextUi);
+        rerender("drill");
+        return;
+      }
+      const drillMode = target?.closest?.("[data-drill-mode]");
+      if (drillMode) {
+        const nextUi = structuredClone(ui);
+        nextUi.drill = setDrillMode(nextUi.drill, drillMode.dataset.drillMode);
+        replaceObject(ui, nextUi);
+        rerender("drill");
+        return;
+      }
       const actionEl = target?.closest?.("[data-action]");
       const action = actionEl?.dataset?.action;
       if (action === "dismiss-whats-new") {
         const releaseId = actionEl.dataset.releaseId;
         if (releaseId) storage?.setItem?.(whatsNewDismissedKey(releaseId), "1");
+        rerender("home");
+      } else if (action === "dismiss-start-here") {
+        storage?.setItem?.(START_HERE_DISMISSED_KEY, "1");
         rerender("home");
       } else if (action === "apply-update") await releaseManager?.applyUpdate();
       else if (action === "rollback-release") await releaseManager?.rollback();
@@ -683,6 +970,58 @@ export function createInteractionController({
         const payload = stableRosterJson(roster);
         (api.onRosterExport ?? onRosterExport)?.(payload);
         rerender("more");
+      } else if (action === "toggle-roster-share") {
+        ui.rosterShareOpen = !ui.rosterShareOpen;
+        rerender("more");
+      } else if (action === "copy-roster-share") {
+        const payload = stableRosterJson(roster);
+        const copied = await (api.onRosterShareCopy ?? onRosterShareCopy)?.(payload);
+        ui.rosterMessage = copied
+          ? "Copied roster to clipboard."
+          : "Could not copy automatically — select and copy the text above.";
+        rerender("more");
+      } else if (action === "feedback-export") {
+        const payload = exportFeedback(storage);
+        (api.onFeedbackExport ?? onFeedbackExport)?.(payload);
+        rerender("more");
+      } else if (action === "cancel-edit-instance") {
+        if (ui.instanceSheet) ui.instanceSheet.draft = blankInstanceDraft();
+        rerender("more");
+      } else if (action === "save-instance") {
+        if (ui.instanceSheet) {
+          const form = forms[ui.instanceSheet.formId];
+          const editingId = ui.instanceSheet.draft.editingId;
+          try {
+            const instance = buildInstance(form, ui.instanceSheet.draft);
+            const original = editingId ? (roster.instances ?? []).find((row) => row.id === editingId) : null;
+            const saved = original ? { ...instance, id: original.id, addedAt: original.addedAt } : instance;
+            failureRoute = "more";
+            await mutateRoster((current) => ({
+              ...current,
+              instances: [...(current.instances ?? []).filter((row) => row.id !== editingId), saved],
+            }));
+            ui.instanceSheet.draft = blankInstanceDraft();
+            ui.instanceSheet.error = "";
+          } catch (error) {
+            ui.instanceSheet.error = error?.message ?? String(error);
+          }
+        }
+        rerender("more");
+      } else if (action === "swap-continue-team") {
+        ui.swap = advanceSwapToOpponent(ui.swap);
+        rerender("swap");
+      } else if (action === "swap-back-team") {
+        event.preventDefault?.();
+        ui.swap = backToSwapTeam(ui.swap);
+        rerender("swap");
+      } else if (action === "swap-back-opponent") {
+        event.preventDefault?.();
+        ui.swap = backToSwapOpponent(ui.swap);
+        rerender("swap");
+      } else if (action === "swap-reset") {
+        event.preventDefault?.();
+        ui.swap = createSwapState();
+        rerender("swap");
       }
     },
   };
@@ -704,18 +1043,49 @@ function option(value, label, selected) {
 }
 
 
-function displayMove(moveId) {
-  return String(moveId ?? "Unknown move").toLowerCase().split("_")
-    .map((word) => word ? `${word[0].toUpperCase()}${word.slice(1)}` : "").join(" ");
-}
-
-
 function moveWithElite(moveId, elite, kind) {
-  return `${escapeHtml(displayMove(moveId))}${elite ? ` <small class="elite-tm">Elite ${escapeHtml(kind)} TM</small>` : ""}`;
+  return moveLink(moveId, { elite, kind });
 }
 
 
-function raidCounterCard(row, roster) {
+// "Make it raid-ready": total power-up cost up to Level 40, plus how far walking as a buddy
+// stretches the Candy side. This is about the COUNTER Pokemon the player brings to the raid,
+// which has nothing to do with the boss's own catch-CP/weather widget above.
+// Honesty flag: when the roster has a detailed instance (exact CP/IVs) for this form, its
+// derived level replaces the flat "fresh Level 20 catch" guess and the panel says so — the
+// upgrade path the flat-assumption ponytail note above used to invite.
+function raidReadyPanel(formId, forms, fromLevel, instance) {
+  const derivedLevel = instance ? instanceLevel(forms?.[formId], instance) : null;
+  const level = derivedLevel ?? fromLevel;
+  const { candy, stardust } = powerUpCost(level, 40);
+  if (candy === 0 && stardust === 0) {
+    return `<div class="raid-ready-panel"><p class="status-kicker">Make it raid-ready</p><p>Already Level 40 — no more power-ups needed.</p></div>`;
+  }
+  const buddyKm = forms?.[formId]?.buddy_distance_km;
+  const levelLine = derivedLevel === null
+    ? `Level ${escapeHtml(level)} → 40 (assuming a fresh raid catch)`
+    : `Level ${escapeHtml(level)} → 40 (from your saved CP/IVs)`;
+  return `<div class="raid-ready-panel">
+    <p class="status-kicker">Make it raid-ready</p>
+    <p>${levelLine}: <strong>${escapeHtml(candy)} Candy</strong> + <strong>${escapeHtml(stardust.toLocaleString())} Stardust</strong></p>
+    ${Number.isInteger(buddyKm) && buddyKm > 0 ? `<p>Walking earns 1 Candy per ${escapeHtml(buddyKm)} km as your buddy.</p>` : ""}
+    <p class="raid-ready-note">Stardust is hard to earn back — power up Pokemon you'll use a lot.</p>
+    <p class="raid-ready-note">Levels above 40 use XL Candy — not covered here.</p>
+  </div>`;
+}
+
+
+// Local-only "did this help?" thumbs — see feedback.js for the store.
+function feedbackThumbs(surface, formId) {
+  return `<div class="feedback-thumbs" role="group" aria-label="Was this helpful?">
+    <span>Helpful?</span>
+    <button type="button" data-feedback-surface="${escapeHtml(surface)}" data-feedback-form-id="${escapeHtml(formId)}" data-feedback-verdict="up" aria-label="Yes, this was helpful">👍</button>
+    <button type="button" data-feedback-surface="${escapeHtml(surface)}" data-feedback-form-id="${escapeHtml(formId)}" data-feedback-verdict="down" aria-label="No, this was not helpful">👎</button>
+  </div>`;
+}
+
+
+function raidCounterCard(row, roster, forms, { fromLevel, budgetPickIds } = {}, bossTypes = []) {
   const owned = (roster.ownedFormIds ?? []).includes(row.formId);
   const ownedCount = owned
     ? (Number.isInteger(roster.ownedFormCounts?.[row.formId]) ? roster.ownedFormCounts[row.formId] : 1)
@@ -727,16 +1097,54 @@ function raidCounterCard(row, roster) {
   const optimalMoves = `${moveWithElite(row.optimalFastMove, row.optimalEliteFastTM, "Fast")} + ${moveWithElite(row.optimalChargedMove, row.optimalEliteChargedTM, "Charged")}`;
   const movesDisagree = row.fastMove !== row.optimalFastMove
     || row.chargedMove !== row.optimalChargedMove;
+  // Real-or-zero: only claim "community pick" when the form is actually on the curated budget-raid
+  // list; omit the line entirely rather than infer it from a looser signal like row.budgetValue.
+  const because = becauseLine(row.attackingType, bossTypes);
+  const isBudgetPick = budgetPickIds?.has(row.formId);
+  const bestInstance = bestInstanceForForm(roster.instances ?? [], row.formId);
   return `<li class="raid-card${owned ? " is-owned" : ""}" data-form-id="${escapeHtml(row.formId)}">
     <p class="raid-rank">Type rank #${escapeHtml(row.typeRank ?? row.rank)} · ${escapeHtml(multiplier)}×</p>
     <h4>${escapeHtml(row.pokemon)}</h4>
+    ${because ? `<p class="raid-because">${escapeHtml(because)}</p>` : ""}
     <p><strong>Optimal DPS moves:</strong> ${optimalMoves}</p>
     ${movesDisagree ? `<p><strong>Practical moves:</strong> ${practicalMoves}</p>` : ""}
     <p>${Number.isFinite(Number(dps)) ? `${Number(dps).toFixed(2)} standardized DPS` : "DPS unavailable"} · ${escapeHtml(row.investmentTier)}</p>
     <p><strong>Availability:</strong> ${escapeHtml(row.availability ?? "Availability not documented")}</p>
+    ${isBudgetPick ? `<p class="budget-verdict">Community pick: strong value</p>` : ""}
+    ${raidReadyPanel(row.formId, forms, fromLevel, bestInstance)}
+    ${ownedStarButton({ formId: row.formId, name: row.pokemon, owned, route: "raids" })}
+    <span class="owned-count">${owned ? `Owned ×${ownedCount}` : "Not owned"}</span>
+    ${feedbackThumbs("raid-counter", row.formId)}
+  </li>`;
+}
+
+
+// Beginner card: name + availability only, no DPS/move breakdown — the because-line
+// lives once on the group header since it's identical for every row in a type group.
+function beginnerCounterCard(row, roster) {
+  const owned = (roster.ownedFormIds ?? []).includes(row.formId);
+  const ownedCount = owned
+    ? (Number.isInteger(roster.ownedFormCounts?.[row.formId]) ? roster.ownedFormCounts[row.formId] : 1)
+    : 0;
+  return `<li class="raid-card${owned ? " is-owned" : ""}" data-form-id="${escapeHtml(row.formId)}">
+    <p class="raid-rank">#${escapeHtml(row.typeRank ?? row.rank)}</p>
+    <h4>${escapeHtml(row.pokemon)}</h4>
+    <p><strong>Availability:</strong> ${escapeHtml(row.availability ?? "Availability not documented")}</p>
     ${ownedStarButton({ formId: row.formId, name: row.pokemon, owned, route: "raids" })}
     <span class="owned-count">${owned ? `Owned ×${ownedCount}` : "Not owned"}</span>
   </li>`;
+}
+
+
+function beginnerCounterGroups(groups, roster, bossTypes, forms = {}, cardOptions = {}) {
+  return groups.map(([attackingType, groupRows]) => {
+    const because = becauseLine(attackingType, bossTypes);
+    return `<div class="raid-type-group">
+      <h4>${escapeHtml(attackingType)}</h4>
+      ${because ? `<p class="raid-because">${escapeHtml(because)}</p>` : ""}
+      <ol class="raid-card-list">${groupRows.map((row) => beginnerCounterCard(row, roster)).join("")}</ol>
+    </div>`;
+  }).join("");
 }
 
 
@@ -755,11 +1163,17 @@ function raidTargetSurface(state, ui, roster) {
     ownedFormIds: roster.ownedFormIds,
   }, state);
   const lanes = {
-    regular: ["Regular, Mega & Primal", plan.regularCounters],
-    shadow: ["Shadows", plan.shadowCounters],
-    owned: ["Owned counters", plan.ownedCounters],
+    regular: ["Regular, Mega & Primal", plan.regularCounters, plan.beginnerRegularGroups],
+    shadow: ["Shadows", plan.shadowCounters, plan.beginnerShadowGroups],
+    owned: ["Owned counters", plan.ownedCounters, plan.beginnerOwnedGroups],
   };
-  const [laneLabel, rows] = lanes[ui.raid.counterLane] ?? lanes.regular;
+  const [laneLabel, rows, beginnerGroups] = lanes[ui.raid.counterLane] ?? lanes.regular;
+  const bossTypes = plan.target.bossTypes ?? [];
+  const forms = state.core?.forms ?? state.forms ?? {};
+  const budgetPickIds = new Set((state.budgets?.raid ?? []).map((row) => row.formId));
+  // Fresh raid catch (Level 20), independent of the boss's own encounter/weather CP above —
+  // that widget verifies the BOSS's catch, not the level of the player's counter Pokemon.
+  const cardOptions = { fromLevel: 20, budgetPickIds };
   return `<section class="raid-target-view" aria-labelledby="raid-target-title">
     <h2 id="raid-target-title">Raid Target</h2>
     <div class="pvp-controls">
@@ -768,17 +1182,34 @@ function raidTargetSurface(state, ui, roster) {
       <label>Encounter level<select data-encounter-level>${option("normal", "Level 20", ui.raid.encounterLevel)}${option("weatherBoosted", "Weather boosted · Level 25", ui.raid.encounterLevel)}</select></label>
       <label>Observed catch CP<input inputmode="numeric" data-observed-cp value="${escapeHtml(ui.raid.observedCp)}"></label>
     </div>
-    <p><strong>${escapeHtml(plan.target.boss)}</strong> · ${escapeHtml((plan.target.bossTypes ?? []).join(" / "))}</p>
-    <p><strong>Level 20 encounter:</strong> 10/10/10 minimum ${escapeHtml(plan.target.normal.minimumRaidIVCP)} · hundo ${escapeHtml(plan.target.normal.hundoCP)}</p>
-    <p><strong>Level 25 weather-boosted encounter:</strong> 10/10/10 minimum ${escapeHtml(plan.target.weatherBoosted.minimumRaidIVCP)} · hundo ${escapeHtml(plan.target.weatherBoosted.hundoCP)}</p>
-    <p><strong>Weather boost:</strong> ${escapeHtml(plan.weatherBoostConditions.join(", ") || "No boosting weather documented")}</p>
+    <div class="raid-boss-summary">
+      <p class="raid-boss-heading"><strong>${escapeHtml(plan.target.boss)}</strong> ${bossTypes.map(typeChip).join("")}</p>
+      <p class="type-chip-list" aria-label="Boss weaknesses">Weak to: ${plan.weaknesses.length ? plan.weaknesses.map((row) => (
+    `<span class="type-weak-badge${row.effectiveness >= 2.56 ? " is-double" : ""}">${typeChip(row.attackingType)}${row.effectiveness >= 2.56 ? "4x" : "2x"}</span>`
+  )).join("") : "none documented"}</p>
+    </div>
+    <p><strong>Level 20 encounter:</strong> 10/10/10 minimum ${escapeHtml(plan.target.normal.minimumRaidIVCP)} · ${jargonTerm("hundo", "hundo")} ${escapeHtml(plan.target.normal.hundoCP)}</p>
+    <p><strong>Level 25 weather-boosted encounter:</strong> 10/10/10 minimum ${escapeHtml(plan.target.weatherBoosted.minimumRaidIVCP)} · ${jargonTerm("hundo", "hundo")} ${escapeHtml(plan.target.weatherBoosted.hundoCP)}</p>
+    <p><strong>${jargonTerm("weather-boost", "Weather boost")}:</strong> ${escapeHtml(plan.weatherBoostConditions.join(", ") || "No boosting weather documented")}</p>
     <p aria-live="polite">${plan.hundoVerdict.label ? `<strong>${escapeHtml(plan.hundoVerdict.label)}</strong> — ` : ""}${escapeHtml(plan.hundoVerdict.message)}</p>
     ${plan.target.encounterNote ? `<p>${escapeHtml(plan.target.encounterNote)}</p>` : ""}
+    <div class="beatability-card" data-beatability-band="${escapeHtml(plan.beatability.band)}">
+      <p class="status-kicker">Can we beat this?</p>
+      <p class="beatability-headline"><strong>${escapeHtml(plan.beatability.headline)}</strong></p>
+      <p>${escapeHtml(plan.beatability.detail)}</p>
+      <p class="beatability-caveat">${escapeHtml(plan.beatability.caveat)}</p>
+      ${feedbackThumbs("raid-beatability-verdict", plan.target.bossFormId ?? ui.raid.targetFormId)}
+    </div>
     <div class="placement-controls" aria-label="Counter lanes">
       ${Object.entries(lanes).map(([lane, [label]]) => `<button type="button" data-counter-lane="${lane}" aria-pressed="${lane === ui.raid.counterLane}">${escapeHtml(label)}</button>`).join("")}
     </div>
+    <div class="placement-controls" aria-label="Counter detail level">
+      <button type="button" data-raid-show-all aria-pressed="${ui.raid.showAll}">Show all + damage numbers</button>
+    </div>
     <h3>${escapeHtml(laneLabel)}</h3>
-    ${rows.length ? `<ol class="raid-card-list">${rows.map((row) => raidCounterCard(row, roster)).join("")}</ol>` : (ui.raid.counterLane === "owned"
+    ${rows.length ? (ui.raid.showAll
+      ? `<ol class="raid-card-list">${rows.map((row) => raidCounterCard(row, roster, forms, cardOptions, bossTypes)).join("")}</ol>`
+      : beginnerCounterGroups(beginnerGroups, roster, bossTypes, forms, cardOptions)) : (ui.raid.counterLane === "owned"
       ? "<p>Star Pokémon you own and this fills in with your best raid team.</p>"
       : "<p>No owned qualifying counter is marked yet.</p>")}
     <p class="raid-method-note">${escapeHtml(plan.caveat)}</p>
@@ -921,15 +1352,20 @@ export function bootstrap({
   const gymDefenderSpeciesByFormId = new Map(
     gymDefenderForms.map((form) => [form.form_id, form.dex]),
   );
+  const storage = windowObject.localStorage ?? null;
   const ui = uiState ?? createInteractionState({
     roster,
     validFormIds,
     gymDefenderFormIds,
     gymDefenderSpeciesByFormId,
+    storage,
   });
-  const storage = windowObject.localStorage ?? null;
+  applyTextSize(documentObject.documentElement, ui.textSize);
+  const moveCatalog = state.core.methodology?.raidDps?.moveCatalog ?? {};
+  const moveIndex = buildMoveIndex(state.raids, state.pvp);
   let controller;
   let searchRefresh = () => {};
+  let currentRoute = "home";
   const renderers = {
     home() {
       app.innerHTML = interactionNotice(ui) + renderHome({
@@ -938,14 +1374,25 @@ export function bootstrap({
         updateStatus: state.updateStatus ?? releaseLabel(releaseState),
         continueTask: continueTaskFor(state, ui),
         currentBosses: state.currentBosses,
+        currentEvents: state.currentEvents,
         raidTargetTool: state.raidTargetTool,
         forms: state.core.forms,
         whatsNew: whatsNewCard(releaseState, storage),
+        showStartHere: showStartHere(storage),
       });
       searchRefresh = bindSearch(documentObject, index, state.core.forms, roster);
     },
     basics() {
       app.innerHTML = renderBasics();
+    },
+    types() {
+      app.innerHTML = renderTypes();
+    },
+    glossary() {
+      app.innerHTML = renderGlossary();
+    },
+    drill() {
+      app.innerHTML = renderDrill(ui.drill);
     },
     raids() {
       const bossParam = new URLSearchParams(windowObject.location?.search ?? "").get("boss");
@@ -980,9 +1427,20 @@ export function bootstrap({
         ? renderPvp({
           pvp: state.pvp, pvpTeams: state.pvpTeams,
           pvpAlternatives: state.pvpAlternatives, forms: state.core.forms,
-          state: ui.pvp,
+          roster, state: ui.pvp,
         })
         : fallbackSections.pvp);
+    },
+    swap() {
+      app.innerHTML = interactionNotice(ui) + (state.pvp
+        ? renderSwap({
+          pvp: state.pvp, pvpTeams: state.pvpTeams, forms: state.core.forms,
+          roster, state: ui.swap, moveCatalog,
+        })
+        : fallbackSections.swap);
+    },
+    coach() {
+      app.innerHTML = interactionNotice(ui) + renderCoach({ data: state, roster });
     },
     more() {
       app.innerHTML = renderMore({
@@ -994,11 +1452,37 @@ export function bootstrap({
         listId: ui.moreList ?? new URLSearchParams(windowObject.location?.search ?? "").get("list"),
         roster,
         rosterQuery: ui.rosterQuery,
+        rosterShareOpen: ui.rosterShareOpen,
+        textSize: ui.textSize,
         release: releaseView(releaseState),
         update: { ...releaseState, label: releaseLabel(releaseState) },
       }) + interactionNotice(ui);
     },
   };
+  for (const route of Object.keys(renderers)) {
+    const base = renderers[route];
+    renderers[route] = () => {
+      currentRoute = route;
+      base();
+      if (ui.moveSheet) {
+        app.innerHTML += renderMoveSheet({
+          moveId: ui.moveSheet,
+          catalog: moveCatalog,
+          moveIndex,
+          roster,
+          forms: state.core.forms,
+        });
+      }
+      if (ui.instanceSheet) {
+        app.innerHTML += renderInstanceSheet({
+          form: state.core.forms[ui.instanceSheet.formId],
+          instances: roster.instances ?? [],
+          draft: ui.instanceSheet.draft,
+          error: ui.instanceSheet.error,
+        });
+      }
+    };
+  }
   const router = createRouter({
     basePath: basePathFrom(windowObject.location),
     renderers,
@@ -1010,6 +1494,7 @@ export function bootstrap({
     roster,
     rosterStore,
     validFormIds,
+    forms: state.core.forms,
     gymDefenderFormIds,
     gymDefenderSpeciesByFormId,
     releaseManager,
@@ -1023,9 +1508,24 @@ export function bootstrap({
       windowObject.history.pushState({}, "", url.href);
     },
     onRosterExport(payload) {
-      downloadRoster(payload, { documentObject, windowObject });
+      downloadFile("pokemon-go-field-guide-roster.json", payload, { documentObject, windowObject });
+    },
+    onFeedbackExport(payload) {
+      downloadFile("pokemon-go-field-guide-feedback.json", payload, { documentObject, windowObject });
+    },
+    async onRosterShareCopy(payload) {
+      const clipboard = windowObject.navigator?.clipboard;
+      if (!clipboard?.writeText) return false;
+      try {
+        await clipboard.writeText(payload);
+        return true;
+      } catch {
+        return false;
+      }
     },
     searchRefresh: () => searchRefresh(),
+    rerenderCurrent: () => renderers[currentRoute]?.(),
+    rootElement: documentObject.documentElement,
     storage,
   });
   router.start();
@@ -1046,7 +1546,7 @@ export async function startFieldGuide({
   let roster = {
     schemaVersion: 2, ownedFormIds: [], ownedFormCounts: {}, favorites: [], preferences: {},
   };
-  const ui = createInteractionState({ roster });
+  const ui = createInteractionState({ roster, storage: windowObject?.localStorage ?? null });
   let store = rosterStore;
   releaseManager.subscribe((releaseState) => {
     root?.setAttribute?.("data-offline-ready", releaseState.offlineReady ? "true" : "false");
@@ -1077,6 +1577,7 @@ export async function startFieldGuide({
         gymDefenderSpeciesByFormId: new Map(
           gymDefenderForms.map((form) => [form.form_id, form.dex]),
         ),
+        storage: windowObject?.localStorage ?? null,
       }));
       active?.router?.stop?.();
       active?.stopInteractions?.();
