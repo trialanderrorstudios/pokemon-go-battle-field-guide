@@ -24,6 +24,7 @@ import { bestInstanceForForm, buildInstance, instanceLevel } from "./instances.j
 import { parsePokeGenieCsv } from "./poke-genie-import.js";
 import { exportFeedback, recordFeedback } from "./feedback.js";
 import { applyTextSize, loadTextSize, saveTextSize } from "./text-size.js";
+import { applyTheme, loadTheme, saveTheme } from "./theme.js";
 import { createPvpState, renderPvp } from "./views/pvp.js";
 import { withMyTeamOverride } from "./pvp-team.js";
 import { renderRaids } from "./views/raids.js";
@@ -107,6 +108,28 @@ function offlineLabel(releaseState = {}) {
   if (releaseState.offlineReady) return "Ready offline";
   if (releaseState.status === "caching") return "Preparing offline data";
   return "Offline setup incomplete";
+}
+
+
+// Honest LED mapping for the dex head (see the .minileds cluster in
+// index.html / app.css): green = data fresh (release current), yellow =
+// update ready, blue = roster loaded. Pure function so it's testable without
+// a DOM — updateLeds() below is the only thing that touches elements.
+export function ledState(releaseState = {}, roster = {}) {
+  const rosterLoaded = (roster.instances?.length ?? 0) > 0 || (roster.ownedFormIds?.length ?? 0) > 0;
+  const updateReady = releaseState.status === "update_available";
+  const dataFresh = !updateReady && releaseState.status !== "failed" && Boolean(releaseState.currentReleaseId);
+  return { roster: rosterLoaded, update: updateReady, fresh: dataFresh };
+}
+
+
+function updateLeds(documentObject, releaseState, roster) {
+  const header = documentObject.querySelector?.(".dexhead");
+  if (!header) return;
+  const state = ledState(releaseState, roster);
+  header.querySelector(".led-roster")?.classList.toggle("is-on", state.roster);
+  header.querySelector(".led-update")?.classList.toggle("is-on", state.update);
+  header.querySelector(".led-fresh")?.classList.toggle("is-on", state.fresh);
 }
 
 
@@ -384,6 +407,7 @@ export function createInteractionState({
     instanceSheet: null,
     rosterShareOpen: false,
     textSize: loadTextSize(storage),
+    theme: loadTheme(storage),
   };
 }
 
@@ -734,6 +758,14 @@ export function createInteractionController({
         const size = saveTextSize(storage, textSizeControl.dataset.textSize);
         applyTextSize(rootElement, size);
         ui.textSize = size;
+        rerender("more");
+        return;
+      }
+      const themeControl = target?.closest?.("[data-theme-choice]");
+      if (themeControl) {
+        const theme = saveTheme(storage, themeControl.dataset.themeChoice);
+        applyTheme(rootElement, theme);
+        ui.theme = theme;
         rerender("more");
         return;
       }
@@ -1186,7 +1218,7 @@ function raidTargetSurface(state, ui, roster) {
       <p class="raid-boss-heading"><strong>${escapeHtml(plan.target.boss)}</strong> ${bossTypes.map(typeChip).join("")}</p>
       <p class="type-chip-list" aria-label="Boss weaknesses">Weak to: ${plan.weaknesses.length ? plan.weaknesses.map((row) => (
     `<span class="type-weak-badge${row.effectiveness >= 2.56 ? " is-double" : ""}">${typeChip(row.attackingType)}${row.effectiveness >= 2.56 ? "4x" : "2x"}</span>`
-  )).join("") : "none documented"}</p>
+  )).join("") : "None documented"}</p>
     </div>
     <p><strong>Level 20 encounter:</strong> 10/10/10 minimum ${escapeHtml(plan.target.normal.minimumRaidIVCP)} · ${jargonTerm("hundo", "hundo")} ${escapeHtml(plan.target.normal.hundoCP)}</p>
     <p><strong>Level 25 weather-boosted encounter:</strong> 10/10/10 minimum ${escapeHtml(plan.target.weatherBoosted.minimumRaidIVCP)} · ${jargonTerm("hundo", "hundo")} ${escapeHtml(plan.target.weatherBoosted.hundoCP)}</p>
@@ -1361,6 +1393,7 @@ export function bootstrap({
     storage,
   });
   applyTextSize(documentObject.documentElement, ui.textSize);
+  applyTheme(documentObject.documentElement, ui.theme);
   const moveCatalog = state.core.methodology?.raidDps?.moveCatalog ?? {};
   const moveIndex = buildMoveIndex(state.raids, state.pvp);
   let controller;
@@ -1454,6 +1487,7 @@ export function bootstrap({
         rosterQuery: ui.rosterQuery,
         rosterShareOpen: ui.rosterShareOpen,
         textSize: ui.textSize,
+        theme: ui.theme,
         release: releaseView(releaseState),
         update: { ...releaseState, label: releaseLabel(releaseState) },
       }) + interactionNotice(ui);
@@ -1481,6 +1515,7 @@ export function bootstrap({
           error: ui.instanceSheet.error,
         });
       }
+      updateLeds(documentObject, releaseState, roster);
     };
   }
   const router = createRouter({

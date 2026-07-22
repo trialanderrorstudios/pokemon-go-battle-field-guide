@@ -120,12 +120,14 @@ export function renderMoreList(listId, data = {}) {
   return `<section class="more-list-view" data-more-list-view="${escapeHtml(listId)}" aria-labelledby="more-list-title">
     <a class="safe-escape" href="./#more">Back to More</a>
     <p class="status-kicker">${escapeHtml(definition.group)} guide · ${rows.length} entries</p>
-    <h1 id="more-list-title">${escapeHtml(definition.title)}</h1>
+    <h2 id="more-list-title">${escapeHtml(definition.title)}</h2>
     ${listId === "future" ? '<p class="pvp-summary">Priority order favors S+ investment, multi-type coverage, and practical type rank. It does not compare raw DPS across unrelated types.</p>' : ""}
     ${listId === "megas" ? `<p class="pvp-summary">Only one ${jargonTerm("mega", "Mega")}/${jargonTerm("primal", "Primal")} can be active at a time. This deduplicated priority order favors availability and rotation status, S+ investment, multi-type coverage, and practical type rank.</p>` : ""}
-    <ul class="more-card-list">${rows.map((row) => (
-      listId === "coverage" ? coverageListCard(row) : attackerListCard(row, listId)
-    )).join("")}</ul>
+    ${rows.length
+      ? `<ul class="more-card-list">${rows.map((row) => (
+        listId === "coverage" ? coverageListCard(row) : attackerListCard(row, listId)
+      )).join("")}</ul>`
+      : `<p class="pvp-empty">Nothing qualifies for this list in the current release yet.</p>`}
   </section>`;
 }
 
@@ -222,14 +224,22 @@ function appSection(data) {
 
 
 const TEXT_SIZE_LABELS = Object.freeze({ S: "Small", M: "Medium", L: "Large" });
+const THEME_LABELS = Object.freeze({ auto: "Auto", light: "Light", dark: "Dark" });
 
 function displaySection(data) {
   const current = Object.hasOwn(TEXT_SIZE_LABELS, data.textSize) ? data.textSize : "M";
+  const currentTheme = Object.hasOwn(THEME_LABELS, data.theme) ? data.theme : "auto";
   return `<section class="more-section" aria-labelledby="more-display-title">
     <p class="status-kicker">Ergonomics</p><h2 id="more-display-title">Text size</h2>
     <div class="app-actions" role="group" aria-label="Text size">
       ${Object.entries(TEXT_SIZE_LABELS).map(([size, label]) => (
         `<button type="button" data-text-size="${size}" aria-pressed="${size === current}">${label}</button>`
+      )).join("")}
+    </div>
+    <h3>Theme</h3>
+    <div class="app-actions" role="group" aria-label="Theme">
+      ${Object.entries(THEME_LABELS).map(([theme, label]) => (
+        `<button type="button" data-theme-choice="${theme}" aria-pressed="${theme === currentTheme}">${label}</button>`
       )).join("")}
     </div>
   </section>`;

@@ -68,15 +68,32 @@ export function currentBossCard({ formId, tier, endsAt } = {}, { target, forms, 
 }
 
 
+// Legendary (Tier 5) and Mega are the week's headliners — surfaced as their
+// own labeled rows above everything else (Shadow, other tiers) so the
+// biggest raids aren't buried in a flat grid.
+function bossTierRow(label, bosses, cardFor) {
+  if (!bosses.length) return "";
+  return `<div class="home-boss-tier-row">
+    <p class="status-kicker home-boss-tier-label">${escapeHtml(label)}</p>
+    <div class="home-boss-grid">${bosses.map(cardFor).join("")}</div>
+  </div>`;
+}
+
+
 export function renderCurrentBosses({ currentBosses, raidTargetTool, forms, now = new Date() } = {}) {
   const bosses = currentBosses?.bosses ?? [];
   if (!bosses.length) return "";
   const targetsByFormId = new Map((raidTargetTool?.targets ?? []).map((target) => [target.bossFormId, target]));
+  const cardFor = (boss) => currentBossCard(boss, { target: targetsByFormId.get(boss.formId), forms, now });
+  const legendary = bosses.filter((boss) => boss.tier === "Tier 5");
+  const mega = bosses.filter((boss) => boss.tier === "Mega");
+  const minor = bosses.filter((boss) => boss.tier !== "Tier 5" && boss.tier !== "Mega");
+  const headliners = legendary.length > 0 || mega.length > 0;
   return `<section class="home-boss-section" aria-labelledby="home-boss-title">
     <h3 id="home-boss-title">This week's raid bosses</h3>
-    <div class="home-boss-grid">${bosses.map((boss) => currentBossCard(
-    boss, { target: targetsByFormId.get(boss.formId), forms, now },
-  )).join("")}</div>
+    ${headliners
+      ? `${bossTierRow("Legendary raids", legendary, cardFor)}${bossTierRow("Mega raids", mega, cardFor)}${bossTierRow("Other tiers", minor, cardFor)}`
+      : `<div class="home-boss-grid">${bosses.map(cardFor).join("")}</div>`}
   </section>`;
 }
 
@@ -110,6 +127,52 @@ export function renderCurrentEvents({ currentEvents, forms, now = new Date() } =
     <h3 id="home-event-title">Upcoming events</h3>
     <div class="home-event-grid">${events.map((event) => eventCard(event, { forms, now })).join("")}</div>
   </section>`;
+}
+
+
+// "WED 6-7 PM" — shared by the Home Raid Hour banner and Weekly Coach's
+// "worth raiding" fold-in, so both read the same clock the same way.
+export function formatRaidHourWhen(startsAt, endsAt) {
+  const start = new Date(startsAt);
+  if (Number.isNaN(start.valueOf())) return "";
+  const day = start.toLocaleDateString("en-US", { weekday: "short" }).toUpperCase();
+  // Split on any whitespace, not a literal space: ICU-72+ browser engines
+  // (Chrome 110+, Safari 16.4+, Firefox 106+) emit U+202F (narrow no-break
+  // space) between hour and AM/PM, which a plain " " split misses — Node's
+  // ICU still uses a plain space, so the test suite can't catch that split.
+  const [startNum, startPeriod] = start.toLocaleTimeString("en-US", { hour: "numeric" }).split(/\s/);
+  const end = new Date(endsAt);
+  if (Number.isNaN(end.valueOf())) return `${day} ${startNum} ${startPeriod}`;
+  const [endNum, endPeriod] = end.toLocaleTimeString("en-US", { hour: "numeric" }).split(/\s/);
+  return startPeriod === endPeriod
+    ? `${day} ${startNum}-${endNum} ${endPeriod}`
+    : `${day} ${startNum} ${startPeriod}-${endNum} ${endPeriod}`;
+}
+
+
+// Nearest Raid Hour: prefers one that hasn't ended yet; falls back to the
+// earliest past one (stale-honest — flagged, not hidden) when every seeded
+// Raid Hour has already lapsed.
+export function nextRaidHour(events, now = new Date()) {
+  const raidHours = (events ?? []).filter((event) => event.kind === "raid-hour");
+  if (!raidHours.length) return null;
+  const upcoming = raidHours.filter((event) => new Date(event.endsAt) >= now);
+  const pool = upcoming.length ? upcoming : raidHours;
+  return [...pool].sort((left, right) => new Date(left.startsAt) - new Date(right.startsAt))[0];
+}
+
+
+export function raidHourBanner({ currentEvents, forms, now = new Date() } = {}) {
+  const event = nextRaidHour(currentEvents?.events, now);
+  if (!event) return "";
+  const bossName = forms?.[event.formId]?.name ?? event.name.replace(/ Raid Hour$/, "");
+  const when = formatRaidHourWhen(event.startsAt, event.endsAt);
+  const stale = new Date(event.endsAt) < now;
+  return `<a class="fallback-section raid-hour-banner" href="./?boss=${encodeURIComponent(event.formId)}#raids" data-event-id="${escapeHtml(event.eventId)}">
+    <p class="raid-hour-kicker">⏰ RAID HOUR${when ? ` · ${escapeHtml(when)}` : ""}</p>
+    <p class="raid-hour-detail"><strong>${escapeHtml(bossName)}</strong> — ${escapeHtml(event.action)}</p>
+    ${stale ? `<p class="boss-stale">May be outdated — check in-game.</p>` : ""}
+  </a>`;
 }
 
 
@@ -163,6 +226,7 @@ export function renderHome({
       <input id="global-search" name="q" type="search" autocomplete="off">
       <div data-search-results aria-live="polite"></div>
     </form>
+    ${raidHourBanner({ currentEvents, forms })}
     <h3 class="home-section-title">What are you fighting?</h3>
     <div class="home-task-grid">
       ${continued}

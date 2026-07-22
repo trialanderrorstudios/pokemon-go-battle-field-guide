@@ -8,6 +8,7 @@ import { bestInstanceForForm, instanceLevel } from "./instances.js";
 import { buildMyTeam, MY_TEAM_SLOTS, myTeamOverridesFor } from "./pvp-team.js";
 import { futureImpactRows } from "./views/more.js";
 import { myTeamMoveDeltaLines } from "./views/pvp.js";
+import { formatRaidHourWhen, nextRaidHour } from "./views/home.js";
 
 const BAND_ORDER = { duoable: 0, "bring-3-4": 1, "full-lobby": 2, "not-enough-data": 3 };
 export const PVP_LEAGUES = Object.freeze(["great", "ultra", "master"]);
@@ -21,8 +22,19 @@ function formsOf(data) {
 }
 
 
-function worthRaidingThisWeek(data, roster) {
+// Only folds in a Raid Hour that hasn't happened yet — a lapsed one isn't
+// "worth raiding" advice, it's history. (Home's banner is stale-honest and
+// shows lapsed windows too; this fold-in just omits them instead — so unlike
+// Home, a stale nextRaidHour() fallback result is discarded here.)
+function upcomingRaidHour(events, formId, now) {
+  const picked = nextRaidHour((events ?? []).filter((event) => event.formId === formId), now);
+  return picked && new Date(picked.endsAt) >= now ? picked : null;
+}
+
+
+function worthRaidingThisWeek(data, roster, now = new Date()) {
   const bosses = data?.currentBosses?.bosses ?? [];
+  const events = data?.currentEvents?.events ?? [];
   const rows = [];
   for (const boss of bosses) {
     let plan;
@@ -31,6 +43,7 @@ function worthRaidingThisWeek(data, roster) {
     } catch {
       continue; // not in this release's raid target tool — nothing to summarize
     }
+    const raidHour = upcomingRaidHour(events, boss.formId, now);
     rows.push({
       formId: boss.formId,
       name: plan.target.boss,
@@ -40,6 +53,7 @@ function worthRaidingThisWeek(data, roster) {
       ownedCounterCount: plan.ownedCounters.length,
       topCounterNames: plan.ownedCounters.slice(0, 2).map((row) => row.pokemon),
       href: `./?boss=${encodeURIComponent(boss.formId)}#raids`,
+      raidHourWhen: raidHour ? formatRaidHourWhen(raidHour.startsAt, raidHour.endsAt) : null,
     });
   }
   return rows.sort((left, right) => (BAND_ORDER[left.band] - BAND_ORDER[right.band])
@@ -128,9 +142,9 @@ function pvpTeamStatus(data, roster) {
 }
 
 
-export function buildCoachSummary({ data = {}, roster = {} } = {}) {
+export function buildCoachSummary({ data = {}, roster = {}, now = new Date() } = {}) {
   return {
-    worthRaiding: worthRaidingThisWeek(data, roster),
+    worthRaiding: worthRaidingThisWeek(data, roster, now),
     powerUpNext: powerUpNext(data, roster),
     buddyPick: walkThisBuddy(data, roster),
     pvpTeams: pvpTeamStatus(data, roster),

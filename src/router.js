@@ -75,6 +75,13 @@ export function createRouter({
     renderer();
     markCurrent(route);
     windowObject.scrollTo?.(0, 0);
+    // The screen (#app) scrolls internally now, not the window — reset its
+    // scroll position too, and restart the 220ms dex page-wipe.
+    const screen = documentObject?.getElementById?.("app");
+    screen?.scrollTo?.(0, 0);
+    screen?.classList?.remove("dex-wipe");
+    void screen?.offsetWidth;
+    screen?.classList?.add("dex-wipe");
     return route;
   }
 

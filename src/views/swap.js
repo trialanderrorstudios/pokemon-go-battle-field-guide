@@ -65,7 +65,9 @@ function opponentStep({ state, forms }) {
       <input type="search" data-swap-opponent-query value="${escapeHtml(state.opponentQuery)}" autocomplete="off">
     </label>
     ${results.length === OPPONENT_RESULT_CAP ? "<p>Keep typing to narrow the list.</p>" : ""}
-    <div class="home-task-grid swap-opponent-grid">${results.map(opponentCard).join("")}</div>
+    ${results.length
+      ? `<div class="home-task-grid swap-opponent-grid">${results.map(opponentCard).join("")}</div>`
+      : `<p class="pvp-empty">No Pokémon match that search — check the spelling or try just the first few letters.</p>`}
   </section>`;
 }
 

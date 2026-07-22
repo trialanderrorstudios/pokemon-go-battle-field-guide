@@ -50,7 +50,7 @@ export function renderBasics() {
     <a class="safe-escape" href="./#home">Back to Home</a>
     <section class="more-section" aria-labelledby="basics-title">
       <p class="status-kicker">New to Pokémon GO battles?</p>
-      <h1 id="basics-title">Battle Basics</h1>
+      <h2 id="basics-title">Battle Basics</h2>
       <p>Eight quick things to know before you raid, defend a gym, or fight another trainer.</p>
       <a class="safe-escape" href="./#glossary">See every term in the Glossary</a>
     </section>

@@ -179,7 +179,10 @@ function teamCard(team, pvp, forms) {
       const moves = row
         ? `<span class="pvp-team-moves">Quick: ${moveWithElite(row.fastMove, eliteMoves, "Fast")} · Charged: ${(row.chargedMoves ?? []).map((move) => moveWithElite(move, eliteMoves, "Charged")).join(" + ")}</span>`
         : "";
-      return `<li data-form-id="${escapeHtml(member.formId)}">${spriteHtml(member.formId, forms, name, form?.primary_type)}<strong>${escapeHtml(member.role)}:</strong> ${escapeHtml(name)} <span>${escapeHtml(typesFor(forms, member.formId))}</span>${moves}</li>`;
+      const ideal = row?.rankOne
+        ? `<span class="pvp-team-ideal">Ideal: ${row.rankOne.ivs.attack}/${row.rankOne.ivs.defense}/${row.rankOne.ivs.stamina} IVs @ ${row.rankOne.cp} CP</span>`
+        : "";
+      return `<li data-form-id="${escapeHtml(member.formId)}">${spriteHtml(member.formId, forms, name, form?.primary_type)}<strong>${escapeHtml(member.role)}:</strong> ${escapeHtml(name)} <span>${escapeHtml(typesFor(forms, member.formId))}</span>${moves}${ideal}</li>`;
     }).join("")}</ol>
     <p><strong>Battle plan:</strong> ${escapeHtml(team.plan)}</p>
     <p><strong>Shared weaknesses:</strong> ${escapeHtml(shared)}</p>
@@ -238,6 +241,18 @@ export function myTeamMoveDeltaLines(member) {
 }
 
 
+// Yours-vs-ideal: the owned instance's exact IVs/CP next to the league's
+// rank-1 spread, so a player can see at a glance how far off "ideal" they are.
+function idealVsYoursLine(member) {
+  const ideal = member.row?.rankOne;
+  const yours = member.instance;
+  if (!ideal || !yours) return "";
+  const yourIvs = `${yours.ivs.atk}/${yours.ivs.def}/${yours.ivs.sta}`;
+  const idealIvs = `${ideal.ivs.attack}/${ideal.ivs.defense}/${ideal.ivs.stamina}`;
+  return `<p class="pvp-myteam-compare">Yours: ${escapeHtml(yourIvs)} IVs @ ${escapeHtml(yours.cp)} CP · Ideal: ${escapeHtml(idealIvs)} IVs @ ${escapeHtml(ideal.cp)} CP</p>`;
+}
+
+
 function myTeamMemberCard(league, slot, member, options) {
   if (!member) {
     return `<li class="pvp-myteam-slot pvp-myteam-empty" data-my-team-slot-empty="${escapeHtml(slot)}">
@@ -254,6 +269,7 @@ function myTeamMemberCard(league, slot, member, options) {
     <strong>${escapeHtml(slot)}</strong>${member.roleSource === "generic" ? " <small>(generic guidance — not in this league's ranked list)</small>" : ""}
     <p>${escapeHtml(member.form?.name ?? member.formId)} <span>${escapeHtml(typesFor({ [member.formId]: member.form }, member.formId))}</span></p>
     <p class="pvp-myteam-eligibility${member.eligibility.assumption ? " pvp-myteam-assumption" : ""}">${member.eligibility.assumption ? "Assumption: " : ""}${escapeHtml(member.eligibility.reason)}</p>
+    ${idealVsYoursLine(member)}
     ${quality}
     ${moveLines.length ? `<ul class="pvp-myteam-move-delta">${moveLines.map((line) => `<li>${escapeHtml(line)}</li>`).join("")}</ul>` : ""}
     ${myTeamSlotSelect(league, slot, member.formId, options)}
@@ -293,7 +309,8 @@ function teamsView(pvp, teams, alternatives, forms, roster, state) {
     ? (teams ?? [])
     : (teams ?? []).filter((team) => team.league === state.league);
   const myTeamLeagues = state.league === "all" ? PVP_LEAGUES : [state.league];
-  return `${myTeamLeagues.map((league) => myTeamSection(league, pvp, teams, roster, forms)).join("")}
+  return `<p class="pvp-attack-iv-note">Why low Attack IV shows up so often: a lower Attack IV keeps CP under the league cap while leaving room for more Defense and HP — same cap, more bulk.</p>
+  ${myTeamLeagues.map((league) => myTeamSection(league, pvp, teams, roster, forms)).join("")}
   <section class="pvp-section" aria-labelledby="pvp-teams-title">
     <p class="status-kicker">${leagueTeams.length} current example teams</p>
     <h2 id="pvp-teams-title">${escapeHtml(leagueName(state.league))} team suggestions</h2>

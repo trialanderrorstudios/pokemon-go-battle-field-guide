@@ -9,7 +9,7 @@ export function renderGlossary() {
     <a class="safe-escape" href="./#home">Back to Home</a>
     <section class="more-section" aria-labelledby="glossary-title">
       <p class="status-kicker">Plain-language terms</p>
-      <h1 id="glossary-title">Glossary</h1>
+      <h2 id="glossary-title">Glossary</h2>
       <p>Every jargon term used in this app, in one place.</p>
     </section>
     <dl class="glossary-list">${rows}</dl>

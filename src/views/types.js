@@ -35,7 +35,7 @@ export function renderTypes() {
     <a class="safe-escape" href="./#home">Back to Home</a>
     <section class="more-section" aria-labelledby="types-title">
       <p class="status-kicker">Type chart</p>
-      <h1 id="types-title">Type Matchups</h1>
+      <h2 id="types-title">Type Matchups</h2>
       <p>Tap a type to see what it beats, what beats it, and what shrugs it off.</p>
     </section>
     <div class="type-list">${ATTACK_TYPES.map(typeRow).join("")}</div>

@@ -23,6 +23,7 @@ function raidCard(row) {
     : "No owned counters yet";
   return `<a class="fallback-section coach-card" href="${escapeHtml(row.href)}" data-form-id="${escapeHtml(row.formId)}">
     <p class="coach-card-kicker">${escapeHtml(BAND_LEAD[row.band] ?? "")}</p>
+    ${row.raidHourWhen ? `<p class="coach-card-raid-hour">${escapeHtml(row.raidHourWhen)}: every gym has ${escapeHtml(row.name)}</p>` : ""}
     <h4>${escapeHtml(row.name)}</h4>
     <p>${escapeHtml(row.headline)}</p>
     <p class="coach-card-meta">${escapeHtml(counterNote)}</p>
@@ -64,8 +65,8 @@ function pvpLeagueCard(row) {
 }
 
 
-export function renderCoach({ data = {}, roster = {} } = {}) {
-  const summary = buildCoachSummary({ data, roster });
+export function renderCoach({ data = {}, roster = {}, now = new Date() } = {}) {
+  const summary = buildCoachSummary({ data, roster, now });
   return `<section class="coach-view" aria-labelledby="coach-view-title">
     <p class="status-kicker">Your week, planned</p>
     <h2 id="coach-view-title">Weekly Coach</h2>

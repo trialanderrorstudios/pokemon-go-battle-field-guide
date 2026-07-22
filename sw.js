@@ -1,4 +1,5 @@
 import { APP_SHELL_REVISION, APP_VERSION, validateReleaseManifest } from "./src/release-manager.js";
+import { SPRITE_VARIANT_IDS } from "./src/sprites.js";
 
 export const SHELL_CACHE = `pogo-shell-v${APP_VERSION}-${APP_SHELL_REVISION}`;
 export const RELEASE_CACHE_PREFIX = "pogo-release-";
@@ -7,9 +8,10 @@ export const METADATA_CACHE = "pogo-release-metadata";
 const METADATA_PATH = "__field-guide-release-metadata__.json";
 const COMPLETE_PATH = "__verified-release__.json";
 const MANIFEST_PATH = "release-manifest.json";
-// Sprites are dex-keyed static assets fetched once at build time by
-// scripts/fetch-sprites.mjs (web/sprites/1.png .. 1025.png) — they belong in
-// the app shell like the other icons, not the versioned data-release cache.
+// Sprites are dex/variant-keyed static assets fetched once at build time by
+// scripts/fetch-sprites.mjs (web/sprites/1.png .. 1025.png, plus one file per
+// SPRITE_VARIANT_IDS entry) — they belong in the app shell like the other
+// icons, not the versioned data-release cache.
 const SPRITE_DEX_COUNT = 1025;
 export const SHELL_FILES = Object.freeze([
   "./",
@@ -39,6 +41,7 @@ export const SHELL_FILES = Object.freeze([
   "./src/sprites.js",
   "./src/swap.js",
   "./src/text-size.js",
+  "./src/theme.js",
   "./src/storage.js",
   "./src/type-chart.js",
   "./src/views/basics.js",
@@ -55,6 +58,7 @@ export const SHELL_FILES = Object.freeze([
   "./src/views/swap.js",
   "./src/views/types.js",
   ...Array.from({ length: SPRITE_DEX_COUNT }, (_, index) => `./sprites/${index + 1}.png`),
+  ...Object.values(SPRITE_VARIANT_IDS).map((id) => `./sprites/${id}.png`),
 ]);
 
 

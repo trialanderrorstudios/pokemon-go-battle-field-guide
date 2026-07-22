@@ -56,7 +56,7 @@ export function renderDrill(drill) {
     <a class="safe-escape" href="./#home">Back to Home</a>
     <section class="more-section" aria-labelledby="drill-title">
       <p class="status-kicker">Type matchup drill</p>
-      <h1 id="drill-title">What beats what?</h1>
+      <h2 id="drill-title">What beats what?</h2>
       ${modeToggle(drill.mode)}
     </section>
     ${body}
