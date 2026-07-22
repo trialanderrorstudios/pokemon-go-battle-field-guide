@@ -1618,6 +1618,37 @@ export function bootstrap({
 }
 
 
+const SELF_REPAIR_GUARD_KEY = "pogo-sw-self-repair-at";
+const SELF_REPAIR_COOLDOWN_MS = 10 * 60 * 1000;
+
+// Escape hatch for clients stranded by a broken service-worker upgrade
+// (2026-07-22 incident: purged caches + pruned release left boot with no
+// data forever). Drops SW registrations and caches only — localStorage and
+// IndexedDB (roster, stars, prefs) are deliberately untouched — then
+// reloads once. The cooldown stamp bounds this to one attempt per window
+// so a genuinely-down server cannot cause a reload loop.
+export async function attemptSelfRepair({
+  windowObject = globalThis.window,
+  navigatorObject = globalThis.navigator,
+  cachesObject = globalThis.caches,
+  now = Date.now,
+} = {}) {
+  const storage = windowObject?.localStorage;
+  if (!navigatorObject?.serviceWorker?.getRegistrations || !storage) return false;
+  if (navigatorObject.onLine === false) return false;
+  const registrations = await navigatorObject.serviceWorker.getRegistrations();
+  if (!registrations.length) return false;
+  const last = Number(storage.getItem(SELF_REPAIR_GUARD_KEY) ?? 0);
+  if (Number.isFinite(last) && now() - last < SELF_REPAIR_COOLDOWN_MS) return false;
+  storage.setItem(SELF_REPAIR_GUARD_KEY, String(now()));
+  for (const registration of registrations) await registration.unregister();
+  if (cachesObject?.keys) {
+    for (const key of await cachesObject.keys()) await cachesObject.delete(key);
+  }
+  windowObject?.location?.reload?.();
+  return true;
+}
+
 export async function startFieldGuide({
   windowObject = globalThis.window,
   documentObject = globalThis.document,
@@ -1648,21 +1679,33 @@ export async function startFieldGuide({
       uiState: ui,
     });
   });
-  const releaseState = await releaseManager.initialize();
+  let releaseState;
+  try {
+    releaseState = await releaseManager.initialize();
+  } catch {
+    releaseState = releaseManager.state ?? { data: null };
+  }
+  if (!releaseState?.data) void attemptSelfRepair({ windowObject });
   if (releaseState.data) {
     try {
       store = store ?? createIndexedDbAdapter();
       roster = await loadRoster(store);
       const gymDefenderForms = gymEligibleDefenderForms(releaseState.data.forms ?? {});
+      const validFormIds = new Set(Object.keys(releaseState.data.forms ?? {}));
+      // The pre-roster bootstrap may already have consumed a ?boss= deep link
+      // (and deleted the param from the URL); rebuilding interaction state for
+      // the roster must not wipe that selection back to defaults.
+      const priorRaid = ui.raid;
       replaceObject(ui, createInteractionState({
         roster,
-        validFormIds: new Set(Object.keys(releaseState.data.forms ?? {})),
+        validFormIds,
         gymDefenderFormIds: new Set(gymDefenderForms.map((form) => form.form_id)),
         gymDefenderSpeciesByFormId: new Map(
           gymDefenderForms.map((form) => [form.form_id, form.dex]),
         ),
         storage: windowObject?.localStorage ?? null,
       }));
+      if (priorRaid) ui.raid = raidState(priorRaid, validFormIds);
       active?.router?.stop?.();
       active?.stopInteractions?.();
       active = bootstrap({

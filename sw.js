@@ -514,7 +514,10 @@ const worker = typeof self !== "undefined" && "registration" in self ? self : nu
 if (worker) {
   const queuedReleaseCommand = createQueuedReleaseDispatcher();
   worker.addEventListener("install", (event) => {
-    event.waitUntil(installShell().then(() => worker.skipWaiting()));
+    // No skipWaiting: an auto-activated worker purges the previous shell
+    // caches out from under still-open pages (2026-07-22 stranded-client
+    // incident). The new worker waits until the last old-shell page closes.
+    event.waitUntil(installShell());
   });
   worker.addEventListener("activate", (event) => {
     event.waitUntil(activateShell());
