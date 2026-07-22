@@ -81,6 +81,16 @@ export const GLOSSARY = Object.freeze([
     term: "stagger",
     definition: "Two players attacking the same gym defender with their start times offset, so the defender is always under attack from someone. Used to clear a strong defender faster than either player could alone.",
   },
+  {
+    id: "motivation",
+    term: "motivation",
+    definition: "A gym defender's heart-shaped meter. It falls from time passing and from losing battles; feeding it Berries raises it back up. As it falls, the defender's CP progressively drops, and at zero it leaves the gym the next time it loses a battle.",
+  },
+  {
+    id: "cp-decay",
+    term: "CP decay",
+    definition: "As a gym defender's motivation falls, its CP temporarily drops too, making it easier to beat. Higher-CP defenders lose motivation faster, so a lower-CP specialist can actually hold a gym longer.",
+  },
 ]);
 
 

@@ -51,6 +51,7 @@ export const SHELL_FILES = Object.freeze([
   "./src/views/gyms.js",
   "./src/views/home.js",
   "./src/views/instance-sheet.js",
+  "./src/views/maxbasics.js",
   "./src/views/more.js",
   "./src/views/move-sheet.js",
   "./src/views/pvp.js",

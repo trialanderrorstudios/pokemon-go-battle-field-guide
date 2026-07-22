@@ -1,6 +1,7 @@
 import { ATTACK_TYPES } from "../raid-target.js";
 import { escapeHtml } from "./home.js";
 import { spriteHtml } from "../sprites.js";
+import { PVP_LEAGUES } from "./pvp.js";
 
 
 function displayMove(moveId) {
@@ -39,7 +40,69 @@ function moveWithElite(moveId, elite, kind) {
 }
 
 
-function rankCard(row, lane, forms) {
+// Meta-relevant means this Shadow's own ranking already says so: S+/S is this
+// app's existing "Build ASAP"/"Strong Investment" cutoff (see investment.py's
+// TIER_RULES) — the same bar used everywhere else, not a new threshold
+// invented for this advisor. Checked against both raid and PvP rankings,
+// since purifying is irreversible and a Shadow can be a meta pick in either.
+const SHADOW_META_TIERS = new Set(["S+", "S"]);
+
+// True if this form is a meta-relevant Shadow in any PvP league ranking —
+// the Shadow Attack boost matters there too, so a raid-only check would
+// green-light purifying a PvP meta pick.
+function isPvpMetaShadow(formId, pvp) {
+  return PVP_LEAGUES.some((league) => (pvp?.[league] ?? [])
+    .some((row) => row.formId === formId && row.shadow && SHADOW_META_TIERS.has(row.investmentTier)));
+}
+
+// Keep-or-purify verdict for a ranked Shadow raid attacker. Purifying always
+// grants +2 to each IV (capped at 15) — a small, fixed stat bump — but it also
+// removes the Shadow bonus (roughly +20% Attack / -20% Defense vs. the same
+// Pokemon Regular) that is exactly why a meta-relevant Shadow ranks this high
+// as an attacker. For a meta-relevant Shadow, that Attack bonus is worth far
+// more than +2 IVs, so the verdict never recommends purifying one — whether
+// it's meta in raids, in PvP, or both.
+export function shadowAdvisorVerdict(investmentTier, formId, pvp) {
+  const raidMeta = SHADOW_META_TIERS.has(investmentTier);
+  const pvpMeta = isPvpMetaShadow(formId, pvp);
+  if (raidMeta && pvpMeta) {
+    return {
+      verdict: "Keep Shadow",
+      reason: "Ranks as a meta attacker in both raids and PvP specifically because of the Shadow Attack boost. "
+        + "Purifying would trade that boost for a fixed +2 IVs — not a good trade for a top attacker.",
+    };
+  }
+  if (raidMeta) {
+    return {
+      verdict: "Keep Shadow",
+      reason: "Ranks as a meta raid attacker specifically because of the Shadow Attack boost. "
+        + "Purifying would trade that boost for a fixed +2 IVs — not a good trade for a top attacker.",
+    };
+  }
+  if (pvpMeta) {
+    return {
+      verdict: "Keep Shadow",
+      reason: "Not a top raid attacker, but this form is a meta PvP pick where the Shadow Attack boost also matters. "
+        + "Purifying would trade that boost for a fixed +2 IVs — not a good trade for a PvP meta pick.",
+    };
+  }
+  return {
+    verdict: "Fine to purify (raid use)",
+    reason: "Not ranked highly enough as a raid attacker for the Shadow Attack boost to matter much, and not a "
+      + "meta PvP pick either. Purifying trades it for +2 IVs (capped at 15) and removes the Shadow Defense "
+      + "penalty — a fair trade here.",
+  };
+}
+
+
+function shadowAdvisorLine(row, lane, pvp) {
+  if (lane !== "shadow") return "";
+  const advice = shadowAdvisorVerdict(row.investmentTier, row.formId, pvp);
+  return `<p class="shadow-advisor"><strong>${escapeHtml(advice.verdict)}:</strong> ${escapeHtml(advice.reason)}</p>`;
+}
+
+
+function rankCard(row, lane, forms, pvp) {
   const headingId = `raid-${lane}-${row.attackingType}-${row.rank}`.replace(/[^a-z0-9-]/gi, "-").toLowerCase();
   if (row.status !== "ranked" || !row.formId) {
     return `<li class="raid-card raid-card-gap" data-rank="${row.rank}">
@@ -71,6 +134,7 @@ function rankCard(row, lane, forms) {
         <div><dt>Budget value</dt><dd>${escapeHtml(row.budgetValue ?? "—")}</dd></div>
         <div><dt>Future-proof</dt><dd>${escapeHtml(row.futureProof ?? "—")}</dd></div>
       </dl>
+      ${shadowAdvisorLine(row, lane, pvp)}
       <details><summary>Availability and notes</summary>
         <p>${notes.length ? notes.map(escapeHtml).join(" · ") : "No additional notes."}</p>
         ${row.personalAdvice ? `<p><strong>Personal advice:</strong> ${escapeHtml(row.personalAdvice)}</p>` : ""}
@@ -81,11 +145,11 @@ function rankCard(row, lane, forms) {
 }
 
 
-export function renderRaidRankings({ attackingType = "Bug", raids = {}, forms = {} } = {}) {
+export function renderRaidRankings({ attackingType = "Bug", raids = {}, forms = {}, pvp = {} } = {}) {
   const selectedType = ATTACK_TYPES.includes(attackingType) ? attackingType : attackingType;
   const lane = (name, rows) => `<section class="raid-lane" aria-labelledby="${name}-raid-title">
     <h3 id="${name}-raid-title">${name === "shadow" ? "Shadow" : "Regular, Mega & Primal"}</h3>
-    <ol class="raid-card-list">${raidSlots(rows, selectedType).map((row) => rankCard(row, name, forms)).join("")}</ol>
+    <ol class="raid-card-list">${raidSlots(rows, selectedType).map((row) => rankCard(row, name, forms, pvp)).join("")}</ol>
   </section>`;
   return `<section class="raid-rankings" aria-labelledby="raid-rankings-title">
     <p class="status-kicker">Level 40 practical performance</p>
@@ -96,6 +160,6 @@ export function renderRaidRankings({ attackingType = "Bug", raids = {}, forms = 
 }
 
 
-export function renderRaids({ attackingType = "Bug", raids = {}, forms = {} } = {}) {
-  return `<div class="raids-view">${renderRaidRankings({ attackingType, raids, forms })}</div>`;
+export function renderRaids({ attackingType = "Bug", raids = {}, forms = {}, pvp = {} } = {}) {
+  return `<div class="raids-view">${renderRaidRankings({ attackingType, raids, forms, pvp })}</div>`;
 }

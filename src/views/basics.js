@@ -51,12 +51,17 @@ export function renderBasics() {
     <section class="more-section" aria-labelledby="basics-title">
       <p class="status-kicker">New to Pokémon GO battles?</p>
       <h2 id="basics-title">Battle Basics</h2>
-      <p>Eight quick things to know before you raid, defend a gym, or fight another trainer.</p>
+      <p>Quick things to know before you raid, defend a gym, or fight another trainer.</p>
       <a class="safe-escape" href="./#glossary">See every term in the Glossary</a>
     </section>
     <section class="more-section" aria-labelledby="basics-raids-title">
       <h2 id="basics-raids-title">Raids</h2>
       <p>A raid is a timed team battle against one giant Pokémon guarding a gym. You and other nearby trainers fight it together; if you beat it before time runs out, everyone gets a chance to catch it.</p>
+    </section>
+    <section class="more-section" aria-labelledby="basics-maxbattles-title">
+      <h2 id="basics-maxbattles-title">Max Battles</h2>
+      <p>A separate kind of team battle: instead of a gym, you fight a Dynamax or Gigantamax Pokémon at a Power Spot, spending Max Particles to enter and unleashing Max Moves once your meter fills mid-fight.</p>
+      <a class="safe-escape" href="./#maxbasics">Learn how Max Battles work</a>
     </section>
     <section class="more-section" aria-labelledby="basics-gyms-title">
       <h2 id="basics-gyms-title">Gyms</h2>
@@ -87,6 +92,11 @@ export function renderBasics() {
       <p>Every move has a type, and every Pokémon has one or two types. Attacking a type your target is weak to does much more damage, and attacking a type it resists does much less — matching your moves to the enemy's type is the single biggest damage lever you have.</p>
       <a class="safe-escape" href="./#types">See the full type chart</a>
       <p><a class="safe-escape" href="./#drill">Practice type matchups →</a></p>
+    </section>
+    <section class="more-section" aria-labelledby="basics-shadow-title">
+      <h2 id="basics-shadow-title">Shadow and Purified Pokémon</h2>
+      <p>A Shadow Pokémon hits roughly 20% harder but also takes roughly 20% more damage than the same Pokémon in its regular form. "Purifying" a Shadow removes both of those changes and gives it a fixed +2 boost to each of its three IVs (up to the 15 max) — a small, one-time stat bump.</p>
+      <p>That trade is rarely worth it for a Shadow that's actually good as a raid attacker: the Attack boost is doing real work there, and +2 IVs doesn't make up for losing it. Purifying makes more sense for a Shadow you aren't using to attack — the boost isn't helping you anyway, and you get the small IV bump plus a bit less Stardust/Candy pressure going forward. This app's Shadow raid rankings flag which Shadows are worth keeping Shadow for exactly this reason.</p>
     </section>
     <section class="more-section" aria-labelledby="basics-cpiv-title">
       <h2 id="basics-cpiv-title">CP and IV, in one breath each</h2>

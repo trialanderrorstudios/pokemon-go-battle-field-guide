@@ -12,6 +12,7 @@ import { scorePlacement } from "./placement.js";
 import { jargonTerm } from "./glossary.js";
 import { escapeHtml, ownedStarButton, renderHome } from "./views/home.js";
 import { renderBasics } from "./views/basics.js";
+import { renderMaxBasics } from "./views/maxbasics.js";
 import { renderTypes, typeChip } from "./views/types.js";
 import { renderGlossary } from "./views/glossary.js";
 import { handleSpriteError, spriteHtml } from "./sprites.js";
@@ -130,6 +131,41 @@ function updateLeds(documentObject, releaseState, roster) {
   header.querySelector(".led-roster")?.classList.toggle("is-on", state.roster);
   header.querySelector(".led-update")?.classList.toggle("is-on", state.update);
   header.querySelector(".led-fresh")?.classList.toggle("is-on", state.fresh);
+}
+
+
+// ponytail: same disposable-flag pattern as whats-new dismissal, keyed to the
+// candidate release id so dismissing this release's banner doesn't hide the
+// next one.
+function updateBannerDismissedKey(releaseId) {
+  return `update-banner-dismissed:${releaseId}`;
+}
+
+
+// Pure state machine for the top-of-screen update banner: "ready" while a
+// candidate release is waiting and not snoozed, "dismissed" once the operator
+// snoozes that specific release id, "applied" once there's no pending
+// candidate to offer (never had one, or the tap already went through).
+export function updateBannerPhase(releaseState = {}, storage) {
+  const releaseId = releaseState.status === "update_available" ? releaseState.candidate?.releaseId : null;
+  if (!releaseId) return "applied";
+  return storage?.getItem?.(updateBannerDismissedKey(releaseId)) === "1" ? "dismissed" : "ready";
+}
+
+
+function updateBanner(documentObject, releaseState, storage) {
+  const banner = documentObject.getElementById?.("update-banner");
+  if (!banner) return;
+  banner.hidden = updateBannerPhase(releaseState, storage) !== "ready";
+  const label = documentObject.getElementById?.("update-banner-label");
+  if (label) {
+    // ponytail: same "durable update_available only follows a failed
+    // auto-apply" state the More view's releaseLabel() already names —
+    // match its wording instead of a generic "ready" claim.
+    label.textContent = releaseState.error
+      ? "Update failed — tap to retry"
+      : "New version ready — tap to update";
+  }
 }
 
 
@@ -991,6 +1027,10 @@ export function createInteractionController({
       } else if (action === "dismiss-start-here") {
         storage?.setItem?.(START_HERE_DISMISSED_KEY, "1");
         rerender("home");
+      } else if (action === "dismiss-update-banner") {
+        const releaseId = releaseManager?.state?.candidate?.releaseId;
+        if (releaseId) storage?.setItem?.(updateBannerDismissedKey(releaseId), "1");
+        rerenderCurrent();
       } else if (action === "apply-update") await releaseManager?.applyUpdate();
       else if (action === "rollback-release") await releaseManager?.rollback();
       else if (action === "check-update") await releaseManager?.initialize();
@@ -1259,7 +1299,7 @@ function renderRaidSurface(state, ui, roster) {
   </div>`;
   return `<div class="raids-view">${controls}${ui.raid.view === "target"
     ? raidTargetSurface(state, ui, roster)
-    : renderRaids({ attackingType: ui.raid.attackingType, raids: state.raids, forms: state.core.forms })}</div>`;
+    : renderRaids({ attackingType: ui.raid.attackingType, raids: state.raids, forms: state.core.forms, pvp: state.pvp })}</div>`;
 }
 
 
@@ -1331,7 +1371,7 @@ function continueTaskFor(state, ui) {
 }
 
 
-function bindInteractions(app, controller) {
+function bindInteractions(app, controller, extraClickTargets = []) {
   if (typeof app?.addEventListener !== "function") return () => {};
   const delegate = (operation) => {
     void Promise.resolve().then(operation).catch((error) => controller.handleFailure(error));
@@ -1345,11 +1385,16 @@ function bindInteractions(app, controller) {
   // "error" does not bubble, so this must be a capturing listener; it swaps
   // any broken sprite <img> for its fallback circle without inline JS.
   app.addEventListener("error", handleSpriteError, true);
+  // The update banner lives in the persistent chrome outside #app (it must
+  // survive route innerHTML swaps), so it needs its own click hookup into
+  // the same [data-action] dispatch.
+  for (const target of extraClickTargets) target?.addEventListener?.("click", onClick);
   return () => {
     app.removeEventListener?.("click", onClick);
     app.removeEventListener?.("change", onChange);
     app.removeEventListener?.("input", onInput);
     app.removeEventListener?.("error", handleSpriteError, true);
+    for (const target of extraClickTargets) target?.removeEventListener?.("click", onClick);
   };
 }
 
@@ -1417,6 +1462,9 @@ export function bootstrap({
     },
     basics() {
       app.innerHTML = renderBasics();
+    },
+    maxbasics() {
+      app.innerHTML = renderMaxBasics();
     },
     types() {
       app.innerHTML = renderTypes();
@@ -1516,6 +1564,7 @@ export function bootstrap({
         });
       }
       updateLeds(documentObject, releaseState, roster);
+      updateBanner(documentObject, releaseState, storage);
     };
   }
   const router = createRouter({
@@ -1564,7 +1613,7 @@ export function bootstrap({
     storage,
   });
   router.start();
-  const stopInteractions = bindInteractions(app, controller);
+  const stopInteractions = bindInteractions(app, controller, [documentObject.getElementById?.("update-banner")]);
   return { status: "ready", router, searchIndex: index, controller, ui, stopInteractions };
 }
 

@@ -1,6 +1,7 @@
-import { escapeHtml } from "./home.js";
+import { escapeHtml, ownedStarButton } from "./home.js";
 import { spriteHtml } from "../sprites.js";
 import { moveLink } from "./move-sheet.js";
+import { jargonTerm } from "../glossary.js";
 
 
 function sectionHeading(kicker, title, id) {
@@ -23,6 +24,7 @@ function movePair(row, forms) {
 function buildCard(row, index, forms) {
   const id = `gym-build-${index + 1}`;
   return `<li class="gym-card"><article aria-labelledby="${id}">
+    ${spriteHtml(row.formId, forms, row.pokemon, forms?.[row.formId]?.primary_type)}
     <p class="gym-rank">${index + 1} · ${escapeHtml(row.healingEfficiency)} healing efficiency</p>
     <h3 id="${id}">${escapeHtml(row.pokemon)}</h3>
     <p class="gym-moves"><strong>${movePair(row, forms)}</strong></p>
@@ -56,14 +58,18 @@ function staggerSection(gym) {
 }
 
 
-function defenderCard(row, forms) {
-  return `<li class="gym-card"><article>
+function defenderCard(row, forms, ownedFormIds) {
+  const owned = new Set(ownedFormIds ?? []).has(row.formId);
+  return `<li class="gym-card${owned ? " is-owned" : ""}"><article>
     ${spriteHtml(row.formId, forms, row.pokemon, forms?.[row.formId]?.primary_type)}
     <p class="gym-rank">${escapeHtml(row.defenseTier)}-tier defender</p>
     <h3>${escapeHtml(row.pokemon)}</h3>
     <p><strong>${movePair(row, forms)}</strong></p>
     <p><strong>Weak to:</strong> ${escapeHtml((row.weaknesses ?? []).join(", "))}</p>
     <p>${escapeHtml(row.placementValue)}</p>
+    <p class="gym-why-line">${escapeHtml(row.whyLine)}</p>
+    ${ownedStarButton({ formId: row.formId, name: row.pokemon, owned, route: "gyms" })}
+    <span class="owned-count">${owned ? "Owned" : "Not owned"}</span>
     <details><summary>Motivation and solo counters</summary>
       <p><strong>Motivation:</strong> ${escapeHtml(row.motivationNote)}</p>
       ${(row.soloCounters ?? []).map((counter) => `<p>${escapeHtml(counter.pokemon)} · ${movePair(counter, forms)}</p>`).join("")}
@@ -72,15 +78,33 @@ function defenderCard(row, forms) {
 }
 
 
-function defenseSection(gym, forms) {
+// Motivation and coin mechanics: motivation/berry rules from Niantic's own
+// gym-battles support page (data/sources/raw/official-gym-battles.html —
+// "All Berries provide the same increase in motivation, with the exception
+// of the Golden Razz Berry, which fully restores motivation"). The 1
+// coin/10 minutes, 50-coin daily cap, paid-on-return rule isn't in that
+// archived page; it's Niantic's long-standing, widely documented Defender
+// Bonus rule (Pokémon GO Help Center, "Earning the Defender Bonus").
+function motivationSection() {
+  return `<section class="gym-section" aria-labelledby="gym-motivation-title">
+    ${sectionHeading("Why defenders don't hold forever", "Motivation and CP decay", "gym-motivation-title")}
+    <p>Every defender has ${jargonTerm("motivation", "motivation")} — a meter that falls both from time passing and from losing battles. As it falls, ${jargonTerm("cp-decay", "CP decay")} makes the defender easier for attackers to beat. At zero motivation, the defender leaves the gym the next time it loses a battle.</p>
+    <p>Feeding a defending Pokémon a Berry restores motivation. Razz, Nanab, and Pinap Berries all restore the same amount; a Golden Razz Berry fully restores motivation in one feed.</p>
+    <p>Defending pays PokéCoins: 1 coin per 10 minutes a Pokémon holds a gym, capped at 50 coins per day account-wide. Coins are paid out when a defender is knocked out and returns to you.</p>
+  </section>`;
+}
+
+
+function defenseSection(gym, forms, ownedFormIds) {
   const warnings = (gym.placementWarnings ?? []).map((warning) => `<aside class="gym-warning">
     <strong>${escapeHtml(warning.message)}</strong><p>${escapeHtml(warning.recommendation)}</p>
   </aside>`).join("");
   return `<section class="gym-section" aria-labelledby="gym-defense-title">
     ${sectionHeading("Break the attacker's flow", "Defender placement", "gym-defense-title")}
     <p class="gym-intro">Alternate weaknesses and consider motivation decay; defense delays attackers but cannot guarantee a hold.</p>
+    <p class="gym-iv-note">IV spread for a defender: favor Defense and Stamina over Attack. There's no CP cap to work around here, but higher Attack IV only inflates CP — and higher CP decays motivation faster — without adding any staying power.</p>
     ${warnings}
-    <ul class="gym-card-list">${(gym.defenders ?? []).map((row) => defenderCard(row, forms)).join("")}</ul>
+    <ul class="gym-card-list">${(gym.defenders ?? []).map((row) => defenderCard(row, forms, ownedFormIds)).join("")}</ul>
   </section>`;
 }
 
@@ -159,7 +183,8 @@ export function renderGyms({
     ${renderPlacementCoach({ placementResult, ownedIndex, overallIndex })}
     ${offenseSection(gym, forms)}
     ${staggerSection(gym)}
-    ${defenseSection(gym, forms)}
+    ${defenseSection(gym, forms, ownedFormIds)}
+    ${motivationSection()}
     ${ownedDefenderEditor(gym.defenders, ownedFormIds)}
   </div>`;
 }

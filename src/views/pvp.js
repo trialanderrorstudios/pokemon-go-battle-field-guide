@@ -3,6 +3,7 @@ import { jargonTerm } from "../glossary.js";
 import { spriteHtml } from "../sprites.js";
 import { displayMoveName, moveLink } from "./move-sheet.js";
 import { buildMyTeam, LEAGUE_CP_CAP, MY_TEAM_SLOTS, myTeamOverridesFor } from "../pvp-team.js";
+import { xlPowerUpCost } from "../raid-target.js";
 
 
 export const PVP_LEAGUES = Object.freeze(["great", "ultra", "master"]);
@@ -99,6 +100,21 @@ function controls(state) {
 }
 
 
+// Open Master League always recommends the max-level (usually 50) rank-1 spread
+// since there's no CP cap to stop at — that's the one context where pushing past
+// Level 40 is the standard recommendation, not a situational stretch goal. Great
+// and Ultra League's cap-driven level (which can also exceed 40 for low-CP forms)
+// stays a plain "XL: Yes/No" flag instead; it isn't the same "go to endgame" case.
+function endgamePowerUpLine(row) {
+  const level = row.rankOne?.level;
+  if (row.league !== "master" || !row.rankOne?.xlRequired || !Number.isFinite(level)) return "";
+  const { candy, stardust } = xlPowerUpCost(40, level, row.shadow);
+  return `<p class="pvp-endgame-cost"><strong>Endgame (Level 40 → ${escapeHtml(level)}):</strong> `
+    + `${escapeHtml(candy)} XL Candy + ${escapeHtml(stardust.toLocaleString("en-US"))} Stardust`
+    + `${row.shadow ? " (Shadow: +20% Candy/Stardust already included)" : ""} — XL Candy is slow to earn.</p>`;
+}
+
+
 function pvpCard(row, forms, { showLeague = false, publishedRank = false } = {}) {
   const rankOne = row.rankOne ?? {};
   const ivs = rankOne.ivs ?? {};
@@ -121,6 +137,7 @@ function pvpCard(row, forms, { showLeague = false, publishedRank = false } = {})
         <div><dt>${jargonTerm("candy", "XL")}</dt><dd>${yesNo(rankOne.xlRequired)}</dd></div>
         <div><dt>Best Buddy</dt><dd>${yesNo(rankOne.bestBuddyRequired)}</dd></div>
       </dl>
+      ${endgamePowerUpLine(row)}
       <dl class="pvp-guidance">
         <div><dt>Role</dt><dd>${escapeHtml(row.primaryRole)} · ${escapeHtml((row.roles ?? []).join(", "))}</dd></div>
         <div><dt>Investment</dt><dd>${escapeHtml(row.investmentTier)} · ${escapeHtml(row.recommendation)}</dd></div>

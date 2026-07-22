@@ -109,10 +109,12 @@ function formatEventWhen(startsAt, endsAt) {
 }
 
 
-export function eventCard({ eventId, name, formId, startsAt, endsAt, action } = {}, { forms, now = new Date() } = {}) {
+const MAX_EVENT_KINDS = new Set(["max-battles", "max-mondays"]);
+
+export function eventCard({ eventId, kind, name, formId, startsAt, endsAt, action } = {}, { forms, now = new Date() } = {}) {
   const stale = typeof endsAt === "string" && !Number.isNaN(Date.parse(endsAt)) && new Date(endsAt) < now;
   return `<div class="fallback-section home-event-card" data-event-id="${escapeHtml(eventId)}">
-    <div class="home-event-heading">${formId ? spriteHtml(formId, forms, name, forms?.[formId]?.primary_type) : ""}<h4>${escapeHtml(name)}</h4></div>
+    <div class="home-event-heading">${formId ? spriteHtml(formId, forms, name, forms?.[formId]?.primary_type) : ""}<h4>${escapeHtml(name)}</h4>${MAX_EVENT_KINDS.has(kind) ? `<span class="event-kind-badge">MAX</span>` : ""}</div>
     <p class="event-when">${escapeHtml(formatEventWhen(startsAt, endsAt))}</p>
     <p class="event-action">${escapeHtml(action)}</p>
     ${stale ? `<p class="boss-stale">May be outdated — check in-game.</p>` : ""}

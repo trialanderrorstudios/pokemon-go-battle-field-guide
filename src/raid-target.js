@@ -303,6 +303,62 @@ export function powerUpCost(fromLevel, toLevel = 40) {
   return { candy, stardust };
 }
 
+// Endgame (Level 41-50) XL Candy + Stardust power-up cost, per half-level step.
+// XL Candy is a separate, far rarer currency than the regular Candy POWERUP_TIERS
+// spends below Level 40. Values cross-checked against two independent public
+// summaries (Pokemon GO Hub's "Candy and Stardust requirement chart" and
+// Gamepur's "Level 41-50 XL Candy" guide): both agree the base cost from
+// Level 40 to 50 totals 296 XL Candy + 250,000 Stardust, which this table
+// reproduces exactly (each half-step below costs the same as its partner
+// half-step within the same whole level).
+export const XL_POWERUP_TIERS = Object.freeze([
+  { upto: 40.5, candy: 10, stardust: 10000 },
+  { upto: 41, candy: 10, stardust: 10000 },
+  { upto: 41.5, candy: 10, stardust: 11000 },
+  { upto: 42, candy: 10, stardust: 11000 },
+  { upto: 42.5, candy: 12, stardust: 11000 },
+  { upto: 43, candy: 12, stardust: 11000 },
+  { upto: 43.5, candy: 12, stardust: 12000 },
+  { upto: 44, candy: 12, stardust: 12000 },
+  { upto: 44.5, candy: 15, stardust: 12000 },
+  { upto: 45, candy: 15, stardust: 12000 },
+  { upto: 45.5, candy: 15, stardust: 13000 },
+  { upto: 46, candy: 15, stardust: 13000 },
+  { upto: 46.5, candy: 17, stardust: 13000 },
+  { upto: 47, candy: 17, stardust: 13000 },
+  { upto: 47.5, candy: 17, stardust: 14000 },
+  { upto: 48, candy: 17, stardust: 14000 },
+  { upto: 48.5, candy: 20, stardust: 14000 },
+  { upto: 49, candy: 20, stardust: 14000 },
+  { upto: 49.5, candy: 20, stardust: 15000 },
+  { upto: 50, candy: 20, stardust: 15000 },
+]);
+
+// Shadow Pokemon cost 20% more Candy and Stardust per power-up (frozen Game
+// Master: shadowCandyMultiplier / shadowStardustMultiplier = 1.2), applied and
+// rounded per half-level step to match in-game display.
+const SHADOW_POWERUP_MULTIPLIER = 1.2;
+
+// Total XL Candy + Stardust to power up from fromLevel to toLevel, both clamped
+// to the 40-50 endgame band. Mirrors powerUpCost()'s half-level walk, but over
+// XL_POWERUP_TIERS instead — kept as a separate function rather than folding
+// into powerUpCost() so the Level-40 cap there (and its "XL not covered"
+// callers) stays unchanged.
+export function xlPowerUpCost(fromLevel = 40, toLevel = 50, shadow = false) {
+  const from = Math.max(40, Math.min(50, Number(fromLevel) || 40));
+  const to = Math.max(40, Math.min(50, Number(toLevel) || 50));
+  let candy = 0;
+  let stardust = 0;
+  for (let halfLevel = Math.round(from * 2) + 1; halfLevel <= Math.round(to * 2); halfLevel++) {
+    const level = halfLevel / 2;
+    const tier = XL_POWERUP_TIERS.find((row) => level <= row.upto);
+    if (!tier) continue;
+    candy += shadow ? Math.round(tier.candy * SHADOW_POWERUP_MULTIPLIER) : tier.candy;
+    stardust += shadow ? Math.round(tier.stardust * SHADOW_POWERUP_MULTIPLIER) : tier.stardust;
+  }
+  return { candy, stardust };
+}
+
 
 export function buildRaidPlan({
   targetFormId,
