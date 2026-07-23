@@ -5,6 +5,7 @@ import { jargonTerm } from "../glossary.js";
 import { buildLeaderboard, exportPlayerLog } from "../gym-defense-log.js";
 import { buildDeploymentMap } from "../gym-availability.js";
 import { bestInstanceForForm } from "../instances.js";
+import { gymDefenseCardData } from "../share-card.js";
 import { TEAM_SET } from "../storage.js";
 
 // Team (GO): Bulbapedia's "Team (GO)" article — official team colors.
@@ -221,7 +222,7 @@ export function renderPlacementCoach({
 }
 
 
-function formatDefenseDuration(ms) {
+export function formatDefenseDuration(ms) {
   const totalMinutes = Math.max(0, Math.round(ms / 60000));
   const days = Math.floor(totalMinutes / 1440);
   const hours = Math.floor((totalMinutes % 1440) / 60);
@@ -285,6 +286,8 @@ export function renderDefenseLog({ log, now = Date.now(), draft = {}, trainerTea
   const safeLog = log ?? { localPlayerName: "You", entries: [] };
   const rows = buildLeaderboard(safeLog, now, trainerTeam);
   const message = draft.message ?? "";
+  const myRow = rows.find((row) => row.playerName === safeLog.localPlayerName);
+  const shareCard = gymDefenseCardData(myRow);
   return `<section class="gym-section" aria-labelledby="gym-defense-log-title">
     ${sectionHeading("Manual, honest tracking", "Gym Defense Leaderboard", "gym-defense-log-title")}
     <p class="gym-intro">Pokémon GO doesn't expose gym-hold data to apps — this board is only as accurate as what you and your friends type in.</p>
@@ -293,6 +296,7 @@ export function renderDefenseLog({ log, now = Date.now(), draft = {}, trainerTea
       <input type="text" maxlength="40" data-defense-log-player-name value="${escapeHtml(safeLog.localPlayerName)}">
     </label>
     ${defenseLeaderboardTable(rows)}
+    ${shareCard ? '<button type="button" data-action="share-gym-defense-card">Share my defense card</button>' : ""}
     <h3>Active defenders</h3>
     ${activeDefendersSection(rows, draft)}
     <h3>Drop a defender</h3>

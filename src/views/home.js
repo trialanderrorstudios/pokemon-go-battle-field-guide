@@ -443,6 +443,7 @@ export function renderHome({
     <form class="fallback-section" role="search" data-global-search>
       <label for="global-search">Search Pokémon, move, type, or raid boss</label>
       <input id="global-search" name="q" type="search" autocomplete="off">
+      <div class="search-recents" data-search-recents></div>
       <div data-search-results aria-live="polite"></div>
     </form>
     ${renderWeekStrip({ currentEvents, forms })}
@@ -464,6 +465,7 @@ export function renderHome({
       ${taskCard({ href: "./#more", title: "My Roster", detail: "Use the Pokémon you already own." })}
       ${taskCard({ href: "./#basics", title: "Battle Basics", detail: "New here? Start with the plain-language basics." })}
       ${taskCard({ href: "./#types", title: "Type Chart", detail: "Every type's strengths and weaknesses." })}
+      ${taskCard({ href: "./#eggs", title: "Egg Pool", detail: "What can hatch from each egg distance." })}
     </div>
     ${renderCurrentEvents({ currentEvents, forms })}
     <footer class="home-status-chips" aria-label="Field status">

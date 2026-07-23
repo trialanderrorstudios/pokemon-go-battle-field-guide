@@ -527,6 +527,81 @@ h1 {
   outline-offset: 2px;
 }
 
+.search-recents-label {
+  margin: 0.5rem 0 0.25rem;
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 750;
+}
+
+.search-recents-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.search-recents-chips .chip.recent-chip {
+  display: flex;
+  align-items: center;
+  min-height: 48px;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 0.9rem;
+  background: var(--panel-raised);
+  overflow: hidden;
+}
+
+.recent-chip-term,
+.recent-chip-dismiss {
+  border: none;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  cursor: pointer;
+}
+
+.recent-chip-term {
+  min-height: 48px;
+  padding: 0.5rem 0.6rem 0.5rem 0.8rem;
+  font-size: 0.9rem;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+}
+
+.recent-chip-dismiss {
+  min-width: 48px;
+  min-height: 48px;
+  padding: 0.5rem 0.8rem;
+  color: var(--muted);
+  font-size: 1rem;
+  line-height: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.recent-chip-term:hover,
+.recent-chip-dismiss:hover {
+  color: var(--cyan);
+}
+
+.recent-chip-term:focus-visible,
+.recent-chip-dismiss:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: -2px;
+}
+
+.search-result-card mark {
+  background: var(--amber);
+  color: var(--cyan-ink);
+  border-radius: 0.2rem;
+  padding: 0 0.1rem;
+}
+
 .whats-new-card {
   display: grid;
   gap: 0.5rem;
@@ -3168,7 +3243,8 @@ h1 {
 }
 
 .defense-log-form button,
-.gym-section > button {
+.gym-section > button,
+.triage-share-card {
   min-width: 48px;
   min-height: 48px;
   padding: 0.6rem;
@@ -3182,7 +3258,8 @@ h1 {
 }
 
 .defense-log-form button:focus-visible,
-.gym-section > button:focus-visible {
+.gym-section > button:focus-visible,
+.triage-share-card:focus-visible {
   outline: 3px solid var(--focus);
   box-shadow: 0 0 0 5px rgba(24, 32, 56, 0.85);
   outline-offset: 2px;
@@ -3327,4 +3404,63 @@ h1 {
 .collection-card-status {
   color: var(--muted);
   font-size: 0.68rem;
+}
+
+.egg-group {
+  margin-top: 1rem;
+}
+
+.egg-list {
+  display: grid;
+  gap: 0.55rem;
+  margin: 0.5rem 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.egg-row {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  padding: 0.6rem 0.7rem;
+  border: 1px solid var(--line);
+  border-radius: 0.75rem;
+  background: var(--screen-bg);
+}
+
+.egg-row-body {
+  display: grid;
+  gap: 0.15rem;
+  min-width: 0;
+}
+
+.egg-row-name {
+  font-weight: 750;
+  color: var(--text);
+}
+
+.egg-row-cp {
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+.egg-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  margin: 0.2rem 0 0;
+}
+
+.egg-badge {
+  display: inline-block;
+  padding: 0.1rem 0.5rem;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  color: var(--muted);
+  font-size: 0.68rem;
+}
+
+.egg-badge-shiny {
+  border-color: var(--amber);
+  color: var(--amber);
 }

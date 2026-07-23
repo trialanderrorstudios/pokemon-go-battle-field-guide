@@ -1,4 +1,5 @@
 import { GLOSSARY, jargonTerm } from "../glossary.js";
+import { triageSummaryCardData } from "../share-card.js";
 import { spriteHtml } from "../sprites.js";
 import { TRIAGE_BUCKETS } from "../triage.js";
 import { escapeHtml } from "./home.js";
@@ -28,6 +29,7 @@ export function createTriageViewState(filters = {}) {
       ? filters.copyStatus
       : "",
     explainerOpen: Boolean(filters.explainerOpen),
+    shareStatus: typeof filters.shareStatus === "string" ? filters.shareStatus : "",
   };
 }
 
@@ -194,12 +196,21 @@ export function renderTriage({ result = {}, forms = {}, state: rawState, showGui
   const hasPrevious = state.offset > 0;
   const hasNext = rangeEnd < matches.length;
   const counts = result.counts ?? {};
+  const shareCard = triageSummaryCardData(counts);
+  const shareStatus = state.shareStatus === "downloaded"
+    ? '<p class="triage-copy-status" role="status">Downloaded your triage card.</p>'
+    : state.shareStatus === "shared"
+      ? '<p class="triage-copy-status" role="status">Shared your triage card.</p>'
+      : state.shareStatus === "unavailable"
+        ? '<p class="triage-copy-status" role="status">Could not share or download the card on this device.</p>'
+        : "";
   return `<section class="triage-view" aria-labelledby="triage-title">
     <p class="status-kicker">Your box, one decision at a time</p><h2 id="triage-title">Triage My Box</h2>
     ${guideCard(showGuide)}
     <div class="triage-filters" role="group" aria-label="Triage result filter">
       ${TRIAGE_BUCKETS.map((bucket) => `<button type="button" data-triage-filter="${bucket}" aria-pressed="${state.filter === bucket}">${bucket} <span>${escapeHtml(counts[bucket] ?? 0)}</span></button>`).join("")}
     </div>
+    ${shareCard ? `<button type="button" class="triage-share-card" data-action="share-triage-summary-card">Share my triage card</button>${shareStatus}` : ""}
     ${state.filter === "CANDY" ? candyTools(result, state) : ""}
     <p class="triage-window-status">Showing ${visible.length ? `${rangeStart}–${rangeEnd}` : "0"} of ${matches.length}</p>
     <ul class="triage-list">${visible.map((entry) => entryRow(entry, forms)).join("")}</ul>

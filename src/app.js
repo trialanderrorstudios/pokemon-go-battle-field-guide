@@ -1,7 +1,9 @@
 import { createRouter, ROUTES } from "./router.js";
 import { APP_SHELL_REVISION, ReleaseManager } from "./release-manager.js";
 import { ATTACK_TYPES, WEATHERS, becauseLine, buildRaidPlan, loadWeather, powerUpCost, saveWeather } from "./raid-target.js";
-import { buildSearchIndex, search } from "./search.js";
+import {
+  buildSearchIndex, loadRecentSearches, removeRecentSearch, saveRecentSearch, search,
+} from "./search.js";
 import {
   ROSTER_SCHEMA,
   createIndexedDbAdapter,
@@ -25,11 +27,13 @@ import { renderMore } from "./views/more.js";
 import { buildMoveIndex } from "./moves.js";
 import { moveLink, renderMoveSheet } from "./views/move-sheet.js";
 import { renderInstanceSheet } from "./views/instance-sheet.js";
+import { STANDARD_TARGET_DEFENSE, instanceBreakpointReports } from "./breakpoints.js";
 import {
   bestInstanceForForm, buildInstance, instanceLevel, reviseInstanceCp,
 } from "./instances.js";
 import { parsePokeGenieCsv } from "./poke-genie-import.js";
 import {
+  buildLeaderboard,
   completeDefense,
   deleteDefenseEntry,
   exportPlayerLog,
@@ -39,6 +43,7 @@ import {
   setLocalPlayerName,
   startDefense,
 } from "./gym-defense-log.js";
+import { gymDefenseCardData, instanceCardData, shareOrDownloadCard, triageSummaryCardData } from "./share-card.js";
 import {
   buildDeploymentMap,
   findNearestCachedGym,
@@ -103,6 +108,7 @@ import {
 import { renderSwap } from "./views/swap.js";
 import { renderCoach } from "./views/coach.js";
 import { renderToday, toggleTodayTask } from "./views/today.js";
+import { renderEggs } from "./views/eggs.js";
 import { triageRoster } from "./triage.js";
 import {
   advanceTriageView,
@@ -145,6 +151,7 @@ export const ROUTE_CHUNKS = Object.freeze({
   // Blissey-class walls as transfer candy (operator-reported 2026-07-23).
   triage: ["raids.json", "pvp.json", "extras.json", "gyms.json"],
   more: ["extras.json"],
+  eggs: ["current-eggs.json"],
 });
 
 export function chunksNeededFor(route, loadedChunkPaths) {
@@ -166,6 +173,7 @@ const CHUNK_FIELDS = Object.freeze({
   "extras.json": ["budgets", "megasPrimals", "futureProof", "coveragePlanner"],
   "current-bosses.json": ["currentBosses"],
   "current-events.json": ["currentEvents"],
+  "current-eggs.json": ["currentEggs"],
 });
 
 // bootstrap()'s default for loadedChunkPaths when a caller (a test, or any
@@ -263,11 +271,31 @@ function chunkLoadingNotice(label) {
 }
 
 
-function renderSearchResults(results, forms, roster) {
+// Highlights the first case-insensitive occurrence of the raw (un-normalized)
+// query in the display name. Fuzzy/typo matches and accent/hyphen-only
+// matches have no exact substring to point at, so those just fall back to
+// the plain escaped name — no highlight, not an error.
+function highlightMatch(name, rawQuery) {
+  const query = rawQuery.trim();
+  const index = query ? name.toLowerCase().indexOf(query.toLowerCase()) : -1;
+  if (index === -1) return escapeHtml(name);
+  return `${escapeHtml(name.slice(0, index))}<mark>${escapeHtml(name.slice(index, index + query.length))}</mark>${escapeHtml(name.slice(index + query.length))}`;
+}
+
+
+function renderSearchResults(results, forms, roster, rawQuery = "") {
   if (!results.length) return "<p>No local matches.</p>";
   const owned = new Set(roster?.ownedFormIds ?? []);
   return `<ul>${results.slice(0, 10).map((result) => (
-    `<li class="search-result-card${owned.has(result.formId) ? " is-owned" : ""}">${spriteHtml(result.formId, forms, result.name, forms?.[result.formId]?.primary_type)}<strong>${escapeHtml(result.name)}</strong> <span>${escapeHtml(result.resultCategory)}</span>${ownedStarButton({ formId: result.formId, name: result.name, owned: owned.has(result.formId), route: "search" })}</li>`
+    `<li class="search-result-card${owned.has(result.formId) ? " is-owned" : ""}">${spriteHtml(result.formId, forms, result.name, forms?.[result.formId]?.primary_type)}<strong>${highlightMatch(result.name, rawQuery)}</strong> <span>${escapeHtml(result.resultCategory)}</span>${ownedStarButton({ formId: result.formId, name: result.name, owned: owned.has(result.formId), route: "search" })}</li>`
+  )).join("")}</ul>`;
+}
+
+
+function recentSearchesHtml(terms) {
+  if (!terms.length) return "";
+  return `<p class="search-recents-label">Recent searches</p><ul class="search-recents-chips">${terms.map((term) => (
+    `<li><span class="chip recent-chip"><button type="button" class="recent-chip-term" data-recent-term="${escapeHtml(term)}">${escapeHtml(term)}</button><button type="button" class="recent-chip-dismiss" data-recent-dismiss="${escapeHtml(term)}" aria-label="Remove ${escapeHtml(term)} from recent searches">×</button></span></li>`
   )).join("")}</ul>`;
 }
 
@@ -320,17 +348,45 @@ export async function requestPushPermission({ flagEnabled, notification = global
 }
 
 
-export function bindSearch(documentObject, index, forms, roster) {
+export function bindSearch(documentObject, index, forms, roster, storage = null) {
   const form = documentObject.querySelector("[data-global-search]");
   const input = form?.querySelector("input[type='search']");
   const output = form?.querySelector("[data-search-results]");
   if (!input || !output) return () => {};
+  const recentsContainer = form?.querySelector("[data-search-recents]");
+  const renderRecents = () => {
+    if (!recentsContainer) return;
+    recentsContainer.innerHTML = recentSearchesHtml(loadRecentSearches(storage));
+  };
   const render = () => {
-    output.innerHTML = input.value.trim()
-      ? renderSearchResults(search(index, input.value), forms, roster)
-      : "";
+    const query = input.value.trim();
+    output.innerHTML = query ? renderSearchResults(search(index, input.value), forms, roster, input.value) : "";
+    if (recentsContainer) recentsContainer.hidden = Boolean(query);
   };
   input.addEventListener("input", render);
+  // Recent searches are recorded on submit (Enter), not on every keystroke —
+  // otherwise every partial typed prefix would get remembered.
+  form?.addEventListener?.("submit", (event) => {
+    event.preventDefault();
+    if (!input.value.trim()) return;
+    saveRecentSearch(storage, input.value);
+    renderRecents();
+  });
+  recentsContainer?.addEventListener?.("click", (event) => {
+    const dismiss = event.target.closest?.("[data-recent-dismiss]");
+    if (dismiss) {
+      removeRecentSearch(storage, dismiss.dataset.recentDismiss);
+      renderRecents();
+      return;
+    }
+    const term = event.target.closest?.("[data-recent-term]");
+    if (term) {
+      input.value = term.dataset.recentTerm;
+      render();
+      input.focus?.();
+    }
+  });
+  renderRecents();
   return render;
 }
 
@@ -854,6 +910,7 @@ export function createInteractionController({
   onConfirm = () => true,
   onFeedbackExport = null,
   onBackupExport = null,
+  onShareCard = null,
   getTriageResult = () => ({ entries: [] }),
   onRosterChanged = () => {},
   searchRefresh = () => {},
@@ -909,6 +966,7 @@ export function createInteractionController({
     onConfirm,
     onFeedbackExport,
     onBackupExport,
+    onShareCard,
     getTriageResult,
     handleFailure(error) {
       ui.interactionMessage = `Could not save changes: ${error?.message ?? error}`;
@@ -1319,6 +1377,7 @@ export function createInteractionController({
             error: "",
             focusInstanceId: instance?.id ?? null,
             returnRoute,
+            shareMessage: "",
           };
         }
         rerenderCurrent();
@@ -1342,6 +1401,7 @@ export function createInteractionController({
             error: "",
             focusInstanceId: ui.instanceSheet.returnRoute === "triage" ? instance.id : null,
             quickCp: null,
+            shareMessage: "",
           };
         }
         rerenderCurrent();
@@ -1353,6 +1413,19 @@ export function createInteractionController({
         if (instance) {
           ui.instanceSheet.quickCp = { instanceId: instance.id, value: String(instance.cp), error: "" };
         }
+        rerenderCurrent();
+        return;
+      }
+      const shareInstance = target?.closest?.("[data-share-instance-id]");
+      if (shareInstance && ui.instanceSheet) {
+        const instance = (roster.instances ?? []).find((row) => row.id === shareInstance.dataset.shareInstanceId);
+        const form = forms[ui.instanceSheet.formId];
+        const cardData = instanceCardData(instance, form);
+        const outcome = cardData ? await (api.onShareCard ?? onShareCard)?.("instance", cardData) : "no-data";
+        ui.instanceSheet.shareMessage = outcome === "shared" ? "Shared your card."
+          : outcome === "downloaded" ? "Downloaded your card."
+          : outcome === "cancelled" ? ""
+          : "Could not share or download the card on this device.";
         rerenderCurrent();
         return;
       }
@@ -1721,6 +1794,21 @@ export function createInteractionController({
         const copied = Boolean(payload) && await api.onTriageCopy?.(payload);
         ui.triage.copyStatus = copied ? "success" : "failure";
         rerender("triage");
+      } else if (action === "share-triage-summary-card") {
+        const cardData = triageSummaryCardData(api.getTriageResult?.()?.counts);
+        const outcome = cardData ? await (api.onShareCard ?? onShareCard)?.("triageSummary", cardData) : "no-data";
+        ui.triage.shareStatus = outcome === "cancelled" ? "" : outcome;
+        rerender("triage");
+      } else if (action === "share-gym-defense-card") {
+        const row = buildLeaderboard(ui.defenseLog, Date.now(), ui.trainerProfile.team)
+          .find((entry) => entry.playerName === ui.defenseLog.localPlayerName);
+        const cardData = gymDefenseCardData(row);
+        const outcome = cardData ? await (api.onShareCard ?? onShareCard)?.("gymDefense", cardData) : "no-data";
+        ui.defenseLogDraft.message = outcome === "shared" ? "Shared your defense card."
+          : outcome === "downloaded" ? "Downloaded your defense card."
+          : outcome === "cancelled" ? ""
+          : "Could not share or download the card on this device.";
+        rerender("gyms");
       } else if (action === "dismiss-guide") {
         const route = actionEl.dataset.guideRoute;
         if (route) dismissGuide(route, storage);
@@ -2131,8 +2219,41 @@ function feedbackThumbs(surface, formId) {
 }
 
 
+// Collapsible "Breakpoints" section: damage-per-hit for the instance's ACTUAL
+// known moves (never the optimal moveset it might not have) against this
+// boss's types, plus the next level where a power-up would gain another
+// point of damage per hit and whether today's weather already boosts a move.
+// Renders nothing for star-only rows (no detailed instance) or when the
+// release's move catalog doesn't document a move's PvE stats — see
+// breakpoints.js for both fallbacks.
+function breakpointsSection(form, bestInstance, bossTypes, { moveCatalog, weather, targetDefense } = {}) {
+  if (!form || !bestInstance) return "";
+  const reports = instanceBreakpointReports({
+    form, instance: bestInstance, moveCatalog, bossTypes, weather, targetDefense,
+  });
+  if (!reports.length) return "";
+  const rows = reports.map((report) => {
+    const slotLabel = report.slot === "charged" ? "Charged" : "Fast";
+    const weatherLine = report.weatherBoosted
+      ? (report.weatherGain > 0
+        ? ` ${jargonTerm("weather-boost", "Weather boost")} adds +${escapeHtml(report.weatherGain)} damage/hit right now.`
+        : ` ${jargonTerm("weather-boost", "Weather boost")} is active but doesn't change this hit's rounded damage.`)
+      : "";
+    const nextLine = report.nextBreakpoint
+      ? ` Next ${jargonTerm("breakpoint", "breakpoint")}: Level ${escapeHtml(report.nextBreakpoint.level)} → ${escapeHtml(report.nextBreakpoint.damage)} damage/hit (+${escapeHtml(report.nextBreakpoint.gain)}).`
+      : " No further damage-per-hit breakpoint through Level 51.";
+    return `<li><strong>${moveLink(report.moveId, { kind: slotLabel })}</strong> (${slotLabel}): ${escapeHtml(report.currentDamage)} damage/hit at Level ${escapeHtml(report.currentLevel)}.${weatherLine}${nextLine}</li>`;
+  }).join("");
+  return `<details class="raid-breakpoints">
+    <summary>Breakpoints</summary>
+    <ul>${rows}</ul>
+    <p class="raid-method-note">Assumes the boss defends at this release's standard Level 40 / 100 defense raid-DPS baseline (${escapeHtml(targetDefense ?? STANDARD_TARGET_DEFENSE)} defense) — a real boss's actual defense can differ.</p>
+  </details>`;
+}
+
+
 function raidCounterCard(row, roster, forms, {
-  fromLevel, budgetPickIds, deploymentMap, stardust, candyInventory,
+  fromLevel, budgetPickIds, deploymentMap, stardust, candyInventory, moveCatalog, weather, targetDefense,
 } = {}, bossTypes = []) {
   const owned = (roster.ownedFormIds ?? []).includes(row.formId);
   const ownedCount = owned
@@ -2165,6 +2286,7 @@ function raidCounterCard(row, roster, forms, {
     ${isBudgetPick ? `<p class="budget-verdict">Community pick: strong value</p>` : ""}
     ${deployment ? `<p class="budget-verdict">Defending a gym right now</p>` : ""}
     ${raidReadyPanel(row.formId, forms, fromLevel, bestInstance, stardust, candyInventory?.[row.formId])}
+    ${breakpointsSection(forms?.[row.formId], bestInstance, bossTypes, { moveCatalog, weather, targetDefense })}
     ${ownedStarButton({ formId: row.formId, name: row.pokemon, owned, route: "raids" })}
     <span class="owned-count">${owned ? `Owned ×${ownedCount}` : "Not owned"}</span>
     ${feedbackThumbs("raid-counter", row.formId)}
@@ -2228,8 +2350,16 @@ function raidTargetSurface(state, ui, roster) {
   // Fresh raid catch (Level 20), independent of the boss's own encounter/weather CP above —
   // that widget verifies the BOSS's catch, not the level of the player's counter Pokemon.
   const deploymentMap = buildDeploymentMap(ui.defenseLog, Date.now());
+  const raidDpsMethodology = state.core?.methodology?.raidDps ?? {};
   const cardOptions = {
-    fromLevel: 20, budgetPickIds, deploymentMap, stardust: ui.stardust, candyInventory: ui.candyInventory,
+    fromLevel: 20,
+    budgetPickIds,
+    deploymentMap,
+    stardust: ui.stardust,
+    candyInventory: ui.candyInventory,
+    moveCatalog: raidDpsMethodology.moveCatalog ?? {},
+    weather: ui.weather,
+    targetDefense: raidDpsMethodology.assumptions?.targetDefense,
   };
   return `<section class="raid-target-view" aria-labelledby="raid-target-title">
     <h2 id="raid-target-title">Raid Target</h2>
@@ -2475,7 +2605,7 @@ export function bootstrap({
         raids: state.raids,
         whatsNew: whatsNewCard(releaseState, storage),
       });
-      searchRefresh = bindSearch(documentObject, index, state.core.forms, roster);
+      searchRefresh = bindSearch(documentObject, index, state.core.forms, roster, storage);
     },
     basics() {
       app.innerHTML = renderBasics();
@@ -2485,6 +2615,11 @@ export function bootstrap({
     },
     types() {
       app.innerHTML = renderTypes();
+    },
+    eggs() {
+      app.innerHTML = interactionNotice(ui) + (state.currentEggs
+        ? renderEggs({ currentEggs: state.currentEggs, forms: state.core.forms })
+        : chunkLoadingNotice("Egg Pool"));
     },
     glossary() {
       app.innerHTML = renderGlossary();
@@ -2718,6 +2853,7 @@ export function bootstrap({
           error: ui.instanceSheet.error,
           focusInstanceId: ui.instanceSheet.focusInstanceId,
           quickCp: ui.instanceSheet.quickCp,
+          shareMessage: ui.instanceSheet.shareMessage,
         });
       }
       updateLeds(documentObject, releaseState, roster);
@@ -2759,6 +2895,9 @@ export function bootstrap({
     },
     onBackupExport(payload) {
       downloadFile("pokemon-go-field-guide-backup.json", payload, { documentObject, windowObject });
+    },
+    onShareCard(type, data) {
+      return shareOrDownloadCard(type, data, { documentObject, windowObject, navigatorObject: windowObject.navigator });
     },
     async onClipboardCopy(payload) {
       const clipboard = windowObject.navigator?.clipboard;

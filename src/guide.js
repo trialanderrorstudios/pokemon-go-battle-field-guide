@@ -72,6 +72,10 @@ export const GUIDE_COPY = Object.freeze({
     title: "Your open-every-day checklist",
     body: `A daily rundown pulled from what's already elsewhere in the app: today's Raid or Spotlight Hour, whether it's worth your free raid pass, your active gym defenders, and this week's top Coach picks. Check items off as you go — the list resets fresh tomorrow.`,
   }),
+  eggs: Object.freeze({
+    title: "What can hatch",
+    body: `Grouped by egg distance (1 km through 12 km), with shiny eligibility and hatch CP for each Pokémon in the pool. This is this app's bundled egg chart at its data cutoff, not live from the game.`,
+  }),
 });
 
 

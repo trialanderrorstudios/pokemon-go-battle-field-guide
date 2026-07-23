@@ -91,6 +91,11 @@ export const GLOSSARY = Object.freeze([
     term: "CP decay",
     definition: "As a gym defender's motivation falls, its CP temporarily drops too, making it easier to beat. Higher-CP defenders lose motivation faster, so a lower-CP specialist can actually hold a gym longer.",
   },
+  {
+    id: "breakpoint",
+    term: "breakpoint",
+    definition: "The next power-up level where a move's damage-per-hit rounds up to a new whole number. Below a breakpoint, extra power-ups don't add any damage per hit; at it, they do.",
+  },
 ]);
 
 

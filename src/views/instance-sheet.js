@@ -1,6 +1,7 @@
 import { escapeHtml, shinyLuckyBadges } from "./home.js";
 import { displayMoveName } from "./move-sheet.js";
 import { instanceLevel, legalMoves } from "../instances.js";
+import { instanceCardData } from "../share-card.js";
 
 
 function ivInput(label, key, value) {
@@ -36,6 +37,7 @@ function instanceRow(instance, form, quickCp) {
   const level = instanceLevel(form, instance);
   const quickCpActive = quickCp?.instanceId === instance.id;
   const badges = shinyLuckyBadges(instance);
+  const canShare = instanceCardData(instance, form) !== null;
   return `<li class="instance-row" data-instance-id="${escapeHtml(instance.id)}">
     <div>
       <h4>${escapeHtml(instance.nickname || form.name)} ${badges}</h4>
@@ -48,6 +50,7 @@ function instanceRow(instance, form, quickCp) {
       <button type="button" data-edit-instance-id="${escapeHtml(instance.id)}">Edit</button>
       <button type="button" data-quick-cp-instance-id="${escapeHtml(instance.id)}">I changed this one</button>
       <button type="button" data-delete-instance-id="${escapeHtml(instance.id)}">Delete</button>
+      ${canShare ? `<button type="button" data-share-instance-id="${escapeHtml(instance.id)}">Share card</button>` : ""}
     </div>`}
   </li>`;
 }
@@ -57,7 +60,7 @@ function instanceRow(instance, form, quickCp) {
 // binary owned-star roster. Move pickers are chips over the form's own
 // release-data fast/charged move lists — never free text.
 export function renderInstanceSheet({
-  form, instances = [], draft = null, error = "", focusInstanceId = null, quickCp = null,
+  form, instances = [], draft = null, error = "", focusInstanceId = null, quickCp = null, shareMessage = "",
 } = {}) {
   if (!form || !draft) return "";
   const legal = legalMoves(form);
@@ -70,6 +73,7 @@ export function renderInstanceSheet({
       <button type="button" class="move-sheet-close" data-action="close-instance-sheet" aria-label="Close">✕</button>
       <h2 id="instance-sheet-title">${escapeHtml(form.name)} details</h2>
       <p>Everything below stays on this device. Exact CP/IVs/moves make raid and power-up guidance precise for this specific Pokémon instead of a general assumption.</p>
+      ${shareMessage ? `<p class="triage-copy-status" role="status">${escapeHtml(shareMessage)}</p>` : ""}
       ${existing.length ? `<h3>Your ${escapeHtml(form.name)}s</h3><ul class="instance-list">${existing.map((instance) => instanceRow(instance, form, quickCp)).join("")}</ul>` : ""}
       <h3>${draft.editingId ? "Edit" : "Add"} an instance</h3>
       ${error ? `<p class="instance-sheet-error" role="alert">${escapeHtml(error)}</p>` : ""}
