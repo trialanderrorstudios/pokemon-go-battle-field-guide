@@ -2,6 +2,7 @@ import { ATTACK_TYPES, effectiveness } from "../raid-target.js";
 import { spriteHtml } from "../sprites.js";
 import { intersectRosterChanges, releaseDiffDismissedKey } from "../release-diff.js";
 import { renderCommunityDayBriefCard } from "../cd-brief.js";
+import { renderUpcomingSection, renderUpcomingTeaser } from "../upcoming.js";
 
 
 export function escapeHtml(value) {
@@ -150,7 +151,7 @@ export function renderCurrentBosses({
 }
 
 
-function startOfDay(date) {
+export function startOfDay(date) {
   return new Date(date.getFullYear(), date.getMonth(), date.getDate());
 }
 
@@ -241,7 +242,7 @@ function spawnsChip(hasSpawns) {
 // that turns feed data into a live link, so every caller is covered.
 const ALLOWED_EVENT_LINK = /^https:\/\/leekduck\.com\/events\/[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?\/?$/i;
 
-function safeEventLink(link) {
+export function safeEventLink(link) {
   return typeof link === "string" && ALLOWED_EVENT_LINK.test(link) ? link : null;
 }
 
@@ -487,6 +488,7 @@ export function renderHome({
       <div data-search-results aria-live="polite"></div>
     </form>
     ${renderWeekStrip({ currentEvents, forms })}
+    ${renderUpcomingTeaser({ currentEvents, forms })}
     ${releaseDiffCard(releaseDiff, roster, storage)}
     ${renderCommunityDayBriefCard({ currentEvents, forms })}
     <h3 class="home-section-title">What are you fighting?</h3>
@@ -508,7 +510,9 @@ export function renderHome({
       ${taskCard({ href: "./#basics", title: "Battle Basics", detail: "New here? Start with the plain-language basics." })}
       ${taskCard({ href: "./#types", title: "Type Chart", detail: "Every type's strengths and weaknesses." })}
       ${taskCard({ href: "./#eggs", title: "Egg Pool", detail: "What can hatch from each egg distance." })}
+      ${taskCard({ href: "./#rocket", title: "Team GO Rocket", detail: "Shadow Raid bosses and Rocket-flavored events in rotation." })}
     </div>
+    ${renderUpcomingSection({ currentEvents, forms })}
     ${renderCurrentEvents({ currentEvents, forms })}
     <footer class="home-status-chips" aria-label="Field status">
       <span class="status-chip" aria-label="Data cutoff">Data through ${escapeHtml(cutoff ?? "unknown")}</span>

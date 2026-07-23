@@ -9,6 +9,10 @@ import { buildMyTeam, MY_TEAM_SLOTS, myTeamOverridesFor } from "./pvp-team.js";
 import { futureImpactRows } from "./views/more.js";
 import { myTeamMoveDeltaLines } from "./views/pvp.js";
 import { formatRaidHourWhen, nextRaidHour } from "./views/home.js";
+import { instanceBreakpointReports } from "./breakpoints.js";
+import {
+  BUDDY_LEVEL_NAMES, BUDDY_LEVEL_THRESHOLDS, buddyLevelForHearts, daysToBest, heartsToBest,
+} from "./buddy.js";
 
 const BAND_ORDER = {
   "solo-able": 0, duoable: 1, "bring-3-4": 2, "full-lobby": 3, "not-enough-data": 4,
@@ -146,11 +150,129 @@ function pvpTeamStatus(data, roster) {
 }
 
 
-export function buildCoachSummary({ data = {}, roster = {}, now = new Date(), trainerLevel = null } = {}) {
+function moveCatalogOf(data) {
+  return data?.core?.methodology?.raidDps?.moveCatalog ?? data?.methodology?.raidDps?.moveCatalog ?? {};
+}
+
+function targetDefenseOf(data) {
+  return data?.core?.methodology?.raidDps?.assumptions?.targetDefense
+    ?? data?.methodology?.raidDps?.assumptions?.targetDefense;
+}
+
+function bossTypesOf(form) {
+  return [form?.primary_type, form?.secondary_type].filter(Boolean);
+}
+
+
+// Best Buddy's CP boost is a full power-up LEVEL (two power-up steps — see
+// buddy.js's cited sources), not the game's usual half-level power-up step.
+// Reuses breakpoints.js's own move-damage math untouched: if any move the
+// linked instance actually knows ticks its damage-per-hit up somewhere
+// between its current level and one full level up against a boss in this
+// week's rotation, the Best Buddy boost alone gets there. First qualifying
+// boss wins — this is a "why," not an exhaustive rotation scan.
+function buddyBreakpointBoss({ data, form, instance }) {
+  if (!form || !instance) return null;
+  const currentLevel = instanceLevel(form, instance);
+  if (currentLevel === null) return null;
+  const forms = formsOf(data);
+  const moveCatalog = moveCatalogOf(data);
+  const targetDefense = targetDefenseOf(data);
+  for (const boss of data?.currentBosses?.bosses ?? []) {
+    const bossForm = forms[boss.formId];
+    const bossTypes = bossTypesOf(bossForm);
+    if (!bossTypes.length) continue;
+    const reports = instanceBreakpointReports({
+      form, instance, moveCatalog, bossTypes, weather: "None", targetDefense,
+    });
+    const hit = reports.find((report) => (
+      report.nextBreakpoint && report.nextBreakpoint.level <= currentLevel + 1 + 1e-9
+    ));
+    if (hit) return { formId: boss.formId, name: bossForm?.name ?? boss.formId };
+  }
+  return null;
+}
+
+
+// WHY this one: composes raid relevance from the breakpoints module when it
+// can actually say something (an owned detailed instance + a current boss it
+// damage-breakpoints against with the extra level); otherwise every Best
+// Buddy still gets the same honest fallback — the plain CP-level-bump
+// framing, since that part of the mechanic never varies.
+function buddyPlanReason({ data, form, instance }) {
+  const breakpointBoss = buddyBreakpointBoss({ data, form, instance });
+  if (breakpointBoss) return `Best Buddy boost gains a breakpoint vs ${breakpointBoss.name}.`;
+  return "Best Buddy adds about one power-up level of CP (up to Lv. 51) while it's your active buddy — a free strength bump for whatever you use it for.";
+}
+
+
+// Owned, walkable-buddy candidates for the plan picker: favorites first, then
+// alphabetical. Each candidate lists its detailed roster instances (if any)
+// so the picker can optionally pin the plan to one specific copy — buddy
+// hearts/level track a single Pokémon, not the whole species.
+export function buddyPlanCandidates(data, roster) {
+  const forms = formsOf(data);
+  const favorites = new Set(roster?.favorites ?? []);
+  const instancesByForm = new Map();
+  for (const instance of roster?.instances ?? []) {
+    if (!instancesByForm.has(instance.formId)) instancesByForm.set(instance.formId, []);
+    instancesByForm.get(instance.formId).push(instance);
+  }
+  return [...new Set(roster?.ownedFormIds ?? [])]
+    .map((formId) => forms[formId])
+    .filter((form) => Number.isInteger(form?.buddy_distance_km) && form.buddy_distance_km > 0)
+    .sort((left, right) => (Number(favorites.has(right.form_id)) - Number(favorites.has(left.form_id)))
+      || left.name.localeCompare(right.name))
+    .map((form) => ({
+      formId: form.form_id,
+      name: form.name,
+      favorite: favorites.has(form.form_id),
+      instances: (instancesByForm.get(form.form_id) ?? []).map((instance) => ({
+        id: instance.id,
+        label: instance.nickname ? `${instance.nickname} (${instance.cp} CP)` : `${instance.cp} CP`,
+      })),
+    }));
+}
+
+
+// The single active plan's derived card: buddy level, hearts remaining, and
+// days at the standard daily cap — all null (not zero) until hearts are
+// entered, since an unset manual field is honestly "unknown," not "0."
+export function buildBuddyPlanCard({ data = {}, roster = {}, plan = {} } = {}) {
+  if (!plan?.formId) return null;
+  const forms = formsOf(data);
+  const form = forms[plan.formId];
+  if (!form) return null; // formId not in this release's catalog
+  const owned = (roster?.ownedFormIds ?? []).includes(plan.formId);
+  const instance = plan.instanceId
+    ? (roster?.instances ?? []).find((row) => row.id === plan.instanceId && row.formId === plan.formId) ?? null
+    : null;
+  const hearts = plan.hearts;
+  return {
+    formId: plan.formId,
+    instanceId: instance?.id ?? null,
+    name: form.name,
+    nickname: instance?.nickname ?? null,
+    owned,
+    hearts,
+    levelLabel: hearts === null ? null : BUDDY_LEVEL_NAMES[buddyLevelForHearts(hearts)],
+    heartsToBest: hearts === null ? null : heartsToBest(hearts),
+    daysToBest: hearts === null ? null : daysToBest(hearts),
+    isBest: hearts !== null && hearts >= BUDDY_LEVEL_THRESHOLDS.best,
+    reason: buddyPlanReason({ data, form, instance }),
+  };
+}
+
+
+export function buildCoachSummary({
+  data = {}, roster = {}, now = new Date(), trainerLevel = null, buddyPlan = null,
+} = {}) {
   return {
     worthRaiding: worthRaidingThisWeek(data, roster, now, trainerLevel),
     powerUpNext: powerUpNext(data, roster, trainerLevel),
     buddyPick: walkThisBuddy(data, roster),
+    buddyPlanCandidates: buddyPlanCandidates(data, roster),
+    buddyPlanCard: buildBuddyPlanCard({ data, roster, plan: buddyPlan }),
     pvpTeams: pvpTeamStatus(data, roster),
   };
 }

@@ -30,6 +30,7 @@ import { escapeHtml, ownedStarButton, renderHome } from "./views/home.js";
 import { renderBasics } from "./views/basics.js";
 import { renderMaxBasics } from "./views/maxbasics.js";
 import { renderTypes, typeChip } from "./views/types.js";
+import { weaknessesOf } from "./type-chart.js";
 import { renderGlossary } from "./views/glossary.js";
 import { handleSpriteError, spriteHtml } from "./sprites.js";
 import { renderGyms } from "./views/gyms.js";
@@ -38,6 +39,7 @@ import { buildMoveIndex } from "./moves.js";
 import { moveLink, renderMoveSheet } from "./views/move-sheet.js";
 import { renderInstanceSheet } from "./views/instance-sheet.js";
 import { STANDARD_TARGET_DEFENSE, instanceBreakpointReports } from "./breakpoints.js";
+import { clearBuddyPlan, loadBuddyPlan, saveBuddyPlan } from "./buddy.js";
 import {
   bestInstanceForForm, buildInstance, instanceLevel, reviseInstanceCp,
 } from "./instances.js";
@@ -106,6 +108,7 @@ import { renderRaids } from "./views/raids.js";
 import {
   advanceDrillQuestion,
   answerDrillQuestion,
+  buildMoveCountPool,
   createDrillState,
   loadDrillStats,
   restartDrillRound,
@@ -127,6 +130,7 @@ import { renderSwap } from "./views/swap.js";
 import { renderCoach } from "./views/coach.js";
 import { renderToday, toggleTodayTask } from "./views/today.js";
 import { renderEggs } from "./views/eggs.js";
+import { renderRocket } from "./views/rocket.js";
 import { renderDelta } from "./views/delta.js";
 import { loadCachedReleaseDiff, refreshReleaseDiff, releaseDiffDismissedKey } from "./release-diff.js";
 import { renderTricks } from "./views/tricks.js";
@@ -179,6 +183,7 @@ export const ROUTE_CHUNKS = Object.freeze({
   candyplan: ["raids.json", "pvp.json", "gyms.json"],
   more: ["extras.json"],
   eggs: ["current-eggs.json"],
+  rocket: ["raid-targets.json", "current-bosses.json", "current-events.json"],
 });
 
 export function chunksNeededFor(route, loadedChunkPaths) {
@@ -316,12 +321,31 @@ function tipSearchResultCard(result, rawQuery) {
   return `<li class="search-result-card search-result-tip"><a class="safe-escape" href="./#tricks"><strong>${highlightMatch(result.name, rawQuery)}</strong> <span>Tip</span></a></li>`;
 }
 
+// "What beats this?" — a raid-boss search hit routes straight to that
+// boss's prefilled Raid Target answer (weaknesses + counters) via the same
+// `?boss=<formId>#raids` deep link home.js/coach.js/cd-brief.js/today.js
+// already use, so no new routing/state plumbing. Weaknesses reuse
+// type-chart.js's weaknessesOf — never a second hand-rolled type table. No
+// owned-star here: a raid boss isn't a roster pick, so it skips
+// ownedStarButton unlike the plain pokemon card below.
+function bossSearchResultCard(result, forms, rawQuery) {
+  const weak = weaknessesOf(result.types).slice(0, 4);
+  const weakChips = weak.map((row) => (
+    `<span class="type-weak-badge${row.multiplier >= 2.56 ? " is-double" : ""}">${typeChip(row.type)}${row.multiplier >= 2.56 ? "4x" : "2x"}</span>`
+  )).join("");
+  return `<li class="search-result-card search-result-boss">
+    <a class="safe-escape" href="./?boss=${encodeURIComponent(result.formId)}#raids">${spriteHtml(result.formId, forms, result.name, forms?.[result.formId]?.primary_type)}<strong>${highlightMatch(result.name, rawQuery)}</strong> <span>Raid boss</span>${weakChips ? `<span class="type-chip-list" aria-label="Weak to">Weak to: ${weakChips}</span>` : ""}</a>
+  </li>`;
+}
+
+
 function renderSearchResults(results, forms, roster, rawQuery = "") {
   if (!results.length) return "<p>No local matches.</p>";
   const owned = new Set(roster?.ownedFormIds ?? []);
   return `<ul>${results.slice(0, 10).map((result) => (
     result.resultCategory === "tip" ? tipSearchResultCard(result, rawQuery)
-      : `<li class="search-result-card${owned.has(result.formId) ? " is-owned" : ""}">${spriteHtml(result.formId, forms, result.name, forms?.[result.formId]?.primary_type)}<strong>${highlightMatch(result.name, rawQuery)}</strong> <span>${escapeHtml(result.resultCategory)}</span>${ownedStarButton({ formId: result.formId, name: result.name, owned: owned.has(result.formId), route: "search" })}</li>`
+      : result.resultCategory === "raid-boss" ? bossSearchResultCard(result, forms, rawQuery)
+        : `<li class="search-result-card${owned.has(result.formId) ? " is-owned" : ""}">${spriteHtml(result.formId, forms, result.name, forms?.[result.formId]?.primary_type)}<strong>${highlightMatch(result.name, rawQuery)}</strong> <span>${escapeHtml(result.resultCategory)}</span>${ownedStarButton({ formId: result.formId, name: result.name, owned: owned.has(result.formId), route: "search" })}</li>`
   )).join("")}</ul>`;
 }
 
@@ -926,6 +950,7 @@ export function createInteractionState({
     stardust: loadStardust(storage),
     candyInventory: loadCandyInventory(storage),
     megaEnergyInventory: loadMegaEnergyInventory(storage),
+    buddyPlan: loadBuddyPlan(storage),
   };
 }
 
@@ -1229,6 +1254,31 @@ export function createInteractionController({
       if (trainerNameControl) {
         ui.trainerProfile = saveTrainerProfile(storage, { ...ui.trainerProfile, name: trainerNameControl.value });
         rerender("more");
+        return;
+      }
+      const buddyPlanFormControl = target?.closest?.("[data-buddy-plan-form]");
+      if (buddyPlanFormControl) {
+        // Switching the buddy target resets hearts — hearts track one specific
+        // Pokémon's progress, not the species, so carrying them over would lie.
+        ui.buddyPlan = buddyPlanFormControl.value === ""
+          ? clearBuddyPlan(storage)
+          : saveBuddyPlan(storage, { formId: buddyPlanFormControl.value, instanceId: null, hearts: null });
+        rerender("coach");
+        return;
+      }
+      const buddyPlanInstanceControl = target?.closest?.("[data-buddy-plan-instance]");
+      if (buddyPlanInstanceControl && ui.buddyPlan?.formId) {
+        ui.buddyPlan = saveBuddyPlan(storage, { ...ui.buddyPlan, instanceId: buddyPlanInstanceControl.value || null });
+        rerender("coach");
+        return;
+      }
+      const buddyPlanHeartsControl = target?.closest?.("[data-buddy-plan-hearts]");
+      if (buddyPlanHeartsControl && ui.buddyPlan?.formId) {
+        ui.buddyPlan = saveBuddyPlan(storage, {
+          ...ui.buddyPlan,
+          hearts: buddyPlanHeartsControl.value === "" ? null : Number(buddyPlanHeartsControl.value),
+        });
+        rerender("coach");
         return;
       }
       const myFriendCodeControl = target?.closest?.("[data-my-friend-code]");
@@ -1898,7 +1948,7 @@ export function createInteractionController({
       const drillRestart = target?.closest?.("[data-drill-restart]");
       if (drillRestart) {
         const nextUi = structuredClone(ui);
-        nextUi.drill = restartDrillRound(nextUi.drill);
+        nextUi.drill = restartDrillRound(nextUi.drill, { movePool: moveCountPool });
         replaceObject(ui, nextUi);
         rerender("drill");
         return;
@@ -1906,7 +1956,7 @@ export function createInteractionController({
       const drillMode = target?.closest?.("[data-drill-mode]");
       if (drillMode) {
         const nextUi = structuredClone(ui);
-        nextUi.drill = setDrillMode(nextUi.drill, drillMode.dataset.drillMode);
+        nextUi.drill = setDrillMode(nextUi.drill, drillMode.dataset.drillMode, { movePool: moveCountPool });
         replaceObject(ui, nextUi);
         rerender("drill");
         return;
@@ -1983,6 +2033,9 @@ export function createInteractionController({
           : outcome === "cancelled" ? ""
           : "Could not share or download the card on this device.";
         rerender("gyms");
+      } else if (action === "clear-buddy-plan") {
+        ui.buddyPlan = clearBuddyPlan(storage);
+        rerender("coach");
       } else if (action === "dismiss-guide") {
         const route = actionEl.dataset.guideRoute;
         if (route) dismissGuide(route, storage);
@@ -2005,6 +2058,14 @@ export function createInteractionController({
         // and resets scroll to the top before the browser's own anchor
         // jump ever gets seen.
         const details = rootElement?.querySelector?.("#home-event-details");
+        if (details) {
+          details.open = true;
+          details.scrollIntoView?.({ block: "start" });
+        }
+      } else if (action === "reveal-upcoming") {
+        // Same round-trip-avoidance as reveal-events above, for the Coming
+        // Up teaser's "Next 14 days" link.
+        const details = rootElement?.querySelector?.("#upcoming-details");
         if (details) {
           details.open = true;
           details.scrollIntoView?.({ block: "start" });
@@ -2744,6 +2805,34 @@ function continueTaskFor(state, ui) {
 }
 
 
+const DIALOG_FOCUSABLE_SELECTOR = 'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
+
+// Escape closes the open move-sheet/instance-sheet dialog (routed through
+// the existing close-button click so there's one close path, not two); Tab
+// is trapped inside it so keyboard focus can't silently wander into the
+// route content sitting underneath the overlay.
+export function onDialogKeydown(event, app) {
+  const dialog = app.querySelector?.('.move-sheet[role="dialog"]');
+  if (!dialog) return;
+  if (event.key === "Escape") {
+    dialog.querySelector('[data-action^="close-"]')?.click();
+    return;
+  }
+  if (event.key !== "Tab") return;
+  const focusable = [...dialog.querySelectorAll(DIALOG_FOCUSABLE_SELECTOR)];
+  if (!focusable.length) return;
+  const first = focusable[0];
+  const last = focusable[focusable.length - 1];
+  const active = dialog.ownerDocument?.activeElement;
+  if (event.shiftKey && active === first) {
+    event.preventDefault();
+    last.focus();
+  } else if (!event.shiftKey && (active === last || !dialog.contains(active))) {
+    event.preventDefault();
+    first.focus();
+  }
+}
+
 function bindInteractions(app, controller, extraClickTargets = []) {
   if (typeof app?.addEventListener !== "function") return () => {};
   const delegate = (operation) => {
@@ -2752,9 +2841,11 @@ function bindInteractions(app, controller, extraClickTargets = []) {
   const onClick = (event) => delegate(() => controller.handleClick(event));
   const onChange = (event) => delegate(() => controller.handleChange(event));
   const onInput = (event) => controller.handleInput(event);
+  const onKeydown = (event) => onDialogKeydown(event, app);
   app.addEventListener("click", onClick);
   app.addEventListener("change", onChange);
   app.addEventListener("input", onInput);
+  app.addEventListener("keydown", onKeydown);
   // "error" does not bubble, so this must be a capturing listener; it swaps
   // any broken sprite <img> for its fallback circle without inline JS.
   app.addEventListener("error", handleSpriteError, true);
@@ -2766,6 +2857,7 @@ function bindInteractions(app, controller, extraClickTargets = []) {
     app.removeEventListener?.("click", onClick);
     app.removeEventListener?.("change", onChange);
     app.removeEventListener?.("input", onInput);
+    app.removeEventListener?.("keydown", onKeydown);
     app.removeEventListener?.("error", handleSpriteError, true);
     for (const target of extraClickTargets) target?.removeEventListener?.("click", onClick);
   };
@@ -2819,11 +2911,19 @@ export function bootstrap({
   applyTextSize(documentObject.documentElement, ui.textSize);
   applyTheme(documentObject.documentElement, ui.theme);
   const moveCatalog = state.core.methodology?.raidDps?.moveCatalog ?? {};
+  const pvpMoveCatalog = state.core.methodology?.pvpMoveCatalog ?? {};
   const moveIndex = buildMoveIndex(state.raids, state.pvp);
+  const moveCountPool = buildMoveCountPool(state.pvp, pvpMoveCatalog);
   let controller;
   let searchRefresh = () => {};
   let currentRoute = "home";
   let triageResult = null;
+  // Focus management for the move-sheet/instance-sheet dialogs: remembers
+  // whether a dialog was open on the previous render and what had focus
+  // before it opened, so opening moves focus in and closing returns it —
+  // WCAG 2.4.3 focus order for the app's only modal overlays.
+  let sheetWasOpen = false;
+  let sheetReturnFocus = null;
   const getTriageResult = () => {
     if (!triageResult) triageResult = triageRoster({ data: state, roster, trainerLevel: ui.trainerProfile.level });
     return triageResult;
@@ -2866,6 +2966,17 @@ export function bootstrap({
       app.innerHTML = interactionNotice(ui) + (state.currentEggs
         ? renderEggs({ currentEggs: state.currentEggs, forms: state.core.forms })
         : chunkLoadingNotice("Egg Pool"));
+    },
+    rocket() {
+      app.innerHTML = interactionNotice(ui) + (state.currentBosses && state.currentEvents
+        ? renderRocket({
+          currentBosses: state.currentBosses,
+          currentEvents: state.currentEvents,
+          raidTargetTool: state.raidTargetTool,
+          forms: state.core.forms,
+          raids: state.raids,
+        })
+        : chunkLoadingNotice("Team GO Rocket"));
     },
     glossary() {
       app.innerHTML = renderGlossary();
@@ -2963,7 +3074,7 @@ export function bootstrap({
         ? renderPvp({
           pvp: state.pvp, pvpTeams: state.pvpTeams,
           pvpAlternatives: state.pvpAlternatives, forms: state.core.forms,
-          roster, state: ui.pvp, trainerLevel: ui.trainerProfile.level,
+          roster, state: ui.pvp, trainerLevel: ui.trainerProfile.level, pvpMoveCatalog,
         })
         : fallbackSections.pvp);
     },
@@ -2971,7 +3082,7 @@ export function bootstrap({
       app.innerHTML = interactionNotice(ui) + (state.pvp
         ? renderSwap({
           pvp: state.pvp, pvpTeams: state.pvpTeams, forms: state.core.forms,
-          roster, state: ui.swap, moveCatalog,
+          roster, state: ui.swap, moveCatalog, pvpMoveCatalog,
         })
         : (fallbackSections.swap || chunkLoadingNotice("Swap")));
     },
@@ -2982,7 +3093,9 @@ export function bootstrap({
       // just haven't loaded yet), so it waits for all of them rather than
       // rendering a misleading summary.
       app.innerHTML = interactionNotice(ui) + (routeChunksReady("coach", loadedChunkPaths)
-        ? renderCoach({ data: state, roster, trainerLevel: ui.trainerProfile.level })
+        ? renderCoach({
+          data: state, roster, trainerLevel: ui.trainerProfile.level, buddyPlan: ui.buddyPlan,
+        })
         : chunkLoadingNotice("Coach"));
     },
     today() {
@@ -3158,6 +3271,15 @@ export function bootstrap({
       updateLeds(documentObject, releaseState, roster);
       updateBanner(documentObject, releaseState, storage);
       updateStalenessBanner(documentObject, roster, storage, currentRoute);
+      const sheetOpenNow = Boolean(ui.moveSheet || ui.instanceSheet);
+      if (sheetOpenNow && !sheetWasOpen) {
+        sheetReturnFocus = documentObject.activeElement ?? null;
+        app.querySelector?.('.move-sheet [data-action^="close-"]')?.focus();
+      } else if (!sheetOpenNow && sheetWasOpen) {
+        sheetReturnFocus?.focus?.();
+        sheetReturnFocus = null;
+      }
+      sheetWasOpen = sheetOpenNow;
     };
   }
   const router = createRouter({

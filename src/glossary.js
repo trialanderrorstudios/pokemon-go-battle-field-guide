@@ -101,6 +101,16 @@ export const GLOSSARY = Object.freeze([
     term: "breakpoint",
     definition: "The next power-up level where a move's damage-per-hit rounds up to a new whole number. Below a breakpoint, extra power-ups don't add any damage per hit; at it, they do.",
   },
+  {
+    id: "buddy-hearts",
+    term: "hearts",
+    definition: "Affection points earned with your current buddy Pokémon by walking, feeding treats, playing, battling, taking snapshots, and visiting new PokéStops together. They add up toward that Pokémon's buddy level.",
+  },
+  {
+    id: "best-buddy",
+    term: "Best Buddy",
+    definition: "The highest buddy level, reached at 300 hearts. While a Best Buddy is set as your active buddy, it gets a small permanent CP boost — about one power-up level's worth.",
+  },
 ]);
 
 

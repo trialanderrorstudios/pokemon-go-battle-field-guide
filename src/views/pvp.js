@@ -3,6 +3,7 @@ import { jargonTerm } from "../glossary.js";
 import { spriteHtml } from "../sprites.js";
 import { displayMoveName, moveLink } from "./move-sheet.js";
 import { buildMyTeam, detectInstanceConflicts, instanceLeagueRank, LEAGUE_CP_CAP, MY_TEAM_SLOTS, myTeamOverridesFor, rankSummaryText } from "../pvp-team.js";
+import { moveCountsFor } from "../pvp-moves.js";
 import { levelCapNote, xlPowerUpCost } from "../raid-target.js";
 import { typeChip } from "./types.js";
 
@@ -88,6 +89,18 @@ function moveWithElite(moveId, eliteMoves, kind) {
 }
 
 
+// "N Counters -> Power-Up Punch" style text for a real fast/charged pair.
+// Real energy numbers from methodology.pvpMoveCatalog (closes the round-6
+// gap, docs/move-counts-spike.md); silent when a move isn't in this
+// release's catalog rather than guessing.
+function moveCountText(fastMove, chargedMoves, pvpMoveCatalog) {
+  const counts = moveCountsFor(fastMove, chargedMoves, pvpMoveCatalog);
+  if (!counts.length) return "";
+  const fastName = displayMoveName(fastMove);
+  return counts.map(({ chargedMoveId, count }) => `${count} ${fastName} → ${displayMoveName(chargedMoveId)}`).join(" · ");
+}
+
+
 function filterSelect(name, label, value, choices) {
   return `<label>${escapeHtml(label)}<select name="${escapeHtml(name)}" data-pvp-filter="${escapeHtml(name)}">
     ${choices.map(([choice, text]) => `<option value="${escapeHtml(choice)}"${choice === value ? " selected" : ""}>${escapeHtml(text)}</option>`).join("")}
@@ -125,11 +138,12 @@ function endgamePowerUpLine(row, trainerLevel = null) {
 }
 
 
-function pvpCard(row, forms, { showLeague = false, publishedRank = false, trainerLevel = null } = {}) {
+function pvpCard(row, forms, { showLeague = false, publishedRank = false, trainerLevel = null, pvpMoveCatalog = {} } = {}) {
   const rankOne = row.rankOne ?? {};
   const ivs = rankOne.ivs ?? {};
   const eliteMoves = new Set(forms?.[row.formId]?.elite_moves ?? []);
   const cardId = `pvp-${row.league}-${row.rank}-${row.formId}`.replace(/[^a-z0-9-]/gi, "-").toLowerCase();
+  const moveCounts = moveCountText(row.fastMove, row.chargedMoves, pvpMoveCatalog);
   return `<li class="pvp-card" data-form-id="${escapeHtml(row.formId)}">
     <article aria-labelledby="${cardId}">
       ${showLeague ? `<p class="pvp-league-label">${escapeHtml(leagueName(row.league))}</p>` : ""}
@@ -139,6 +153,7 @@ function pvpCard(row, forms, { showLeague = false, publishedRank = false, traine
         <div><dt>${jargonTerm("fast-move", "Fast move")}</dt><dd>${moveWithElite(row.fastMove, eliteMoves, "Fast")}</dd></div>
         <div><dt>${jargonTerm("charged-move", "Charged moves")}</dt><dd>${(row.chargedMoves ?? []).map((move) => moveWithElite(move, eliteMoves, "Charged")).join(" + ")}</dd></div>
       </dl>
+      ${moveCounts ? `<p class="pvp-move-counts">${escapeHtml(moveCounts)}</p>` : ""}
       <dl class="pvp-stats" aria-label="Independently calculated rank-1 IVs">
         <div><dt>${jargonTerm("iv", "Rank-1 IVs")}</dt><dd>${escapeHtml(`${ivs.attack ?? "—"}/${ivs.defense ?? "—"}/${ivs.stamina ?? "—"}`)}</dd></div>
         <div><dt>Level</dt><dd>${escapeHtml(rankOne.level ?? "—")}</dd></div>
@@ -167,7 +182,7 @@ function pvpCard(row, forms, { showLeague = false, publishedRank = false, traine
 }
 
 
-function rankingsView(pvp, forms, state, trainerLevel = null) {
+function rankingsView(pvp, forms, state, trainerLevel = null, pvpMoveCatalog = {}) {
   const allRows = state.league === "all"
     ? PVP_LEAGUES.flatMap((league) => pvp?.[league] ?? [])
     : (pvp?.[state.league] ?? []);
@@ -177,7 +192,7 @@ function rankingsView(pvp, forms, state, trainerLevel = null) {
     <h2 id="pvp-rankings-title">${escapeHtml(state.league === "all" ? "All leagues · Top 50 each" : `${leagueName(state.league)} Top 50`)}</h2>
     <p class="pvp-summary">Showing ${rows.length} of ${allRows.length}. Regular and Shadow forms remain separate exact-form entries.</p>
     ${rows.length
-      ? `<ol class="pvp-card-list">${rows.map((row) => pvpCard(row, forms, { showLeague: state.league === "all", trainerLevel })).join("")}</ol>`
+      ? `<ol class="pvp-card-list">${rows.map((row) => pvpCard(row, forms, { showLeague: state.league === "all", trainerLevel, pvpMoveCatalog })).join("")}</ol>`
       : `<p class="pvp-empty">No entries match these filters. Change Form or Investment to continue.</p>`}
   </section>`;
 }
@@ -188,11 +203,12 @@ function findTeamMember(pvp, formId, league) {
 }
 
 
-function teamMemberRow(member, row, form, forms) {
+function teamMemberRow(member, row, form, forms, pvpMoveCatalog = {}) {
   const name = row?.pokemon ?? form?.name ?? member.formId;
   const eliteMoves = new Set(form?.elite_moves ?? []);
+  const moveCounts = row ? moveCountText(row.fastMove, row.chargedMoves, pvpMoveCatalog) : "";
   const moves = row
-    ? `<p class="pvp-team-moves"><span class="pvp-team-quick">Quick: ${moveWithElite(row.fastMove, eliteMoves, "Fast")}</span><span class="pvp-team-charged">Charged: ${(row.chargedMoves ?? []).map((move) => moveWithElite(move, eliteMoves, "Charged")).join(" + ")}</span></p>`
+    ? `<p class="pvp-team-moves"><span class="pvp-team-quick">Quick: ${moveWithElite(row.fastMove, eliteMoves, "Fast")}</span><span class="pvp-team-charged">Charged: ${(row.chargedMoves ?? []).map((move) => moveWithElite(move, eliteMoves, "Charged")).join(" + ")}</span>${moveCounts ? ` <span class="pvp-team-move-counts">${escapeHtml(moveCounts)}</span>` : ""}</p>`
     : "";
   const ideal = row?.rankOne
     ? `<p class="pvp-team-ideal">Ideal: ${row.rankOne.ivs.attack}/${row.rankOne.ivs.defense}/${row.rankOne.ivs.stamina} IVs @ ${row.rankOne.cp} CP</p>`
@@ -209,7 +225,7 @@ function teamMemberRow(member, row, form, forms) {
 }
 
 
-function teamCard(team, pvp, forms) {
+function teamCard(team, pvp, forms, pvpMoveCatalog = {}) {
   const shared = team.sharedWeaknesses?.length
     ? team.sharedWeaknesses.join(", ")
     : "No calculated shared weakness";
@@ -222,7 +238,7 @@ function teamCard(team, pvp, forms) {
     <ol class="pvp-team-members">${(team.members ?? []).map((member) => {
       const row = findTeamMember(pvp, member.formId, team.league);
       const form = forms?.[member.formId];
-      return teamMemberRow(member, row, form, forms);
+      return teamMemberRow(member, row, form, forms, pvpMoveCatalog);
     }).join("")}</ol>
     <div class="pvp-team-readout">
       <p class="pvp-team-plan"><strong>Battle plan:</strong> ${escapeHtml(team.plan)}</p>
@@ -234,7 +250,7 @@ function teamCard(team, pvp, forms) {
 }
 
 
-function alternativesView(alternatives, forms, state, trainerLevel = null) {
+function alternativesView(alternatives, forms, state, trainerLevel = null, pvpMoveCatalog = {}) {
   const rows = state.league === "all"
     ? (alternatives ?? [])
     : (alternatives ?? []).filter((row) => row.league === state.league);
@@ -247,6 +263,7 @@ function alternativesView(alternatives, forms, state, trainerLevel = null) {
       showLeague: state.league === "all",
       publishedRank: true,
       trainerLevel,
+      pvpMoveCatalog,
     })).join("")}</ol>
   </section>`;
 }
@@ -296,7 +313,7 @@ function idealVsYoursLine(member) {
 }
 
 
-function myTeamMemberCard(league, slot, member, options) {
+function myTeamMemberCard(league, slot, member, options, pvpMoveCatalog = {}) {
   if (!member) {
     return `<li class="pvp-myteam-slot pvp-myteam-empty" data-my-team-slot-empty="${escapeHtml(slot)}" data-role="${escapeHtml(slot)}">
       <p class="pvp-myteam-heading"><strong class="pvp-team-role" data-role="${escapeHtml(slot)}">${escapeHtml(slot)}</strong></p>
@@ -312,6 +329,7 @@ function myTeamMemberCard(league, slot, member, options) {
   const rankLine = rank?.eligible
     ? `<p class="pvp-myteam-rank">${jargonTerm("stat-product", "IV rank")}: ${escapeHtml(rankSummaryText(rank))}</p>`
     : "";
+  const moveCounts = member.row ? moveCountText(member.row.fastMove, member.row.chargedMoves, pvpMoveCatalog) : "";
   return `<li class="pvp-myteam-slot" data-form-id="${escapeHtml(member.formId)}" data-role="${escapeHtml(slot)}">
     ${spriteHtml(member.formId, { [member.formId]: member.form }, member.form?.name ?? member.formId, member.form?.primary_type)}
     <div class="pvp-myteam-body">
@@ -322,6 +340,7 @@ function myTeamMemberCard(league, slot, member, options) {
       ${quality}
       ${rankLine}
       ${moveLines.length ? `<ul class="pvp-myteam-move-delta">${moveLines.map((line) => `<li>${escapeHtml(line)}</li>`).join("")}</ul>` : ""}
+      ${moveCounts ? `<p class="pvp-myteam-move-counts">${escapeHtml(moveCounts)}</p>` : ""}
       ${myTeamSlotSelect(league, slot, member.formId, options)}
     </div>
   </li>`;
@@ -339,7 +358,7 @@ function myTeamFallback(league, team, forms) {
 }
 
 
-function myTeamSection(league, team, roster, forms) {
+function myTeamSection(league, team, roster, forms, pvpMoveCatalog = {}) {
   const options = myTeamOwnedOptions(roster, forms);
   const cap = LEAGUE_CP_CAP[league];
   return `<section class="pvp-section pvp-myteam" aria-labelledby="pvp-myteam-title-${escapeHtml(league)}" data-my-team-league="${escapeHtml(league)}">
@@ -355,7 +374,7 @@ function myTeamSection(league, team, roster, forms) {
     </details>
     ${team.isEmpty
       ? `<p class="pvp-empty">${escapeHtml(team.fallbackMessage)}</p>${myTeamFallback(league, team.fallbackTeam, forms)}`
-      : `<ol class="pvp-myteam-slots">${MY_TEAM_SLOTS.map((slot, index) => myTeamMemberCard(league, slot, team.members[index], options)).join("")}</ol>
+      : `<ol class="pvp-myteam-slots">${MY_TEAM_SLOTS.map((slot, index) => myTeamMemberCard(league, slot, team.members[index], options, pvpMoveCatalog)).join("")}</ol>
       ${team.coverageNote ? `<p class="pvp-myteam-coverage">${escapeHtml(team.coverageNote)}</p>` : ""}`}
   </section>`;
 }
@@ -373,7 +392,7 @@ function instanceConflictWarnings(conflicts) {
 }
 
 
-function teamsView(pvp, teams, alternatives, forms, roster, state, trainerLevel = null) {
+function teamsView(pvp, teams, alternatives, forms, roster, state, trainerLevel = null, pvpMoveCatalog = {}) {
   const leagueTeams = state.league === "all"
     ? (teams ?? [])
     : (teams ?? []).filter((team) => team.league === state.league);
@@ -387,22 +406,22 @@ function teamsView(pvp, teams, alternatives, forms, roster, state, trainerLevel 
   const conflicts = detectInstanceConflicts(teamsByLeague);
   return `<p class="pvp-attack-iv-note">Why low Attack IV shows up so often: a lower Attack IV keeps CP under the league cap while leaving room for more Defense and HP — same cap, more bulk.</p>
   ${instanceConflictWarnings(conflicts)}
-  ${myTeamLeagues.map((league) => myTeamSection(league, teamsByLeague[league], roster, forms)).join("")}
+  ${myTeamLeagues.map((league) => myTeamSection(league, teamsByLeague[league], roster, forms, pvpMoveCatalog)).join("")}
   <section class="pvp-section" aria-labelledby="pvp-teams-title">
     <p class="status-kicker">${leagueTeams.length} current example teams</p>
     <h2 id="pvp-teams-title">${escapeHtml(leagueName(state.league))} team suggestions</h2>
     <p class="pvp-summary">Example teams are plans, not guaranteed wins. Shared and acknowledged weaknesses stay visible.</p>
-    <ul class="pvp-team-list">${leagueTeams.map((team) => teamCard(team, pvp, forms)).join("")}</ul>
-  </section>${alternativesView(alternatives, forms, state, trainerLevel)}
+    <ul class="pvp-team-list">${leagueTeams.map((team) => teamCard(team, pvp, forms, pvpMoveCatalog)).join("")}</ul>
+  </section>${alternativesView(alternatives, forms, state, trainerLevel, pvpMoveCatalog)}
   <details class="pvp-full-rankings">
     <summary>Full rankings</summary>
-    ${rankingsView(pvp, forms, { ...state, form: "all", investment: "all" }, trainerLevel)}
+    ${rankingsView(pvp, forms, { ...state, form: "all", investment: "all" }, trainerLevel, pvpMoveCatalog)}
   </details>`;
 }
 
 
 export function renderPvp({
-  pvp = {}, pvpTeams = [], pvpAlternatives = [], forms = {}, roster = {}, state, trainerLevel = null,
+  pvp = {}, pvpTeams = [], pvpAlternatives = [], forms = {}, roster = {}, state, trainerLevel = null, pvpMoveCatalog = {},
 } = {}) {
   const normalized = createPvpState({ filters: state });
   return `<div class="pvp-view">
@@ -410,7 +429,7 @@ export function renderPvp({
     <a class="safe-escape" href="./#swap">Battle Swap — who should I lead?</a>
     ${controls(normalized)}
     ${normalized.view === "teams"
-      ? teamsView(pvp, pvpTeams, pvpAlternatives, forms, roster, normalized, trainerLevel)
-      : rankingsView(pvp, forms, normalized, trainerLevel)}
+      ? teamsView(pvp, pvpTeams, pvpAlternatives, forms, roster, normalized, trainerLevel, pvpMoveCatalog)
+      : rankingsView(pvp, forms, normalized, trainerLevel, pvpMoveCatalog)}
   </div>`;
 }

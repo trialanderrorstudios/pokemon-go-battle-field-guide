@@ -1,5 +1,7 @@
 import { escapeHtml } from "./home.js";
 import { buildCoachSummary } from "../coach.js";
+import { jargonTerm } from "../glossary.js";
+import { DAILY_HEART_CAP } from "../buddy.js";
 
 const BAND_LEAD = Object.freeze({
   "solo-able": "Solo-able",
@@ -54,6 +56,53 @@ function buddyCard(pick) {
 }
 
 
+// Buddy plan picker: choose an owned, walkable-buddy Pokémon (favorites
+// first), then optionally pin the plan to one specific detailed instance —
+// buddy hearts/level track a single Pokémon, not the whole species.
+function buddyPlanPicker(candidates, plan) {
+  if (!candidates.length) {
+    return `<p class="coach-empty">Star or add a Pokémon with a buddy walking distance to start a Best Buddy plan.</p>`;
+  }
+  const selected = candidates.find((candidate) => candidate.formId === plan?.formId);
+  const instancePicker = selected?.instances?.length
+    ? `<label class="coach-buddy-plan-field">Which one <span class="coach-card-meta">(optional — only if you track exact CP)</span>
+        <select data-buddy-plan-instance>
+          <option value=""${!plan?.instanceId ? " selected" : ""}>Not tracked / unsure which copy</option>
+          ${selected.instances.map((instance) => `<option value="${escapeHtml(instance.id)}"${instance.id === plan?.instanceId ? " selected" : ""}>${escapeHtml(instance.label)}</option>`).join("")}
+        </select>
+      </label>`
+    : "";
+  return `<div class="coach-buddy-plan-picker">
+    <label class="coach-buddy-plan-field">Buddy target
+      <select data-buddy-plan-form>
+        <option value=""${!plan?.formId ? " selected" : ""}>Choose a Pokémon…</option>
+        ${candidates.map((candidate) => `<option value="${escapeHtml(candidate.formId)}"${candidate.formId === plan?.formId ? " selected" : ""}>${candidate.favorite ? "★ " : ""}${escapeHtml(candidate.name)}</option>`).join("")}
+      </select>
+    </label>
+    ${instancePicker}
+  </div>`;
+}
+
+
+function buddyPlanCard(card) {
+  if (!card) return "";
+  return `<div class="fallback-section coach-card coach-buddy-plan-card">
+    <p class="coach-card-kicker">${card.owned ? "Active plan" : "Active plan — no longer marked owned"}</p>
+    <h4>${escapeHtml(card.nickname ?? card.name)}</h4>
+    <label class="resource-inline-input">Current ${jargonTerm("buddy-hearts", "hearts")} <span class="coach-card-meta">(manual — the game doesn't share this with apps)</span>
+      <input inputmode="numeric" data-buddy-plan-hearts value="${card.hearts === null ? "" : escapeHtml(card.hearts)}" placeholder="0–300">
+    </label>
+    ${card.hearts === null
+      ? `<p class="coach-card-meta">Enter hearts so far to see progress to ${jargonTerm("best-buddy", "Best Buddy")}.</p>`
+      : card.isBest
+        ? `<p>${jargonTerm("best-buddy", "Best Buddy")} already — the CP boost is active while this is your buddy.</p>`
+        : `<p>${escapeHtml(card.levelLabel)} · ${card.heartsToBest} hearts to ${jargonTerm("best-buddy", "Best Buddy")} · about ${card.daysToBest} day${card.daysToBest === 1 ? "" : "s"} at the ${DAILY_HEART_CAP}-heart/day cap</p>`}
+    <p class="coach-card-meta">${escapeHtml(card.reason)}</p>
+    <button type="button" data-action="clear-buddy-plan">Clear plan</button>
+  </div>`;
+}
+
+
 function pvpLeagueCard(row) {
   const status = row.status === "partial"
     ? `${row.emptySlots} slot${row.emptySlots === 1 ? "" : "s"} open`
@@ -67,8 +116,12 @@ function pvpLeagueCard(row) {
 }
 
 
-export function renderCoach({ data = {}, roster = {}, now = new Date(), trainerLevel = null } = {}) {
-  const summary = buildCoachSummary({ data, roster, now, trainerLevel });
+export function renderCoach({
+  data = {}, roster = {}, now = new Date(), trainerLevel = null, buddyPlan = null,
+} = {}) {
+  const summary = buildCoachSummary({
+    data, roster, now, trainerLevel, buddyPlan,
+  });
   return `<section class="coach-view" aria-labelledby="coach-view-title">
     <p class="status-kicker">Your week, planned</p>
     <h2 id="coach-view-title">Weekly Coach</h2>
@@ -92,6 +145,9 @@ export function renderCoach({ data = {}, roster = {}, now = new Date(), trainerL
       ${summary.buddyPick
         ? `<div class="coach-card-grid">${buddyCard(summary.buddyPick)}</div>`
         : `<p class="coach-empty">Star Pokémon you own to get a buddy-walking pick. <a href="./#more">Open My Roster</a>.</p>`}
+      <h4>Best Buddy plan</h4>
+      ${buddyPlanPicker(summary.buddyPlanCandidates, buddyPlan)}
+      ${buddyPlanCard(summary.buddyPlanCard)}
     </section>
 
     <section class="coach-section" aria-labelledby="coach-pvp-title">

@@ -1321,6 +1321,35 @@ h1 {
   font: inherit;
 }
 
+.coach-buddy-plan-picker {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin: 0.4rem 0;
+}
+
+.coach-buddy-plan-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  font-size: 0.78rem;
+  color: var(--muted);
+}
+
+.coach-buddy-plan-field select {
+  min-height: 48px;
+  padding: 0.4rem 0.6rem;
+  border: 1px solid var(--line);
+  border-radius: 0.5rem;
+  background: var(--panel-raised);
+  color: var(--text);
+  font: inherit;
+}
+
+.coach-buddy-plan-card {
+  margin-top: 0.6rem;
+}
+
 .resource-affordability {
   font-weight: 600;
 }
@@ -2154,6 +2183,24 @@ h1 {
   font-size: 0.8rem;
 }
 
+/* "N Fast Move -> Charged Move" energy-count lines (round-6 gap closure,
+   docs/move-counts-spike.md) — same muted, small-print treatment as the
+   other secondary matchup facts above (swap-rank-line, move-delta). */
+.pvp-move-counts,
+.pvp-myteam-move-counts,
+.swap-move-counts {
+  margin: 0;
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+
+.pvp-team-move-counts {
+  display: block;
+  margin-top: 0.28rem;
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+
 .pvp-myteam-override {
   display: block;
   margin-top: 0.15rem;
@@ -2357,6 +2404,19 @@ h1 {
   width: 1px;
   height: 1px;
   opacity: 0;
+}
+
+/* The <input type="file"> above is visually hidden but stays focusable —
+   without this, tabbing to it (roster/Poke Genie/backup import) leaves
+   keyboard focus with no visible indicator anywhere on screen. Same
+   outline + dark ring as every other :focus-visible rule in this file:
+   var(--focus) is white in both themes, so the ring is what keeps it
+   visible against a light-theme background instead of vanishing. */
+.file-action:has(input:focus-visible) {
+  outline: 3px solid var(--focus);
+  box-shadow: 0 0 0 5px rgba(24, 32, 56, 0.85);
+  outline-offset: 2px;
+  border-radius: 0.3rem;
 }
 
 .roster-search {

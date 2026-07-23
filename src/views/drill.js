@@ -2,9 +2,10 @@ import { escapeHtml } from "./home.js";
 
 
 function modeToggle(mode) {
-  return `<div class="placement-controls" aria-label="Question direction">
+  return `<div class="placement-controls" aria-label="Drill mode">
     <button type="button" data-drill-mode="forward" aria-pressed="${mode === "forward"}">Effective against</button>
     <button type="button" data-drill-mode="reverse" aria-pressed="${mode === "reverse"}">Weak to</button>
+    <button type="button" data-drill-mode="moves" aria-pressed="${mode === "moves"}">Move counts</button>
   </div>`;
 }
 
@@ -52,11 +53,12 @@ export function renderDrill(drill) {
         ${answered ? `<p aria-live="polite"><strong>${drill.selectedType === question.correctType ? "Correct!" : "Not quite."}</strong> ${escapeHtml(question.why)}.</p><button type="button" data-drill-next>${drill.index + 1 < total ? "Next question" : "See results"}</button>` : ""}
       </div>`;
     })();
+  const isMoves = drill.mode === "moves";
   return `<div class="more-view">
     <a class="safe-escape" href="./#home">Back to Home</a>
     <section class="more-section" aria-labelledby="drill-title">
-      <p class="status-kicker">Type matchup drill</p>
-      <h2 id="drill-title">What beats what?</h2>
+      <p class="status-kicker">${isMoves ? "Move count drill" : "Type matchup drill"}</p>
+      <h2 id="drill-title">${isMoves ? "How many to get there?" : "What beats what?"}</h2>
       ${modeToggle(drill.mode)}
     </section>
     ${body}

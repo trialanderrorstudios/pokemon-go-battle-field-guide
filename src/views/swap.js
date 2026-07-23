@@ -2,6 +2,8 @@ import { escapeHtml } from "./home.js";
 import { spriteHtml } from "../sprites.js";
 import { SWAP_LEAGUES, rankTeamAgainstOpponent, resolveSwapTeam, searchOpponentForms } from "../swap.js";
 import { instanceLeagueRank, rankSummaryText } from "../pvp-team.js";
+import { moveCountsFor } from "../pvp-moves.js";
+import { displayMoveName } from "./move-sheet.js";
 
 const OPPONENT_RESULT_CAP = 40;
 
@@ -85,15 +87,30 @@ function opponentStep({ state, forms }) {
   </section>`;
 }
 
-function resultCard(row, matchupRank, league, instanceByFormId, pvpRows) {
+// "N Counters -> Power-Up Punch" style line for a matchup's real ranked
+// moveset — real energy numbers from methodology.pvpMoveCatalog (closes the
+// round-6 gap, docs/move-counts-spike.md), silent when a move's energy data
+// isn't in this release's catalog rather than guessing.
+function moveCountLine(pvpRow, pvpMoveCatalog) {
+  if (!pvpRow?.fastMove) return "";
+  const counts = moveCountsFor(pvpRow.fastMove, pvpRow.chargedMoves, pvpMoveCatalog);
+  if (!counts.length) return "";
+  const fastName = displayMoveName(pvpRow.fastMove);
+  const parts = counts.map(({ chargedMoveId, count }) => `${count} ${escapeHtml(fastName)} → ${escapeHtml(displayMoveName(chargedMoveId))}`);
+  return `<p class="swap-move-counts">${parts.join(" · ")}</p>`;
+}
+
+function resultCard(row, matchupRank, league, instanceByFormId, pvpRows, pvpMoveCatalog) {
+  const pvpRow = pvpRows.find((candidate) => candidate.formId === row.formId);
   return `<li class="fallback-section swap-result-card">
     <div class="swap-card-heading">${spriteHtml(row.formId, { [row.formId]: row.form }, row.form.name, row.form.primary_type)}<h3>#${matchupRank} ${escapeHtml(row.form.name)}</h3></div>
     <p>${escapeHtml(row.because)}</p>
-    ${swapRankLine(row.form, instanceByFormId?.[row.formId], league, pvpRows.find((pvpRow) => pvpRow.formId === row.formId))}
+    ${swapRankLine(row.form, instanceByFormId?.[row.formId], league, pvpRow)}
+    ${moveCountLine(pvpRow, pvpMoveCatalog)}
   </li>`;
 }
 
-function resultStep({ state, resolved, forms, pvp, moveCatalog }) {
+function resultStep({ state, resolved, forms, pvp, moveCatalog, pvpMoveCatalog }) {
   const opponent = forms[state.opponentFormId];
   const pvpRows = pvp?.[state.league] ?? [];
   const instanceByFormId = resolved.instanceByFormId ?? {};
@@ -103,7 +120,7 @@ function resultStep({ state, resolved, forms, pvp, moveCatalog }) {
   return `<section class="swap-step" aria-labelledby="swap-result-title">
     <p class="status-kicker">Step 3 of 3</p>
     <h2 id="swap-result-title">Best lead vs ${escapeHtml(opponent.name)}</h2>
-    <ol class="swap-result-list">${ranked.map((row, index) => resultCard(row, index + 1, state.league, instanceByFormId, pvpRows)).join("")}</ol>
+    <ol class="swap-result-list">${ranked.map((row, index) => resultCard(row, index + 1, state.league, instanceByFormId, pvpRows, pvpMoveCatalog)).join("")}</ol>
     <div class="swap-actions">
       <a class="safe-escape" href="./#swap" data-action="swap-back-opponent">Change opponent</a>
       <a class="safe-escape" href="./#swap" data-action="swap-reset">Start over</a>
@@ -111,7 +128,7 @@ function resultStep({ state, resolved, forms, pvp, moveCatalog }) {
   </section>`;
 }
 
-export function renderSwap({ pvp = {}, pvpTeams = [], forms = {}, roster = {}, state, moveCatalog = {} } = {}) {
+export function renderSwap({ pvp = {}, pvpTeams = [], forms = {}, roster = {}, state, moveCatalog = {}, pvpMoveCatalog = {} } = {}) {
   const resolved = resolveSwapTeam({
     league: state.league, pvp, pvpTeams, roster, forms, manualFormIds: state.manualFormIds,
   });
@@ -122,7 +139,7 @@ export function renderSwap({ pvp = {}, pvpTeams = [], forms = {}, roster = {}, s
   const body = step === "opponent"
     ? opponentStep({ state, forms })
     : step === "result"
-      ? resultStep({ state, resolved, forms, pvp, moveCatalog })
+      ? resultStep({ state, resolved, forms, pvp, moveCatalog, pvpMoveCatalog })
       : teamStep({ state, resolved, roster, forms, pvp });
 
   return `<div class="swap-view">

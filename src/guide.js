@@ -53,8 +53,8 @@ export const GUIDE_COPY = Object.freeze({
     body: `Every bit of jargon used elsewhere in this app is defined here in plain language — scroll or use your browser's find-on-page to look one up.`,
   }),
   drill: Object.freeze({
-    title: "Practicing type matchups",
-    body: `Pick a direction (Effective against or Weak to), then tap the type you think answers the flashcard. This drills the same fixed type chart as the Type Chart page — no live data involved.`,
+    title: "Practicing type matchups and move counts",
+    body: `Pick a direction (Effective against or Weak to) to drill the fixed type chart — no live data involved. Move counts drills real fast-move-to-charged-move energy counts from this release's own PvP rankings instead.`,
   }),
   swap: Object.freeze({
     title: "Mid-battle helper",
@@ -62,7 +62,7 @@ export const GUIDE_COPY = Object.freeze({
   }),
   coach: Object.freeze({
     title: "Your weekly digest",
-    body: `This Week rounds up the best raids to fight, what's worth powering up, a buddy pick, and a suggested PvP team in one scroll — refreshed with this app's weekly data cutoff, not live game state.`,
+    body: `This Week rounds up the best raids to fight, what's worth powering up, a buddy pick, and a suggested PvP team in one scroll — refreshed with this app's weekly data cutoff, not live game state. Under Walk this buddy, you can also start a Best Buddy plan: pick a Pokémon you own, enter its hearts so far, and see days left to Best Buddy at the standard daily heart cap.`,
   }),
   maxbasics: Object.freeze({
     title: "How Max Battles work",
@@ -87,6 +87,10 @@ export const GUIDE_COPY = Object.freeze({
   candyplan: Object.freeze({
     title: "Planning your Candy",
     body: `Lists species you own with Candy recorded and, once this app's data includes evolution chains, what evolving them is worth. Record Candy for a species in My Roster to see it here.`,
+  }),
+  rocket: Object.freeze({
+    title: "What's Rocket-flavored right now",
+    body: `Shadow Raid bosses in this release's rotation, plus any live Rocket/Shadow-flavored event. Tap a boss for hundo CP and counters like any raid target. This app has no sourced Team GO Rocket grunt/leader lineup data, so it doesn't cover Rocket battles themselves.`,
   }),
   trades: Object.freeze({
     title: "Comparing dex with a friend",

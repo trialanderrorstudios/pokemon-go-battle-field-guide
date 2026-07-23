@@ -2,6 +2,8 @@
 // attack-type effectiveness table in raid-target.js (already shared by
 // app.js/home.js/raids.js) — no second type chart is authored here.
 import { ATTACK_TYPES, effectiveness } from "./raid-target.js";
+import { moveCountsFor } from "./pvp-moves.js";
+import { displayMoveName } from "./views/move-sheet.js";
 
 // Flavor verb for the "why" line (e.g. "Water douses Fire"). Presentation
 // copy only, not a second effectiveness table — the actual matchup data
@@ -51,10 +53,69 @@ export function generateQuestion(promptType, { mode = "forward", rng = Math.rand
 
 // ponytail: 18 attack types > 10-question rounds, so a plain shuffle-and-slice
 // gives distinct prompt types every round with no repeat-avoidance bookkeeping.
-export function buildRound({ mode = "forward", count = 10, rng = Math.random } = {}) {
+export function buildRound({ mode = "forward", count = 10, rng = Math.random, movePool = [] } = {}) {
+  if (mode === "moves") {
+    return shuffled(movePool, rng)
+      .slice(0, Math.min(count, movePool.length))
+      .map((entry) => generateMoveCountQuestion(entry, { rng }));
+  }
   return shuffled(ATTACK_TYPES, rng)
     .slice(0, Math.min(count, ATTACK_TYPES.length))
     .map((promptType) => generateQuestion(promptType, { mode, rng }));
+}
+
+
+// --- Move-count drill: "how many fast moves to reach this charged move" ---
+// (docs/move-counts-spike.md, closed by src/pogo_encyclopedia/pvp_moves.py +
+// methodology.pvpMoveCatalog). Every question is a real fast/charged pair
+// from this release's own PvP rankings, deduped so the same combo (shared
+// by multiple ranked Pokémon, e.g. many Steel types running Metal Claw) only
+// shows up once per pool.
+export function buildMoveCountPool(pvp = {}, pvpMoveCatalog = {}) {
+  const seen = new Set();
+  const pool = [];
+  for (const rows of Object.values(pvp ?? {})) {
+    for (const row of rows ?? []) {
+      for (const { chargedMoveId, count } of moveCountsFor(row.fastMove, row.chargedMoves, pvpMoveCatalog)) {
+        const key = `${row.fastMove}|${chargedMoveId}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        pool.push({ fastMoveId: row.fastMove, chargedMoveId, count });
+      }
+    }
+  }
+  return pool;
+}
+
+
+// Wrong-answer counts near the real one, so the choices read as plausible
+// guesses rather than obviously-wrong outliers.
+function countDistractors(correct, rng) {
+  const distractors = new Set();
+  let guard = 0;
+  while (distractors.size < 3 && guard < 50) {
+    guard += 1;
+    const offset = Math.floor(rng() * 5) + 1;
+    const candidate = rng() < 0.5 ? correct - offset : correct + offset;
+    if (candidate >= 1 && candidate !== correct) distractors.add(candidate);
+  }
+  return [...distractors];
+}
+
+
+export function generateMoveCountQuestion(entry, { rng = Math.random } = {}) {
+  const fastName = displayMoveName(entry.fastMoveId);
+  const chargedName = displayMoveName(entry.chargedMoveId);
+  const correctType = String(entry.count);
+  const choices = shuffled([correctType, ...countDistractors(entry.count, rng).map(String)], rng);
+  return {
+    promptType: `${fastName} -> ${chargedName}`,
+    mode: "moves",
+    prompt: `How many ${fastName} to reach ${chargedName}?`,
+    choices,
+    correctType,
+    why: `${entry.count} ${fastName}${entry.count === 1 ? "" : "s"} reaches ${chargedName}'s energy cost`,
+  };
 }
 
 
@@ -107,10 +168,10 @@ export function recordDrillAnswer(storage, stats, correct) {
 }
 
 
-export function createDrillState({ storage = null, mode = "forward", rng = Math.random } = {}) {
+export function createDrillState({ storage = null, mode = "forward", rng = Math.random, movePool = [] } = {}) {
   return {
     mode,
-    questions: buildRound({ mode, rng }),
+    questions: buildRound({ mode, rng, movePool }),
     index: 0,
     selectedType: null,
     missedTypes: [],
@@ -138,16 +199,18 @@ export function advanceDrillQuestion(drill) {
 }
 
 
-export function restartDrillRound(drill, { rng = Math.random } = {}) {
+export function restartDrillRound(drill, { rng = Math.random, movePool = [] } = {}) {
   return {
-    ...drill, questions: buildRound({ mode: drill.mode, rng }), index: 0, selectedType: null, missedTypes: [],
+    ...drill, questions: buildRound({ mode: drill.mode, rng, movePool }), index: 0, selectedType: null, missedTypes: [],
   };
 }
 
 
-export function setDrillMode(drill, mode, { rng = Math.random } = {}) {
-  if (mode !== "forward" && mode !== "reverse") return drill;
+const DRILL_MODES = ["forward", "reverse", "moves"];
+
+export function setDrillMode(drill, mode, { rng = Math.random, movePool = [] } = {}) {
+  if (!DRILL_MODES.includes(mode)) return drill;
   return {
-    ...drill, mode, questions: buildRound({ mode, rng }), index: 0, selectedType: null, missedTypes: [],
+    ...drill, mode, questions: buildRound({ mode, rng, movePool }), index: 0, selectedType: null, missedTypes: [],
   };
 }
