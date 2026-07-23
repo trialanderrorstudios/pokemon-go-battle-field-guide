@@ -23,8 +23,12 @@ export const GUIDE_COPY = Object.freeze({
   }),
   gyms: Object.freeze({
     title: "Gyms teach as you scroll",
-    body: `This page is its own gym guide — attacker builds, the two-player stagger plan, defender placement, and ${jargonTerm("motivation")}/${jargonTerm("cp-decay", "CP decay")} are explained inline below. Tap ? again to jump back to the top. You can also use a Siri Shortcut or iOS automation to quick-log a defender via URL: <code>?log=1&amp;gym=&lt;gym-name&gt;&amp;mon=&lt;form-id&gt;#gyms</code> — opens the drop form prefilled.`,
+    body: `This page is its own gym guide — attacker builds, the two-player stagger plan, defender placement, and ${jargonTerm("motivation")}/${jargonTerm("cp-decay", "CP decay")} are explained inline below. Tap ? again to jump back to the top. Track your gym defenses on the Leaderboard page.`,
     inline: true,
+  }),
+  leaderboard: Object.freeze({
+    title: "Tracking your gym defenses",
+    body: `Pokémon GO doesn't give apps any gym-hold data, so this is manual tracking: log when you drop a defender and when it comes back, and see your longest and total defense time. Paste-share lets a friend copy your leaderboard text into their own app (and you into theirs) so you can compete without either of you needing an account or server. You can also use a Siri Shortcut or iOS automation to quick-log a defender via URL: <code>?log=1&amp;gym=&lt;gym-name&gt;&amp;mon=&lt;form-id&gt;#leaderboard</code> — opens the drop form prefilled.`,
   }),
   pvp: Object.freeze({
     title: "Picking a PvP team",
@@ -91,6 +95,14 @@ export const GUIDE_COPY = Object.freeze({
   rocket: Object.freeze({
     title: "What's Rocket-flavored right now",
     body: `Shadow Raid bosses in this release's rotation, plus any live Rocket/Shadow-flavored event. Tap a boss for hundo CP and counters like any raid target. This app has no sourced Team GO Rocket grunt/leader lineup data, so it doesn't cover Rocket battles themselves.`,
+  }),
+  hundo: Object.freeze({
+    title: "Chase the hundo, or the rank-1 spread?",
+    body: `Ranks today's raid bosses and featured spawns by whether a perfect 15/15/15 is actually worth chasing. Raids and Master League always reward the hundo — no CP cap. Great and Ultra League often don't: a capped league can let a lower Attack IV reach a higher level and win on stat product instead, so those rows flag the rank-1 spread as the better chase.`,
+  }),
+  buildnext: Object.freeze({
+    title: "Fixing a roster gap",
+    body: `Attacking types your owned roster doesn't have a strong counter for yet, and the best Pokémon you already own to fix each one — evolving what you have, with an honest Candy cost. Only ever suggests Pokémon you already own.`,
   }),
   trades: Object.freeze({
     title: "Comparing dex with a friend",

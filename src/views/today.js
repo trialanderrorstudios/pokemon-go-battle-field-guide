@@ -96,7 +96,7 @@ function gymStatusItems(defenseLog, now) {
     id: `gym-${entry.id}`,
     title: `${entry.pokemon} @ ${entry.gymName}`,
     detail: `Holding for ${formatElapsed(entry.elapsedMs)}. Coins pay out when it's knocked out and returns — 1 coin per 10 min, capped at 50/day account-wide.`,
-    href: "./#gyms",
+    href: "./#leaderboard",
   }));
 }
 
@@ -122,6 +122,32 @@ function stalenessItems(staleness) {
   }];
 }
 
+// gapByFormId (round 15, gap-analyzer.js): { [formId]: { headline, href } }
+// for current/upcoming bosses a weak roster lane leaves uncovered. Checks
+// today's hour events first (already same-day filtered above), then this
+// week's raid rotation — the same "current/upcoming" scope Home's Coming Up
+// section reads. null/empty gapByFormId (raids.json not loaded yet, or
+// coverage is strong) is a no-op, never a guessed gap.
+function gapItem(data, gapByFormId, now) {
+  if (!gapByFormId || !Object.keys(gapByFormId).length) return null;
+  const forms = data?.core?.forms ?? data?.forms ?? {};
+  const candidateFormIds = [
+    ...todaysHourEvents(data?.currentEvents?.events, now).map((event) => event.formId),
+    ...(data?.currentBosses?.bosses ?? []).map((boss) => boss.formId),
+  ];
+  for (const formId of candidateFormIds) {
+    const gap = gapByFormId[formId];
+    if (!gap) continue;
+    return {
+      id: `gap-${formId}`,
+      title: `Roster gap: ${forms?.[formId]?.name ?? formId}`,
+      detail: `${gap.headline} — see Build Next for what to power up.`,
+      href: gap.href,
+    };
+  }
+  return null;
+}
+
 // ponytail: no signal in this round carries a minLevel yet — no data source
 // defines "beyond reach" thresholds, so this doesn't fabricate one. It just
 // threads `profile.trainerLevel` through so round-8's profile module can
@@ -137,16 +163,18 @@ function applyProfileGate(items, profile) {
 }
 
 export function buildTodayItems({
-  data = {}, roster = {}, defenseLog = null, staleness = null, profile = null, now = new Date(),
+  data = {}, roster = {}, defenseLog = null, staleness = null, profile = null, now = new Date(), gapByFormId = null,
 } = {}) {
   const summary = buildCoachSummary({ data, roster, now, trainerLevel: profile?.trainerLevel });
   const forms = data?.core?.forms ?? data?.forms ?? {};
   const pass = dailyPassItem(summary);
   const cdToday = communityDayTodayItem(data?.currentEvents?.events, forms, now);
+  const gap = gapItem(data, gapByFormId, now);
   const items = [
     ...todaysHourEvents(data?.currentEvents?.events, now).map((event) => hourEventItem(event, forms, now)),
     ...(cdToday ? [cdToday] : []),
     ...(pass ? [pass] : []),
+    ...(gap ? [gap] : []),
     ...gymStatusItems(defenseLog, now),
     ...coachPickItems(summary),
     ...stalenessItems(staleness),
@@ -193,8 +221,11 @@ function todayTaskRow(item, done) {
 
 export function renderToday({
   data = {}, roster = {}, defenseLog = null, staleness = null, profile = null, now = new Date(), storage = null,
+  gapByFormId = null,
 } = {}) {
-  const items = buildTodayItems({ data, roster, defenseLog, staleness, profile, now });
+  const items = buildTodayItems({
+    data, roster, defenseLog, staleness, profile, now, gapByFormId,
+  });
   const dateLabel = now.toLocaleDateString("en-US", { weekday: "long", month: "short", day: "numeric" });
   const doneIds = loadDoneIds(storage, now);
   const body = items.length

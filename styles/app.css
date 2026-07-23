@@ -1497,6 +1497,7 @@ h1 {
 }
 
 .gyms-view,
+.leaderboard-view,
 .gym-section,
 .gym-subsection {
   display: grid;
@@ -2230,12 +2231,19 @@ h1 {
   font-size: 0.85rem;
 }
 
-/* ponytail: inline text link, not a 44px block target — recognized a11y
-   exception for a move name inside a running line of text; the surrounding
-   padding still gives it a forgiving hit area without breaking the flow. */
+/* ponytail: inline text link, WCAG 2.5.5 inline exception applies (it's a
+   move name inside a running line of text, not a block target). The button
+   is inline-block, so its margin box (not just the line box) is what line
+   layout measures — the negative vertical margin shrinks that margin box
+   back to the line-height, which is why sibling lines don't get pushed
+   apart. But the padding is still painted/hit-tested past the margin box,
+   so it bleeds ~0.65rem above and below the text regardless. That's fine
+   wherever the next line is far enough away (dl/dd rows, single-line
+   prose) — it is NOT fine in .pvp-team-quick/.pvp-team-charged below,
+   which stack only 0.28rem apart and would get overlapping tap zones. */
 .move-link {
-  padding: 0.2rem 0.35rem;
-  margin: -0.2rem -0.35rem;
+  padding: 0.65rem 0.35rem;
+  margin: -0.65rem -0.35rem;
   border: none;
   border-radius: 0.4rem;
   background: none;
@@ -2251,6 +2259,22 @@ h1 {
   outline: 3px solid var(--focus);
   box-shadow: 0 0 0 5px rgba(24, 32, 56, 0.85);
   outline-offset: 2px;
+}
+
+/* ponytail: .pvp-team-quick/.pvp-team-charged (above) stack only 0.28rem
+   apart, so a stacked pair's tap zones stop overlapping only once
+   2*padding <= 0.28rem (~0.14rem); the app-wide 44px padding (0.65rem)
+   blows way past that and overlaps the Fast/Charged buttons' hit zones.
+   Shrunk to 0.1rem here for a safety margin — the WCAG 2.5.5 inline
+   exception these links already rely on means no minimum tap size is
+   required, so a smaller target in this one dense spot isn't a
+   regression. Ceiling: still a small target; if this needs to hit 44px
+   too, grow the quick/charged margin-top instead (1.3rem+) so the gap
+   grows with it. */
+.pvp-team-quick .move-link,
+.pvp-team-charged .move-link {
+  padding: 0.1rem 0.35rem;
+  margin: -0.1rem -0.35rem;
 }
 
 .move-sheet-backdrop {
@@ -3286,6 +3310,10 @@ h1 {
 .triage-badge[data-triage-bucket="CANDY"] { color: var(--danger); }
 .triage-badge[data-triage-bucket="UNRATED"],
 .triage-assumed { color: var(--muted); }
+
+.triage-badge[data-hundo-category="chase"] { color: var(--green); }
+.triage-badge[data-hundo-category="dont-chase"] { color: var(--danger); }
+.triage-badge[data-hundo-category="neutral"] { color: var(--muted); }
 
 .triage-assumed {
   margin: 0;

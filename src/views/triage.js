@@ -275,7 +275,9 @@ function keepPvpSearchSection(result, state) {
 }
 
 
-export function renderTriage({ result = {}, forms = {}, state: rawState, showGuide = false } = {}) {
+export function renderTriage({
+  result = {}, forms = {}, state: rawState, showGuide = false, weakLaneCount = 0,
+} = {}) {
   const state = createTriageViewState(rawState);
   const allEntries = result.entries ?? [];
   if (!allEntries.length) {
@@ -304,6 +306,7 @@ export function renderTriage({ result = {}, forms = {}, state: rawState, showGui
   return `<section class="triage-view" aria-labelledby="triage-title">
     <p class="status-kicker">Your box, one decision at a time</p><h2 id="triage-title">Triage My Box</h2>
     ${guideCard(showGuide)}
+    ${weakLaneCount > 0 ? `<p class="triage-gap-teaser"><a class="safe-escape" href="./#buildnext" data-route="buildnext">${weakLaneCount} attacking type${weakLaneCount === 1 ? "" : "s"} your box doesn't cover well &rarr; Build Next</a></p>` : ""}
     <div class="triage-filters" role="group" aria-label="Triage result filter">
       ${TRIAGE_BUCKETS.map((bucket) => `<button type="button" data-triage-filter="${bucket}" aria-pressed="${state.filter === bucket}">${bucket} <span>${escapeHtml(counts[bucket] ?? 0)}</span></button>`).join("")}
     </div>

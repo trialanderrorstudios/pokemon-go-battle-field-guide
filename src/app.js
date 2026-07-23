@@ -34,6 +34,7 @@ import { weaknessesOf } from "./type-chart.js";
 import { renderGlossary } from "./views/glossary.js";
 import { handleSpriteError, spriteHtml } from "./sprites.js";
 import { renderGyms } from "./views/gyms.js";
+import { renderLeaderboard } from "./views/leaderboard.js";
 import { renderMore } from "./views/more.js";
 import { buildMoveIndex } from "./moves.js";
 import { moveLink, renderMoveSheet } from "./views/move-sheet.js";
@@ -131,10 +132,13 @@ import { renderCoach } from "./views/coach.js";
 import { renderToday, toggleTodayTask } from "./views/today.js";
 import { renderEggs } from "./views/eggs.js";
 import { renderRocket } from "./views/rocket.js";
+import { renderHundo } from "./views/hundo.js";
 import { renderDelta } from "./views/delta.js";
 import { loadCachedReleaseDiff, refreshReleaseDiff, releaseDiffDismissedKey } from "./release-diff.js";
 import { renderTricks } from "./views/tricks.js";
 import { renderCandyPlan } from "./views/candyplan.js";
+import { buildGapByFormId, typeCoverage, weakLanes } from "./gap-analyzer.js";
+import { renderBuildNext } from "./views/buildnext.js";
 import { triageRoster } from "./triage.js";
 import { renameStringForEntry } from "./rename-string.js";
 import {
@@ -165,7 +169,10 @@ function usableState(state) {
 // not listed here (basics/maxbasics/types/glossary/drill) render from static
 // copy only and never touch release chunk data.
 export const ROUTE_CHUNKS = Object.freeze({
-  home: ["raid-targets.json", "current-bosses.json", "current-events.json"],
+  // raids.json: gap-analyzer.js's roster-gap teaser (getGapByFormId below)
+  // reads state.raids and is gated on raids.json actually being loaded —
+  // without it here, Home never fetches the chunk its own teaser depends on.
+  home: ["raid-targets.json", "current-bosses.json", "current-events.json", "raids.json"],
   raids: ["raids.json", "raid-targets.json"],
   gyms: ["gyms.json"],
   pvp: ["pvp.json"],
@@ -173,8 +180,10 @@ export const ROUTE_CHUNKS = Object.freeze({
   coach: ["raid-targets.json", "current-bosses.json", "current-events.json", "extras.json", "pvp.json"],
   // Today composes the same feeds Coach does (events + buildCoachSummary),
   // so it waits on the same chunk set — a checklist built from partial data
-  // would confidently tell the user "nothing on today".
-  today: ["raid-targets.json", "current-bosses.json", "current-events.json", "extras.json", "pvp.json"],
+  // would confidently tell the user "nothing on today". raids.json is also
+  // required: the roster-gap row (gapItem, today.js) reads it via the same
+  // getGapByFormId gate Home uses.
+  today: ["raid-targets.json", "current-bosses.json", "current-events.json", "extras.json", "pvp.json", "raids.json"],
   // gyms.json: ranked defenders are a KEEP signal — without it triage marks
   // Blissey-class walls as transfer candy (operator-reported 2026-07-23).
   triage: ["raids.json", "pvp.json", "extras.json", "gyms.json"],
@@ -184,6 +193,11 @@ export const ROUTE_CHUNKS = Object.freeze({
   more: ["extras.json"],
   eggs: ["current-eggs.json"],
   rocket: ["raid-targets.json", "current-bosses.json", "current-events.json"],
+  hundo: ["raid-targets.json", "current-bosses.json", "current-events.json", "raids.json", "pvp.json"],
+  // Same relevance signals candyplan reads (raid/PvP/gym rank), plus the
+  // current-bosses/current-events feeds Home's Coming Up section reads —
+  // this page composes both (gap-analyzer.js), so it waits on all of them.
+  buildnext: ["raids.json", "pvp.json", "gyms.json", "current-bosses.json", "current-events.json"],
 });
 
 export function chunksNeededFor(route, loadedChunkPaths) {
@@ -1223,20 +1237,20 @@ export function createInteractionController({
         // the id rather than badge the wrong Pokémon (honest-matching rule).
         ui.defenseLogDraft.instanceId = null;
         ui.defenseLogDraft.autoPicked = false;
-        rerender("gyms");
+        rerender("leaderboard");
         return;
       }
       const defenseLogGym = target?.closest?.("[data-defense-log-gym]");
       if (defenseLogGym) {
         resetAutoPickedDefender(ui.defenseLogDraft);
         ui.defenseLogDraft.gymName = defenseLogGym.value;
-        rerender("gyms");
+        rerender("leaderboard");
         return;
       }
       const defenseLogStart = target?.closest?.("[data-defense-log-start]");
       if (defenseLogStart) {
         ui.defenseLogDraft.startedAt = defenseLogStart.value;
-        rerender("gyms");
+        rerender("leaderboard");
         return;
       }
       const trainerLevelControl = target?.closest?.("[data-trainer-level]");
@@ -1317,25 +1331,25 @@ export function createInteractionController({
         } catch (error) {
           ui.defenseLogDraft.message = error?.message ?? String(error);
         }
-        rerender("gyms");
+        rerender("leaderboard");
         return;
       }
       const defenseLogCompleteEnd = target?.closest?.("[data-defense-log-complete-end]");
       if (defenseLogCompleteEnd) {
         ui.defenseLogDraft.completeDraft.endedAt = defenseLogCompleteEnd.value;
-        rerender("gyms");
+        rerender("leaderboard");
         return;
       }
       const defenseLogCompleteCoins = target?.closest?.("[data-defense-log-complete-coins]");
       if (defenseLogCompleteCoins) {
         ui.defenseLogDraft.completeDraft.coins = defenseLogCompleteCoins.value;
-        rerender("gyms");
+        rerender("leaderboard");
         return;
       }
       const defenseLogImportText = target?.closest?.("[data-defense-log-import-text]");
       if (defenseLogImportText) {
         ui.defenseLogDraft.importText = defenseLogImportText.value;
-        rerender("gyms");
+        rerender("leaderboard");
         return;
       }
       const tradeNameControl = target?.closest?.("[data-trade-name]");
@@ -2032,7 +2046,7 @@ export function createInteractionController({
           : outcome === "downloaded" ? "Downloaded your defense card."
           : outcome === "cancelled" ? ""
           : "Could not share or download the card on this device.";
-        rerender("gyms");
+        rerender("leaderboard");
       } else if (action === "clear-buddy-plan") {
         ui.buddyPlan = clearBuddyPlan(storage);
         rerender("coach");
@@ -2271,15 +2285,15 @@ export function createInteractionController({
         } catch (error) {
           ui.defenseLogDraft.message = error?.message ?? String(error);
         }
-        rerender("gyms");
+        rerender("leaderboard");
       } else if (action === "defense-log-open-complete") {
         ui.defenseLogDraft.completingId = actionEl.dataset.defenseEntryId ?? null;
         ui.defenseLogDraft.completeDraft = { endedAt: "", coins: "" };
         ui.defenseLogDraft.message = "";
-        rerender("gyms");
+        rerender("leaderboard");
       } else if (action === "defense-log-cancel-complete") {
         ui.defenseLogDraft.completingId = null;
-        rerender("gyms");
+        rerender("leaderboard");
       } else if (action === "defense-log-complete") {
         try {
           ui.defenseLog = completeDefense(ui.defenseLog, ui.defenseLogDraft.completingId, ui.defenseLogDraft.completeDraft);
@@ -2290,23 +2304,23 @@ export function createInteractionController({
         } catch (error) {
           ui.defenseLogDraft.message = error?.message ?? String(error);
         }
-        rerender("gyms");
+        rerender("leaderboard");
       } else if (action === "defense-log-delete") {
         const entryId = actionEl.dataset.defenseEntryId;
         ui.defenseLog = deleteDefenseEntry(ui.defenseLog, entryId);
         saveDefenseLog(storage, ui.defenseLog);
         if (ui.defenseLogDraft.completingId === entryId) ui.defenseLogDraft.completingId = null;
-        rerender("gyms");
+        rerender("leaderboard");
       } else if (action === "defense-log-toggle-share") {
         ui.defenseLogDraft.shareOpen = !ui.defenseLogDraft.shareOpen;
-        rerender("gyms");
+        rerender("leaderboard");
       } else if (action === "defense-log-copy-share") {
         const payload = exportPlayerLog(ui.defenseLog);
         const copied = await (api.onRosterShareCopy ?? onRosterShareCopy)?.(payload);
         ui.defenseLogDraft.message = copied
           ? "Copied your leaderboard text to clipboard."
           : "Could not copy automatically — select and copy the text above.";
-        rerender("gyms");
+        rerender("leaderboard");
       } else if (action === "defense-log-import") {
         try {
           const { log: nextLog, playerName, importedCount } = importPlayerLog(ui.defenseLog, ui.defenseLogDraft.importText);
@@ -2317,7 +2331,7 @@ export function createInteractionController({
         } catch (error) {
           ui.defenseLogDraft.message = error?.message ?? String(error);
         }
-        rerender("gyms");
+        rerender("leaderboard");
       } else if (action === "trade-toggle-export") {
         ui.trade = { ...ui.trade, exportOpen: !ui.trade.exportOpen };
         rerender("trades");
@@ -2358,11 +2372,11 @@ export function createInteractionController({
         // Geolocation gym picker: request coords, find nearest cached gym within 150m
         if (!navigator.geolocation) {
           ui.defenseLogDraft.message = "Geolocation not available on this device.";
-          rerender("gyms");
+          rerender("leaderboard");
           return;
         }
         ui.defenseLogDraft.geoLoading = true;
-        rerender("gyms");
+        rerender("leaderboard");
         navigator.geolocation.getCurrentPosition(
           (position) => {
             const { latitude, longitude } = position.coords;
@@ -2388,14 +2402,15 @@ export function createInteractionController({
               }
             }
             ui.defenseLogDraft.geoLoading = false;
-            // Geolocation is async — only pull the user back to gyms if they're
-            // still there; otherwise just update the draft for next time they visit.
-            if (isCurrentRoute("gyms")) rerender("gyms");
+            // Geolocation is async — only pull the user back to the leaderboard
+            // if they're still there; otherwise just update the draft for next
+            // time they visit.
+            if (isCurrentRoute("leaderboard")) rerender("leaderboard");
           },
           (error) => {
             ui.defenseLogDraft.message = `Geolocation denied or unavailable — please type a gym name.`;
             ui.defenseLogDraft.geoLoading = false;
-            if (isCurrentRoute("gyms")) rerender("gyms");
+            if (isCurrentRoute("leaderboard")) rerender("leaderboard");
           },
           { timeout: 10000 },
         );
@@ -2407,7 +2422,7 @@ export function createInteractionController({
           ui.defenseLogDraft.gymName = gym;
           ui.defenseLogDraft.message = "";
         }
-        rerender("gyms");
+        rerender("leaderboard");
       } else if (action === "swap-continue-team") {
         ui.swap = advanceSwapToOpponent(ui.swap);
         rerender("swap");
@@ -2939,6 +2954,18 @@ export function bootstrap({
     if (!triageResult) triageResult = triageRoster({ data: state, roster, trainerLevel: ui.trainerProfile.level });
     return triageResult;
   };
+  // Roster gap coverage (round 15, gap-analyzer.js) needs raids.json's
+  // ranked rows — gated on it actually being loaded (independent of which
+  // route triggered that load) so Home/Today never claim a gap from data
+  // that simply hasn't landed yet.
+  const getGapByFormId = () => (loadedChunkPaths.has("raids.json")
+    ? buildGapByFormId({
+      coverage: typeCoverage({ raids: state.raids, roster }),
+      currentBosses: state.currentBosses,
+      currentEvents: state.currentEvents,
+      forms: state.core.forms,
+    })
+    : null);
   const renderers = {
     home() {
       app.innerHTML = interactionNotice(ui) + renderHome({
@@ -2955,6 +2982,7 @@ export function bootstrap({
         releaseDiff: loadCachedReleaseDiff(storage, releaseState.manifest?.releaseId ?? null),
         roster,
         storage,
+        gapByFormId: getGapByFormId(),
       });
       searchRefresh = bindSearch(documentObject, index, state.core.forms, roster, storage);
     },
@@ -2988,6 +3016,20 @@ export function bootstrap({
           raids: state.raids,
         })
         : chunkLoadingNotice("Team GO Rocket"));
+    },
+    hundo() {
+      // Same honesty gate as Coach/Triage: a chase/don't-chase verdict built
+      // from partial raid+PvP data would be wrong, not just incomplete.
+      // weakLaneTypes (round 15 seam): the roster's uncovered attacking types
+      // from the same gap analyzer Build Next reads, so a hundo that's also a
+      // ranked attacker of a weak lane can cross-link to Build Next. raids.json
+      // is in this route's chunk set, so typeCoverage has its ranked rows.
+      app.innerHTML = interactionNotice(ui) + (routeChunksReady("hundo", loadedChunkPaths)
+        ? renderHundo({
+          data: state,
+          weakLaneTypes: new Set(weakLanes(typeCoverage({ raids: state.raids, roster })).map((lane) => lane.attackingType)),
+        })
+        : chunkLoadingNotice("Hundo Priority"));
     },
     glossary() {
       app.innerHTML = renderGlossary();
@@ -3031,10 +3073,27 @@ export function bootstrap({
     gyms() {
       const placementState = { ...state, lineupFormIds: ui.gym.lineupFormIds };
       const placementResult = placementFor(placementState, roster);
+      app.innerHTML = interactionNotice(ui) + (state.gym
+        ? `${gymLineupControls(state, ui)}${renderGyms({
+          gym: state.gym,
+          forms: state.core.forms,
+          placementResult,
+          ownedFormIds: roster.ownedFormIds,
+          ownedIndex: ui.gym.ownedIndex,
+          overallIndex: ui.gym.overallIndex,
+          defenseLog: ui.defenseLog,
+          rosterInstances: roster.instances,
+          trainerTeam: ui.trainerProfile.team,
+        })}`
+        : fallbackSections.gyms);
+    },
+    leaderboard() {
       // Smart default: prefill a blank drop-form Pokémon field with the top
       // owned suggestion (same Placement Coach ranking) that isn't already
       // deployed elsewhere. Only applies while the field is genuinely blank,
       // so it never clobbers what the user is actively typing.
+      const placementState = { ...state, lineupFormIds: ui.gym.lineupFormIds };
+      const placementResult = placementFor(placementState, roster);
       if (!ui.defenseLogDraft.pokemon && placementResult) {
         const deploymentMap = buildDeploymentMap(ui.defenseLog, Date.now());
         const suggestions = (placementResult.ownedAlternatives ?? []).map((row) => ({
@@ -3065,20 +3124,11 @@ export function bootstrap({
           ui.defenseLogDraft.autoPickNote = "";
         }
       }
-      app.innerHTML = interactionNotice(ui) + (state.gym
-        ? `${gymLineupControls(state, ui)}${renderGyms({
-          gym: state.gym,
-          forms: state.core.forms,
-          placementResult,
-          ownedFormIds: roster.ownedFormIds,
-          ownedIndex: ui.gym.ownedIndex,
-          overallIndex: ui.gym.overallIndex,
-          defenseLog: ui.defenseLog,
-          defenseLogDraft: ui.defenseLogDraft,
-          rosterInstances: roster.instances,
-          trainerTeam: ui.trainerProfile.team,
-        })}`
-        : fallbackSections.gyms);
+      app.innerHTML = interactionNotice(ui) + renderLeaderboard({
+        log: ui.defenseLog,
+        draft: ui.defenseLogDraft,
+        trainerTeam: ui.trainerProfile.team,
+      });
     },
     pvp() {
       app.innerHTML = interactionNotice(ui) + (state.pvp
@@ -3114,7 +3164,7 @@ export function bootstrap({
       // so it waits for those chunks instead of claiming an empty day.
       app.innerHTML = interactionNotice(ui) + (routeChunksReady("today", loadedChunkPaths)
         ? renderToday({
-          data: state, roster, defenseLog: ui.defenseLog, storage,
+          data: state, roster, defenseLog: ui.defenseLog, storage, gapByFormId: getGapByFormId(),
         })
         : chunkLoadingNotice("Today"));
     },
@@ -3128,6 +3178,7 @@ export function bootstrap({
           forms: state.core.forms,
           state: ui.triage,
           showGuide: showTriageGuide(storage),
+          weakLaneCount: weakLanes(typeCoverage({ raids: state.raids, roster })).length,
         })
         : chunkLoadingNotice("Triage"));
     },
@@ -3152,6 +3203,23 @@ export function bootstrap({
           friendGapDex,
         })
         : chunkLoadingNotice("Candy Planner"));
+    },
+    buildnext() {
+      // Same honesty concern as Triage/Candy Planner: a weak-lane call or a
+      // Build-Next candidate composed from partially-loaded raids/pvp/gym/
+      // boss data would be wrong, not just incomplete.
+      app.innerHTML = interactionNotice(ui) + (routeChunksReady("buildnext", loadedChunkPaths)
+        ? renderBuildNext({
+          forms: state.core.forms,
+          roster,
+          raids: state.raids,
+          candyInventory: ui.candyInventory,
+          triageResult: getTriageResult(),
+          trainerLevel: ui.trainerProfile.level,
+          currentBosses: state.currentBosses,
+          currentEvents: state.currentEvents,
+        })
+        : chunkLoadingNotice("Build Next"));
     },
     more() {
       // Storage estimate is async and only needs fetching once per session;
@@ -3217,9 +3285,9 @@ export function bootstrap({
     const base = renderers[route];
     renderers[route] = () => {
       currentRoute = route;
-      // Handle URL quick-log params for gyms: ?log=1&gym=<name>&mon=<formId>#gyms
+      // Handle URL quick-log params for the leaderboard: ?log=1&gym=<name>&mon=<formId>#leaderboard
       // searchParams.get() returns already-decoded values, so don't decodeURIComponent again
-      if (route === "gyms") {
+      if (route === "leaderboard") {
         const url = new URL(windowObject.location.href);
         if (url.searchParams.get("log") === "1") {
           const gymName = url.searchParams.get("gym");

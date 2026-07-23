@@ -468,6 +468,7 @@ export function renderHome({
   releaseDiff = null,
   roster = null,
   storage = null,
+  gapByFormId = null,
 } = {}) {
   const continueRoute = CONTINUE_ROUTES.has(continueTask?.route)
     ? continueTask.route
@@ -499,6 +500,7 @@ export function renderHome({
       ${taskCard({ href: "./#coach", title: "Weekly Coach", detail: "This week's raid picks, power-ups, buddy, and PvP team in one place." })}
       ${taskCard({ href: "./#raids", title: "Raid Target", detail: "Check hundo CP and the best counters." })}
       ${taskCard({ href: "./#gyms", title: "Gym Plan", detail: "Attack, stagger, or choose the next defender." })}
+      ${taskCard({ href: "./#leaderboard", title: "Gym Leaderboard", detail: "Track your longest defenses, compete with friends." })}
       ${taskCard({ href: "./#pvp", title: "PvP", detail: "Great, Ultra, and Master League picks." })}
       ${taskCard({ href: "./#swap", title: "Battle Swap", detail: "Facing someone now? Find your best lead." })}
       ${taskCard({ href: "./#drill", title: "Type Drill", detail: "Flashcard practice on type matchups." })}
@@ -511,8 +513,9 @@ export function renderHome({
       ${taskCard({ href: "./#types", title: "Type Chart", detail: "Every type's strengths and weaknesses." })}
       ${taskCard({ href: "./#eggs", title: "Egg Pool", detail: "What can hatch from each egg distance." })}
       ${taskCard({ href: "./#rocket", title: "Team GO Rocket", detail: "Shadow Raid bosses and Rocket-flavored events in rotation." })}
+      ${taskCard({ href: "./#hundo", title: "Hundo Priority", detail: "Which hundos are worth chasing right now, and which aren't." })}
     </div>
-    ${renderUpcomingSection({ currentEvents, forms })}
+    ${renderUpcomingSection({ currentEvents, forms, gapByFormId })}
     ${renderCurrentEvents({ currentEvents, forms })}
     <footer class="home-status-chips" aria-label="Field status">
       <span class="status-chip" aria-label="Data cutoff">Data through ${escapeHtml(cutoff ?? "unknown")}</span>

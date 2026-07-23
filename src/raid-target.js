@@ -164,7 +164,7 @@ const TIER_GUIDANCE = {
 // this problem: raid.py's _score_key orders attackers by real battle points first and only uses
 // averageEstimator as a last tiebreak among equal points, so "how many owned counters are
 // top-ranked for their type" is the honest, comparable signal.
-const RANK_TIERS = { elite: 3, solid: 8 }; // position in Pokebattler's per-type top-15: 1-3 elite, 4-8 solid meta pick, 9-15 fringe
+export const RANK_TIERS = { elite: 3, solid: 8 }; // position in Pokebattler's per-type top-15: 1-3 elite, 4-8 solid meta pick, 9-15 fringe
 const MIN_COUNTERS_FOR_VERDICT = 3; // fewer than half a lobby of identified counters isn't a reliable read
 
 const BEATABILITY_CAVEAT = "Estimates assume decent play; weather and friend bonuses help. This is an estimate, not a guarantee — real raids vary with friendship level, weather, and dodging.";

@@ -61,6 +61,7 @@ export const SHELL_FILES = Object.freeze([
   "./src/feedback.js",
   "./src/friend-codes.js",
   "./src/game-search.js",
+  "./src/gap-analyzer.js",
   "./src/gym-defense-log.js",
   "./src/gym-availability.js",
   "./src/instances.js",
@@ -81,6 +82,7 @@ export const SHELL_FILES = Object.freeze([
   "./src/type-chart.js",
   "./src/upcoming.js",
   "./src/views/basics.js",
+  "./src/views/buildnext.js",
   "./src/views/candyplan.js",
   "./src/views/coach.js",
   "./src/views/delta.js",
@@ -90,7 +92,9 @@ export const SHELL_FILES = Object.freeze([
   "./src/views/eggs.js",
   "./src/views/gyms.js",
   "./src/views/home.js",
+  "./src/views/hundo.js",
   "./src/views/instance-sheet.js",
+  "./src/views/leaderboard.js",
   "./src/views/maxbasics.js",
   "./src/views/more.js",
   "./src/views/move-sheet.js",
@@ -626,10 +630,10 @@ export function notificationClickRoute(data) {
   const type = data?.type;
   if (type === "raid-hour" && data.formId) return `./?boss=${encodeURIComponent(data.formId)}#raids`;
   if (type === "event-start") return "./#home";
-  // log=1 routes into the existing quick-log consumer (app.js's gyms
+  // log=1 routes into the existing quick-log consumer (app.js's leaderboard
   // renderer) — there's no separate read-only "focus this gym" view, so
   // landing without it would leave the gym param unconsumed.
-  if (type === "defender-out" && data.gymName) return `./?gym=${encodeURIComponent(data.gymName)}&log=1#gyms`;
+  if (type === "defender-out" && data.gymName) return `./?gym=${encodeURIComponent(data.gymName)}&log=1#leaderboard`;
   if (type === "staleness") return "./#more";
   return "./#home";
 }
