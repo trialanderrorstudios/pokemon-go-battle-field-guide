@@ -77,6 +77,22 @@ export function loadDrillStats(storage) {
 }
 
 
+// Direct write for restoring stats from a backup (bypasses the streak-update
+// logic in recordDrillAnswer, which only ever increments/resets by one).
+export function saveDrillStats(storage, stats) {
+  const next = {
+    currentStreak: safeNonNegativeInt(stats?.currentStreak),
+    bestStreak: Math.max(safeNonNegativeInt(stats?.bestStreak), safeNonNegativeInt(stats?.currentStreak)),
+  };
+  try {
+    storage?.setItem?.(STATS_KEY, JSON.stringify(next));
+  } catch {
+    // Storage can legitimately be unavailable — see recordDrillAnswer.
+  }
+  return next;
+}
+
+
 export function recordDrillAnswer(storage, stats, correct) {
   const currentStreak = correct ? stats.currentStreak + 1 : 0;
   const bestStreak = Math.max(stats.bestStreak, currentStreak);

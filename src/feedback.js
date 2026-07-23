@@ -36,6 +36,19 @@ export function recordFeedback(storage, surface, formId, verdict) {
 }
 
 
+// Direct write for restoring entries from a backup (bypasses recordFeedback's
+// single-entry append). Re-validates and caps the same as loadFeedback.
+export function saveFeedback(storage, entries) {
+  const valid = (Array.isArray(entries) ? entries : []).filter(isValidEntry).slice(-MAX_ENTRIES);
+  try {
+    storage?.setItem?.(FEEDBACK_KEY, JSON.stringify(valid));
+  } catch {
+    // Storage can legitimately be unavailable — see recordFeedback.
+  }
+  return valid;
+}
+
+
 export function exportFeedback(storage) {
   return `${JSON.stringify(loadFeedback(storage), null, 2)}\n`;
 }

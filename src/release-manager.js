@@ -1,5 +1,5 @@
 export const APP_VERSION = 1;
-export const APP_SHELL_REVISION = "r31";
+export const APP_SHELL_REVISION = "r34";
 export const MANIFEST_SCHEMA_VERSION = 1;
 export const DATA_SCHEMA_VERSION = 1;
 export const RELEASE_STATES = Object.freeze([
@@ -95,6 +95,19 @@ export function validateReleaseManifest(manifest, { appVersion = APP_VERSION } =
     if (!seen.has(required)) throw new TypeError(`Release is missing required file path ${required}.`);
   }
   return structuredClone(manifest);
+}
+
+
+// Shared with sw.js: the SW uses this to verify bytes before staging into its
+// cache; loadReleaseFiles below uses it to verify bytes actually received
+// over the wire, since the SW only serves cache-only (already-verified)
+// responses for the CURRENT release id — a request for any other release id
+// (mid-update window, or a second tab that hasn't heard about an update yet)
+// falls through the SW to a raw, unverified network fetch.
+export async function hashBytes(bytes, crypto = globalThis.crypto) {
+  if (!crypto?.subtle?.digest) throw new Error("SHA-256 verification is unavailable.");
+  const digest = await crypto.subtle.digest("SHA-256", bytes);
+  return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 
 
@@ -210,24 +223,44 @@ export class ReleaseManager {
     return validateReleaseManifest(await response.json(), { appVersion: this.appVersion });
   }
 
-  async loadRelease(manifest) {
+  // Loads only the given release file paths (already-verified by the SW's
+  // atomic staging, so this is a plain cached fetch + parse) and merges their
+  // top-level fields into one object. Lets a caller fetch core.json alone for
+  // fast startup, then pull in raids/pvp/gyms/extras lazily per route.
+  async loadReleaseFiles(manifest, paths) {
     const validated = validateReleaseManifest(manifest, { appVersion: this.appVersion });
-    const files = [...validated.files].sort((left, right) => {
-      if (left.path === "core.json") return -1;
-      if (right.path === "core.json") return 1;
-      return left.path.localeCompare(right.path);
-    });
+    const wanted = new Set(paths);
+    const files = [...validated.files]
+      .filter((file) => wanted.has(file.path))
+      .sort((left, right) => {
+        if (left.path === "core.json") return -1;
+        if (right.path === "core.json") return 1;
+        return left.path.localeCompare(right.path);
+      });
     const data = {};
     for (const file of files) {
       const response = await this.fetch(releaseFileUrl(this.baseUrl, validated.releaseId, file.path), {
         cache: "no-store", credentials: "same-origin",
       });
       if (!response?.ok) throw new Error(`Active release file ${file.path} is unavailable.`);
-      const chunk = await response.json();
+      const bytes = await response.arrayBuffer();
+      // The SW only serves verified cache-only responses for the CURRENT
+      // release id; any other release id (a stale request mid-update, or a
+      // second tab that hasn't heard of an update) falls through to a raw
+      // network fetch with no hash check. Verify here so unverified bytes
+      // never merge into `data`, regardless of which path served them.
+      const actualHash = await hashBytes(bytes);
+      if (actualHash !== file.sha256) throw new Error(`SHA-256 hash mismatch for ${file.path}.`);
+      const chunk = JSON.parse(new TextDecoder().decode(bytes));
       if (!plainObject(chunk)) throw new TypeError(`Active release file ${file.path} is not an object.`);
       Object.assign(data, chunk);
     }
     return data;
+  }
+
+  async loadRelease(manifest) {
+    const validated = validateReleaseManifest(manifest, { appVersion: this.appVersion });
+    return this.loadReleaseFiles(validated, validated.files.map((file) => file.path));
   }
 
   async status() {
@@ -356,7 +389,12 @@ export class ReleaseManager {
         || activationReceipt.generation < 0) {
         throw new Error("Candidate release was not durably active and offline-ready.");
       }
-      const data = await this.loadRelease(candidate);
+      // Only core.json (forms/meta/methodology) gates readiness; raids/pvp/
+      // gyms/extras load lazily per route once the app is interactive — the
+      // SW already staged and hash-verified every file atomically above, so
+      // deferring their fetch+parse here changes nothing about offline
+      // integrity, only when the JS side bothers to parse them.
+      const data = await this.loadReleaseFiles(candidate, ["core.json"]);
       const finalStatus = await this.status();
       if (finalStatus?.currentReleaseId !== candidate.releaseId
         || finalStatus?.offlineReady !== true
@@ -387,7 +425,9 @@ export class ReleaseManager {
       let activeData = null;
       if (activeManifest) {
         activeManifest = validateReleaseManifest(activeManifest, { appVersion: this.appVersion });
-        activeData = await this.loadRelease(activeManifest);
+        // Core-only here too: this runs on every boot with a durable release,
+        // not just first install, so it is the hot path for time-to-interactive.
+        activeData = await this.loadReleaseFiles(activeManifest, ["core.json"]);
       }
 
       let candidate;
@@ -410,7 +450,7 @@ export class ReleaseManager {
 
       if (!activeManifest && candidate.releaseId === durable.currentReleaseId) {
         activeManifest = candidate;
-        activeData = await this.loadRelease(candidate);
+        activeData = await this.loadReleaseFiles(candidate, ["core.json"]);
       }
       if (candidate.releaseId !== durable.currentReleaseId) {
         if (candidateIsOlder(candidate, activeManifest, durable.currentReleaseId)) {

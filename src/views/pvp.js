@@ -2,8 +2,8 @@ import { escapeHtml } from "./home.js";
 import { jargonTerm } from "../glossary.js";
 import { spriteHtml } from "../sprites.js";
 import { displayMoveName, moveLink } from "./move-sheet.js";
-import { buildMyTeam, LEAGUE_CP_CAP, MY_TEAM_SLOTS, myTeamOverridesFor } from "../pvp-team.js";
-import { xlPowerUpCost } from "../raid-target.js";
+import { buildMyTeam, detectInstanceConflicts, LEAGUE_CP_CAP, MY_TEAM_SLOTS, myTeamOverridesFor } from "../pvp-team.js";
+import { levelCapNote, xlPowerUpCost } from "../raid-target.js";
 import { typeChip } from "./types.js";
 
 
@@ -113,17 +113,19 @@ function controls(state) {
 // Level 40 is the standard recommendation, not a situational stretch goal. Great
 // and Ultra League's cap-driven level (which can also exceed 40 for low-CP forms)
 // stays a plain "XL: Yes/No" flag instead; it isn't the same "go to endgame" case.
-function endgamePowerUpLine(row) {
+function endgamePowerUpLine(row, trainerLevel = null) {
   const level = row.rankOne?.level;
   if (row.league !== "master" || !row.rankOne?.xlRequired || !Number.isFinite(level)) return "";
+  const capNote = levelCapNote(level, trainerLevel, { requiresXl: true });
   const { candy, stardust } = xlPowerUpCost(40, level, row.shadow);
   return `<p class="pvp-endgame-cost"><strong>Endgame (Level 40 → ${escapeHtml(level)}):</strong> `
     + `${escapeHtml(candy)} XL Candy + ${escapeHtml(stardust.toLocaleString("en-US"))} Stardust`
-    + `${row.shadow ? " (Shadow: +20% Candy/Stardust already included)" : ""} — XL Candy is slow to earn.</p>`;
+    + `${row.shadow ? " (Shadow: +20% Candy/Stardust already included)" : ""} — XL Candy is slow to earn.</p>`
+    + (capNote ? `<p class="pvp-endgame-cap">${escapeHtml(capNote)}</p>` : "");
 }
 
 
-function pvpCard(row, forms, { showLeague = false, publishedRank = false } = {}) {
+function pvpCard(row, forms, { showLeague = false, publishedRank = false, trainerLevel = null } = {}) {
   const rankOne = row.rankOne ?? {};
   const ivs = rankOne.ivs ?? {};
   const eliteMoves = new Set(forms?.[row.formId]?.elite_moves ?? []);
@@ -145,7 +147,7 @@ function pvpCard(row, forms, { showLeague = false, publishedRank = false } = {})
         <div><dt>${jargonTerm("candy", "XL")}</dt><dd>${yesNo(rankOne.xlRequired)}</dd></div>
         <div><dt>Best Buddy</dt><dd>${yesNo(rankOne.bestBuddyRequired)}</dd></div>
       </dl>
-      ${endgamePowerUpLine(row)}
+      ${endgamePowerUpLine(row, trainerLevel)}
       <dl class="pvp-guidance">
         <div><dt>Role</dt><dd>${escapeHtml(row.primaryRole)} · ${escapeHtml((row.roles ?? []).join(", "))}</dd></div>
         <div><dt>Investment</dt><dd>${escapeHtml(row.investmentTier)} · ${escapeHtml(row.recommendation)}</dd></div>
@@ -165,7 +167,7 @@ function pvpCard(row, forms, { showLeague = false, publishedRank = false } = {})
 }
 
 
-function rankingsView(pvp, forms, state) {
+function rankingsView(pvp, forms, state, trainerLevel = null) {
   const allRows = state.league === "all"
     ? PVP_LEAGUES.flatMap((league) => pvp?.[league] ?? [])
     : (pvp?.[state.league] ?? []);
@@ -175,7 +177,7 @@ function rankingsView(pvp, forms, state) {
     <h2 id="pvp-rankings-title">${escapeHtml(state.league === "all" ? "All leagues · Top 50 each" : `${leagueName(state.league)} Top 50`)}</h2>
     <p class="pvp-summary">Showing ${rows.length} of ${allRows.length}. Regular and Shadow forms remain separate exact-form entries.</p>
     ${rows.length
-      ? `<ol class="pvp-card-list">${rows.map((row) => pvpCard(row, forms, { showLeague: state.league === "all" })).join("")}</ol>`
+      ? `<ol class="pvp-card-list">${rows.map((row) => pvpCard(row, forms, { showLeague: state.league === "all", trainerLevel })).join("")}</ol>`
       : `<p class="pvp-empty">No entries match these filters. Change Form or Investment to continue.</p>`}
   </section>`;
 }
@@ -183,6 +185,27 @@ function rankingsView(pvp, forms, state) {
 
 function findTeamMember(pvp, formId, league) {
   return (pvp?.[league] ?? []).find((row) => row.formId === formId);
+}
+
+
+function teamMemberRow(member, row, form, forms) {
+  const name = row?.pokemon ?? form?.name ?? member.formId;
+  const eliteMoves = new Set(form?.elite_moves ?? []);
+  const moves = row
+    ? `<p class="pvp-team-moves"><span class="pvp-team-quick">Quick: ${moveWithElite(row.fastMove, eliteMoves, "Fast")}</span><span class="pvp-team-charged">Charged: ${(row.chargedMoves ?? []).map((move) => moveWithElite(move, eliteMoves, "Charged")).join(" + ")}</span></p>`
+    : "";
+  const ideal = row?.rankOne
+    ? `<p class="pvp-team-ideal">Ideal: ${row.rankOne.ivs.attack}/${row.rankOne.ivs.defense}/${row.rankOne.ivs.stamina} IVs @ ${row.rankOne.cp} CP</p>`
+    : "";
+  return `<li class="pvp-team-member" data-form-id="${escapeHtml(member.formId)}" data-role="${escapeHtml(member.role)}">
+    ${spriteHtml(member.formId, forms, name, form?.primary_type)}
+    <div class="pvp-team-member-body">
+      <p class="pvp-team-member-heading"><strong class="pvp-team-role" data-role="${escapeHtml(member.role)}">${escapeHtml(member.role)}:</strong> ${escapeHtml(name)}</p>
+      <p class="pvp-team-types">${typeChipsFor(forms, member.formId)}</p>
+      ${moves}
+      ${ideal}
+    </div>
+  </li>`;
 }
 
 
@@ -199,25 +222,19 @@ function teamCard(team, pvp, forms) {
     <ol class="pvp-team-members">${(team.members ?? []).map((member) => {
       const row = findTeamMember(pvp, member.formId, team.league);
       const form = forms?.[member.formId];
-      const name = row?.pokemon ?? form?.name ?? member.formId;
-      const eliteMoves = new Set(form?.elite_moves ?? []);
-      const moves = row
-        ? `<span class="pvp-team-quick">Quick: ${moveWithElite(row.fastMove, eliteMoves, "Fast")}</span><span class="pvp-team-charged">Charged: ${(row.chargedMoves ?? []).map((move) => moveWithElite(move, eliteMoves, "Charged")).join(" + ")}</span>`
-        : "";
-      const ideal = row?.rankOne
-        ? `<span class="pvp-team-ideal">Ideal: ${row.rankOne.ivs.attack}/${row.rankOne.ivs.defense}/${row.rankOne.ivs.stamina} IVs @ ${row.rankOne.cp} CP</span>`
-        : "";
-      return `<li data-form-id="${escapeHtml(member.formId)}">${spriteHtml(member.formId, forms, name, form?.primary_type)}<strong>${escapeHtml(member.role)}:</strong> ${escapeHtml(name)} <span class="pvp-team-types">${typeChipsFor(forms, member.formId)}</span>${moves}${ideal}</li>`;
+      return teamMemberRow(member, row, form, forms);
     }).join("")}</ol>
-    <p><strong>Battle plan:</strong> ${escapeHtml(team.plan)}</p>
-    <p><strong>Shared weaknesses:</strong> ${escapeHtml(shared)}</p>
-    <p><strong>Acknowledged weaknesses:</strong> ${escapeHtml(acknowledged)}</p>
+    <div class="pvp-team-readout">
+      <p class="pvp-team-plan"><strong>Battle plan:</strong> ${escapeHtml(team.plan)}</p>
+      <p class="pvp-team-weakness"><strong>Shared weaknesses:</strong> ${escapeHtml(shared)}</p>
+      <p class="pvp-team-weakness"><strong>Acknowledged weaknesses:</strong> ${escapeHtml(acknowledged)}</p>
+    </div>
     <p class="pvp-sources"><strong>Sources:</strong> ${escapeHtml((team.sourceRefs ?? []).join(", "))}</p>
   </article></li>`;
 }
 
 
-function alternativesView(alternatives, forms, state) {
+function alternativesView(alternatives, forms, state, trainerLevel = null) {
   const rows = state.league === "all"
     ? (alternatives ?? [])
     : (alternatives ?? []).filter((row) => row.league === state.league);
@@ -229,6 +246,7 @@ function alternativesView(alternatives, forms, state) {
     <ol class="pvp-card-list">${rows.map((row) => pvpCard(row, forms, {
       showLeague: state.league === "all",
       publishedRank: true,
+      trainerLevel,
     })).join("")}</ol>
   </section>`;
 }
@@ -280,8 +298,8 @@ function idealVsYoursLine(member) {
 
 function myTeamMemberCard(league, slot, member, options) {
   if (!member) {
-    return `<li class="pvp-myteam-slot pvp-myteam-empty" data-my-team-slot-empty="${escapeHtml(slot)}">
-      <strong>${escapeHtml(slot)}</strong>
+    return `<li class="pvp-myteam-slot pvp-myteam-empty" data-my-team-slot-empty="${escapeHtml(slot)}" data-role="${escapeHtml(slot)}">
+      <p class="pvp-myteam-heading"><strong class="pvp-team-role" data-role="${escapeHtml(slot)}">${escapeHtml(slot)}</strong></p>
       <p>No eligible Pokémon owned for this slot yet — star and detail more to fill it.</p>
       ${myTeamSlotSelect(league, slot, "", options)}
     </li>`;
@@ -290,14 +308,17 @@ function myTeamMemberCard(league, slot, member, options) {
   const quality = member.quality
     ? `<p class="pvp-myteam-quality">${escapeHtml(member.quality.tier)} · ${escapeHtml(member.quality.percent)}% of rank-1 stat product</p>`
     : "";
-  return `<li class="pvp-myteam-slot" data-form-id="${escapeHtml(member.formId)}">
-    <strong>${escapeHtml(slot)}</strong>${member.roleSource === "generic" ? " <small>(generic guidance — not in this league's ranked list)</small>" : ""}
-    <p>${escapeHtml(member.form?.name ?? member.formId)} <span>${escapeHtml(typesFor({ [member.formId]: member.form }, member.formId))}</span></p>
-    <p class="pvp-myteam-eligibility${member.eligibility.assumption ? " pvp-myteam-assumption" : ""}">${member.eligibility.assumption ? "Assumption: " : ""}${escapeHtml(member.eligibility.reason)}</p>
-    ${idealVsYoursLine(member)}
-    ${quality}
-    ${moveLines.length ? `<ul class="pvp-myteam-move-delta">${moveLines.map((line) => `<li>${escapeHtml(line)}</li>`).join("")}</ul>` : ""}
-    ${myTeamSlotSelect(league, slot, member.formId, options)}
+  return `<li class="pvp-myteam-slot" data-form-id="${escapeHtml(member.formId)}" data-role="${escapeHtml(slot)}">
+    ${spriteHtml(member.formId, { [member.formId]: member.form }, member.form?.name ?? member.formId, member.form?.primary_type)}
+    <div class="pvp-myteam-body">
+      <p class="pvp-myteam-heading"><strong class="pvp-team-role" data-role="${escapeHtml(slot)}">${escapeHtml(slot)}:</strong> ${escapeHtml(member.form?.name ?? member.formId)}${member.roleSource === "generic" ? " <small>(generic guidance — not in this league's ranked list)</small>" : ""}</p>
+      <p class="pvp-team-types">${typeChipsFor({ [member.formId]: member.form }, member.formId)}</p>
+      <p class="pvp-myteam-eligibility${member.eligibility.assumption ? " pvp-myteam-assumption" : ""}">${member.eligibility.assumption ? "Assumption: " : ""}${escapeHtml(member.eligibility.reason)}</p>
+      ${idealVsYoursLine(member)}
+      ${quality}
+      ${moveLines.length ? `<ul class="pvp-myteam-move-delta">${moveLines.map((line) => `<li>${escapeHtml(line)}</li>`).join("")}</ul>` : ""}
+      ${myTeamSlotSelect(league, slot, member.formId, options)}
+    </div>
   </li>`;
 }
 
@@ -313,9 +334,7 @@ function myTeamFallback(league, team, forms) {
 }
 
 
-function myTeamSection(league, pvp, pvpTeams, roster, forms) {
-  const overrides = myTeamOverridesFor(roster?.preferences, league);
-  const team = buildMyTeam({ league, pvp, pvpTeams, roster, forms, overrides });
+function myTeamSection(league, team, roster, forms) {
   const options = myTeamOwnedOptions(roster, forms);
   const cap = LEAGUE_CP_CAP[league];
   return `<section class="pvp-section pvp-myteam" aria-labelledby="pvp-myteam-title-${escapeHtml(league)}" data-my-team-league="${escapeHtml(league)}">
@@ -337,34 +356,56 @@ function myTeamSection(league, pvp, pvpTeams, roster, forms) {
 }
 
 
-function teamsView(pvp, teams, alternatives, forms, roster, state) {
+// PvP instance-conflict warnings: advisory only, never blocking. Built from
+// every league's team regardless of the current league filter, since a
+// conflict with a league the user isn't currently viewing still matters.
+function instanceConflictWarnings(conflicts) {
+  if (!conflicts.length) return "";
+  return `<div class="pvp-instance-conflicts" role="status">${conflicts.map((conflict) => (
+    `<p class="pvp-instance-conflict">This exact ${escapeHtml(conflict.pokemon)} can't be optimized for both `
+    + `${conflict.leagues.map((league) => escapeHtml(leagueName(league))).join(" and ")} — consider a second copy.</p>`
+  )).join("")}</div>`;
+}
+
+
+function teamsView(pvp, teams, alternatives, forms, roster, state, trainerLevel = null) {
   const leagueTeams = state.league === "all"
     ? (teams ?? [])
     : (teams ?? []).filter((team) => team.league === state.league);
   const myTeamLeagues = state.league === "all" ? PVP_LEAGUES : [state.league];
+  const teamsByLeague = Object.fromEntries(PVP_LEAGUES.map((league) => [
+    league,
+    buildMyTeam({
+      league, pvp, pvpTeams: teams, roster, forms, overrides: myTeamOverridesFor(roster?.preferences, league),
+    }),
+  ]));
+  const conflicts = detectInstanceConflicts(teamsByLeague);
   return `<p class="pvp-attack-iv-note">Why low Attack IV shows up so often: a lower Attack IV keeps CP under the league cap while leaving room for more Defense and HP — same cap, more bulk.</p>
-  ${myTeamLeagues.map((league) => myTeamSection(league, pvp, teams, roster, forms)).join("")}
+  ${instanceConflictWarnings(conflicts)}
+  ${myTeamLeagues.map((league) => myTeamSection(league, teamsByLeague[league], roster, forms)).join("")}
   <section class="pvp-section" aria-labelledby="pvp-teams-title">
     <p class="status-kicker">${leagueTeams.length} current example teams</p>
     <h2 id="pvp-teams-title">${escapeHtml(leagueName(state.league))} team suggestions</h2>
     <p class="pvp-summary">Example teams are plans, not guaranteed wins. Shared and acknowledged weaknesses stay visible.</p>
     <ul class="pvp-team-list">${leagueTeams.map((team) => teamCard(team, pvp, forms)).join("")}</ul>
-  </section>${alternativesView(alternatives, forms, state)}
+  </section>${alternativesView(alternatives, forms, state, trainerLevel)}
   <details class="pvp-full-rankings">
     <summary>Full rankings</summary>
-    ${rankingsView(pvp, forms, { ...state, form: "all", investment: "all" })}
+    ${rankingsView(pvp, forms, { ...state, form: "all", investment: "all" }, trainerLevel)}
   </details>`;
 }
 
 
-export function renderPvp({ pvp = {}, pvpTeams = [], pvpAlternatives = [], forms = {}, roster = {}, state } = {}) {
+export function renderPvp({
+  pvp = {}, pvpTeams = [], pvpAlternatives = [], forms = {}, roster = {}, state, trainerLevel = null,
+} = {}) {
   const normalized = createPvpState({ filters: state });
   return `<div class="pvp-view">
     <a class="safe-escape" href="./#pvp">Reset PvP filters</a>
     <a class="safe-escape" href="./#swap">Battle Swap — who should I lead?</a>
     ${controls(normalized)}
     ${normalized.view === "teams"
-      ? teamsView(pvp, pvpTeams, pvpAlternatives, forms, roster, normalized)
-      : rankingsView(pvp, forms, normalized)}
+      ? teamsView(pvp, pvpTeams, pvpAlternatives, forms, roster, normalized, trainerLevel)
+      : rankingsView(pvp, forms, normalized, trainerLevel)}
   </div>`;
 }

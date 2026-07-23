@@ -3,9 +3,14 @@
 // by a player: "I dropped a defender" (start) and "it came back" (complete).
 // One flat list in localStorage (feedback.js pattern), plus a compact
 // versioned text block so friends can paste each other's columns in.
+import { TEAM_SET } from "./storage.js";
 const STORAGE_KEY = "pogo-gym-defense-log";
 const SCHEMA_VERSION = 1;
-export const EXPORT_HEADER = "PGDEF-v1";
+export const EXPORT_HEADER = "PGDEF-v2";
+// v1 pastes ("PGDEF-v1|<name>") have no team field and must keep importing —
+// round 8 adds team color as an optional third header column, not a new
+// required one.
+const LEGACY_EXPORT_HEADER = "PGDEF-v1";
 const DEFAULT_PLAYER_NAME = "You";
 
 // ponytail: the share format is pipe-delimited for readability, so free-text
@@ -36,7 +41,8 @@ function isValidEntry(entry) {
     && typeof entry.startedAt === "string" && !Number.isNaN(Date.parse(entry.startedAt))
     && (entry.endedAt === null || (typeof entry.endedAt === "string" && !Number.isNaN(Date.parse(entry.endedAt))))
     && (entry.coins === null || (Number.isInteger(entry.coins) && entry.coins >= 0))
-    && typeof entry.isLocal === "boolean";
+    && typeof entry.isLocal === "boolean"
+    && (entry.team === undefined || TEAM_SET.has(entry.team));
 }
 
 
@@ -163,8 +169,11 @@ export function durationMs(entry, now = Date.now()) {
 // currently up (in-progress entries, sorted longest-held-so-far first).
 // Local entries are grouped under the *current* localPlayerName rather than
 // the name stored on the entry, so renaming yourself doesn't fork your own
-// history into two players.
-export function buildLeaderboard(log, now = Date.now()) {
+// history into two players. Team color follows the same rule: the local
+// row always shows the *current* myTeam argument (the live trainer profile),
+// never a value stored on the entry — a friend row's team instead comes from
+// whatever their own export last carried, since only their device knows it.
+export function buildLeaderboard(log, now = Date.now(), myTeam = null) {
   const byPlayer = new Map();
   for (const entry of log.entries) {
     const playerName = entry.isLocal ? log.localPlayerName : entry.playerName;
@@ -185,8 +194,12 @@ export function buildLeaderboard(log, now = Date.now()) {
       }
       if (!entry.endedAt) active.push({ ...entry, elapsedMs: duration });
     }
+    // ponytail: a friend's team can only change between imports (not entries),
+    // so the last entry carrying a team is the most recent thing they told us.
+    const importedTeam = [...entries].reverse().find((entry) => entry.team)?.team ?? null;
     return {
       playerName,
+      team: entries[0]?.isLocal ? myTeam : importedTeam,
       longestMs,
       longestPokemon: longestEntry?.pokemon ?? null,
       longestGymName: longestEntry?.gymName ?? null,
@@ -201,14 +214,19 @@ export function buildLeaderboard(log, now = Date.now()) {
 
 // Exports only this device's own entries — "my leaderboard" — as a compact,
 // versioned, human-readable text block a friend pastes into their own app.
-// Always stamped with the *current* localPlayerName (see buildLeaderboard).
-export function exportPlayerLog(log) {
+// Always stamped with the *current* localPlayerName and team (see
+// buildLeaderboard) — team is an optional third header column so a v1
+// importer elsewhere still sees a well-formed "header|name" first segment.
+export function exportPlayerLog(log, myTeam = null) {
   const lines = log.entries
     .filter((entry) => entry.isLocal)
     .map((entry) => [
       entry.id, entry.pokemon, entry.gymName, entry.startedAt, entry.endedAt ?? "", entry.coins ?? "",
     ].join("|"));
-  return `${[`${EXPORT_HEADER}|${log.localPlayerName}`, ...lines].join("\n")}\n`;
+  const header = TEAM_SET.has(myTeam)
+    ? `${EXPORT_HEADER}|${log.localPlayerName}|${myTeam}`
+    : `${EXPORT_HEADER}|${log.localPlayerName}`;
+  return `${[header, ...lines].join("\n")}\n`;
 }
 
 
@@ -225,14 +243,20 @@ export function importPlayerLog(log, text) {
   const lines = String(text ?? "").replace(/\r\n/g, "\n").split("\n").map((line) => line.trim()).filter(Boolean);
   if (!lines.length) throw new DefenseLogError("Nothing to import — paste a shared leaderboard block.", "empty_paste");
   const [header, ...entryLines] = lines;
-  const [headerTag, ...headerRest] = header.split("|");
-  const playerName = headerRest.join("|").trim();
-  if (headerTag !== EXPORT_HEADER || !playerName || hasSeparator(playerName)) {
+  const headerParts = header.split("|");
+  const [headerTag, rawPlayerName, rawTeam] = headerParts;
+  const playerName = String(rawPlayerName ?? "").trim();
+  // v2 ("PGDEF-v2|<name>|<team>") adds an optional team column; v1
+  // ("PGDEF-v1|<name>") has none and must keep importing unchanged.
+  const isCurrent = headerTag === EXPORT_HEADER && headerParts.length <= 3;
+  const isLegacy = headerTag === LEGACY_EXPORT_HEADER && headerParts.length === 2;
+  if ((!isCurrent && !isLegacy) || !playerName || hasSeparator(playerName)) {
     throw new DefenseLogError(
       `Unrecognized share format — expected a first line like "${EXPORT_HEADER}|<player name>".`,
       "invalid_header",
     );
   }
+  const team = TEAM_SET.has(rawTeam) ? rawTeam : null;
   if (!entryLines.length) {
     throw new DefenseLogError("That leaderboard block has no entries to import.", "empty_import");
   }
@@ -260,7 +284,10 @@ export function importPlayerLog(log, text) {
       }
       coins = Number(coinsRaw);
     }
-    return { id, playerName, pokemon, gymName, startedAt, endedAt: endedAt || null, coins, isLocal: false };
+    return {
+      id, playerName, pokemon, gymName, startedAt, endedAt: endedAt || null, coins, isLocal: false,
+      ...(team ? { team } : {}),
+    };
   });
   // Local entry ids are the collision key, independent of playerName: only
   // this device can produce a local entry, and its playerName drifts with

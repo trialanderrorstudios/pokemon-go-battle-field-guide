@@ -97,7 +97,8 @@ function powerUpLine(entry) {
     .every(Number.isFinite)) {
     return '<p class="triage-invest-cost">Exact power-up cost is unavailable for this copy.</p>';
   }
-  return `<p class="triage-invest-cost">Level ${escapeHtml(entry.powerUp.fromLevel)} → ${escapeHtml(entry.powerUp.toLevel)}: ${escapeHtml(regularCandy.toLocaleString("en-US"))} ${jargonTerm("candy", "Candy")} + ${escapeHtml(xlCandy.toLocaleString("en-US"))} ${jargonTerm("candy", "XL Candy")} + ${escapeHtml(stardust.toLocaleString("en-US"))} total ${jargonTerm("stardust", "Stardust")}</p>`;
+  return `<p class="triage-invest-cost">Level ${escapeHtml(entry.powerUp.fromLevel)} → ${escapeHtml(entry.powerUp.toLevel)}: ${escapeHtml(regularCandy.toLocaleString("en-US"))} ${jargonTerm("candy", "Candy")} + ${escapeHtml(xlCandy.toLocaleString("en-US"))} ${jargonTerm("candy", "XL Candy")} + ${escapeHtml(stardust.toLocaleString("en-US"))} total ${jargonTerm("stardust", "Stardust")}</p>
+  ${entry.powerUp.capNote ? `<p class="triage-invest-cap">${escapeHtml(entry.powerUp.capNote)}</p>` : ""}`;
 }
 
 

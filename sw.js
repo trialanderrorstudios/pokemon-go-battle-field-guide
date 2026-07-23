@@ -1,9 +1,22 @@
-import { APP_SHELL_REVISION, APP_VERSION, validateReleaseManifest } from "./src/release-manager.js";
+import { APP_SHELL_REVISION, APP_VERSION, hashBytes, validateReleaseManifest } from "./src/release-manager.js";
 import { SPRITE_VARIANT_IDS } from "./src/sprites.js";
 
 export const SHELL_CACHE = `pogo-shell-v${APP_VERSION}-${APP_SHELL_REVISION}`;
 export const RELEASE_CACHE_PREFIX = "pogo-release-";
 export const METADATA_CACHE = "pogo-release-metadata";
+// Sprites are also precached into SHELL_CACHE via SHELL_FILES (install-time),
+// but that path is network-first like every other shell asset — fine for
+// code/CSS freshness, wrong for 1135 immutable images where one flaky mobile
+// packet shouldn't ever beat a perfectly good local copy. This dedicated
+// cache-first cache is sprite-only and versioned separately from the shell
+// so a shell upgrade doesn't force a full 1135-image refetch.
+const SPRITE_CACHE_PREFIX = "pogo-sprites-";
+// Bump only when sprite artwork itself changes (fetch-sprites.mjs re-run with
+// different source images) — never on a shell release. Tying this to
+// APP_SHELL_REVISION defeated the whole point of the comment above: every
+// shell bump wiped a warm 1135-image cache via cleanupObsoleteSpriteCaches.
+const SPRITE_CACHE_VERSION = "v1";
+export const SPRITE_CACHE = `${SPRITE_CACHE_PREFIX}${SPRITE_CACHE_VERSION}`;
 
 const METADATA_PATH = "__field-guide-release-metadata__.json";
 const COMPLETE_PATH = "__verified-release__.json";
@@ -24,7 +37,9 @@ export const SHELL_FILES = Object.freeze([
   "./icons/apple-touch-icon.png",
   "./icons/share-qr.svg",
   "./src/app.js",
+  "./src/backup.js",
   "./src/coach.js",
+  "./src/collection.js",
   "./src/effectiveness.js",
   "./src/glossary.js",
   "./src/guide.js",
@@ -32,8 +47,10 @@ export const SHELL_FILES = Object.freeze([
   "./src/pvp-team.js",
   "./src/raid-target.js",
   "./src/release-manager.js",
+  "./src/resource-inventory.js",
   "./src/router.js",
   "./src/drill.js",
+  "./src/diagnostics.js",
   "./src/feedback.js",
   "./src/gym-defense-log.js",
   "./src/gym-availability.js",
@@ -50,6 +67,7 @@ export const SHELL_FILES = Object.freeze([
   "./src/type-chart.js",
   "./src/views/basics.js",
   "./src/views/coach.js",
+  "./src/views/collection.js",
   "./src/views/glossary.js",
   "./src/views/drill.js",
   "./src/views/gyms.js",
@@ -61,6 +79,7 @@ export const SHELL_FILES = Object.freeze([
   "./src/views/pvp.js",
   "./src/views/raids.js",
   "./src/views/swap.js",
+  "./src/views/today.js",
   "./src/views/triage.js",
   "./src/views/types.js",
   ...Array.from({ length: SPRITE_DEX_COUNT }, (_, index) => `./sprites/${index + 1}.png`),
@@ -166,13 +185,6 @@ async function retireReleaseCaches(env, keepReleaseIds) {
       }
     }
   }
-}
-
-
-async function hashBytes(bytes, crypto = globalThis.crypto) {
-  if (!crypto?.subtle?.digest) throw new Error("SHA-256 verification is unavailable.");
-  const digest = await crypto.subtle.digest("SHA-256", bytes);
-  return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 
 
@@ -454,6 +466,51 @@ export async function cleanupObsoleteShellCaches(environment = {}) {
 }
 
 
+async function fetchSpriteCacheFirst(request, env) {
+  const cache = await env.caches.open(SPRITE_CACHE);
+  const cached = await cache.match(request);
+  if (cached) return cached;
+  try {
+    const response = await env.fetch(request);
+    if (response?.ok) await cache.put(request, response.clone());
+    return response;
+  } catch {
+    // Network unreachable and SPRITE_CACHE hasn't warmed this URL yet — a
+    // freshly activated worker starts with an empty SPRITE_CACHE, but
+    // SHELL_FILES precached all 1135 sprites into SHELL_CACHE at install.
+    // Fall back there before giving up.
+    const shell = await env.caches.open(SHELL_CACHE);
+    const shellHit = await shell.match(request);
+    if (shellHit) return shellHit;
+    // Genuinely unreachable with nothing cached anywhere — the client-side
+    // sprite-fallback circle (sprites.js handleSpriteError) takes over.
+    return new Response("Sprite unavailable.", { status: 503 });
+  }
+}
+
+
+export async function cleanupObsoleteSpriteCaches(environment = {}) {
+  const env = runtime(environment);
+  let cacheNames;
+  try {
+    cacheNames = await env.caches.keys();
+  } catch {
+    return [];
+  }
+  const removed = [];
+  for (const cacheName of cacheNames) {
+    if (cacheName.startsWith(SPRITE_CACHE_PREFIX) && cacheName !== SPRITE_CACHE) {
+      try {
+        if (await env.caches.delete(cacheName)) removed.push(cacheName);
+      } catch {
+        // Best-effort cleanup must not strand the newly installed worker.
+      }
+    }
+  }
+  return removed;
+}
+
+
 export async function fetchWithinWorker(request, environment = {}) {
   const env = runtime(environment);
   const url = new URL(request.url);
@@ -461,6 +518,9 @@ export async function fetchWithinWorker(request, environment = {}) {
   if (url.origin !== scope.origin || !url.pathname.startsWith(scope.pathname)) return env.fetch(request);
   if (url.pathname === `${scope.pathname}releases/current.json`) {
     return env.fetch(request, { cache: "no-store" });
+  }
+  if (url.pathname.startsWith(`${scope.pathname}sprites/`) && url.pathname.endsWith(".png")) {
+    return fetchSpriteCacheFirst(request, env);
   }
   if (request.mode === "navigate") {
     const shell = await env.caches.open(SHELL_CACHE);
@@ -509,11 +569,63 @@ export async function refreshWindowClients(environment = {}) {
 export async function activateShell(environment = {}) {
   const clients = environment.clients ?? globalThis.clients;
   const removed = await cleanupObsoleteShellCaches(environment);
+  await cleanupObsoleteSpriteCaches(environment);
   await clients.claim();
   if (removed.length) await refreshWindowClients({ ...environment, clients });
   return removed;
 }
 
+
+// Push groundwork (see docs/push-notifications-spike.md). No relay exists
+// and the client only ever subscribes behind the dev flag in src/app.js,
+// so in practice a "push" event can't fire yet — these handlers are the
+// safe no-op they need to be simply because nothing calls
+// pushManager.subscribe() today, not because they check a flag themselves
+// (a service worker has no synchronous localStorage access to check).
+export async function handlePush(event, environment = {}) {
+  const registration = environment.registration ?? globalThis.registration;
+  if (!event?.data || !registration?.showNotification) return;
+  let payload;
+  try {
+    payload = event.data.json();
+  } catch {
+    return;
+  }
+  if (!payload?.title) return;
+  await registration.showNotification(payload.title, {
+    body: payload.body ?? "",
+    data: payload.data ?? {},
+  });
+}
+
+// Pure mapping from a (future) push payload's notification data to the
+// in-app route it should focus/open. Unknown/missing type falls back to
+// Home rather than guessing.
+export function notificationClickRoute(data) {
+  const type = data?.type;
+  if (type === "raid-hour" && data.formId) return `./?boss=${encodeURIComponent(data.formId)}#raids`;
+  if (type === "event-start") return "./#home";
+  // log=1 routes into the existing quick-log consumer (app.js's gyms
+  // renderer) — there's no separate read-only "focus this gym" view, so
+  // landing without it would leave the gym param unconsumed.
+  if (type === "defender-out" && data.gymName) return `./?gym=${encodeURIComponent(data.gymName)}&log=1#gyms`;
+  if (type === "staleness") return "./#more";
+  return "./#home";
+}
+
+export async function handleNotificationClick(event, environment = {}) {
+  const clients = environment.clients ?? globalThis.clients;
+  event.notification?.close?.();
+  const scope = environment.scope ?? globalThis.registration?.scope;
+  const url = new URL(notificationClickRoute(event?.notification?.data), scope).href;
+  const windows = await clients.matchAll({ type: "window", includeUncontrolled: true });
+  const existing = windows.find((client) => typeof client.focus === "function");
+  if (existing) {
+    if (typeof existing.navigate === "function") await existing.navigate(url);
+    return existing.focus();
+  }
+  return clients.openWindow?.(url);
+}
 
 const worker = typeof self !== "undefined" && "registration" in self ? self : null;
 if (worker) {
@@ -536,5 +648,11 @@ if (worker) {
   });
   worker.addEventListener("fetch", (event) => {
     if (event.request.method === "GET") event.respondWith(fetchWithinWorker(event.request));
+  });
+  worker.addEventListener("push", (event) => {
+    event.waitUntil(handlePush(event));
+  });
+  worker.addEventListener("notificationclick", (event) => {
+    event.waitUntil(handleNotificationClick(event));
   });
 }

@@ -42,6 +42,14 @@
       <button type="button" class="update-banner-dismiss" data-action="dismiss-update-banner" aria-label="Dismiss update notice">✕</button>
     </div>
 
+    <div id="staleness-banner" class="update-banner" role="status" aria-live="polite" hidden>
+      <a class="update-banner-tap" href="./#more">
+        <span class="update-banner-icon" aria-hidden="true">⏱</span>
+        <span id="staleness-banner-label">Your Poke Genie import is getting stale</span>
+      </a>
+      <button type="button" class="update-banner-dismiss" data-action="dismiss-staleness-banner" aria-label="Remind me again in a week">✕</button>
+    </div>
+
     <div class="bezelwrap">
       <main id="app" aria-live="polite">
         <section id="home" class="fallback-section shell-status" aria-labelledby="home-title">

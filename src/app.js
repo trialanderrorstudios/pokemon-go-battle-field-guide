@@ -1,11 +1,14 @@
 import { createRouter, ROUTES } from "./router.js";
 import { APP_SHELL_REVISION, ReleaseManager } from "./release-manager.js";
-import { ATTACK_TYPES, becauseLine, buildRaidPlan, powerUpCost } from "./raid-target.js";
+import { ATTACK_TYPES, WEATHERS, becauseLine, buildRaidPlan, loadWeather, powerUpCost, saveWeather } from "./raid-target.js";
 import { buildSearchIndex, search } from "./search.js";
 import {
+  ROSTER_SCHEMA,
   createIndexedDbAdapter,
   importRoster,
   loadRoster,
+  loadTrainerProfile,
+  saveTrainerProfile,
   stableRosterJson,
 } from "./storage.js";
 import { scorePlacement } from "./placement.js";
@@ -22,7 +25,9 @@ import { renderMore } from "./views/more.js";
 import { buildMoveIndex } from "./moves.js";
 import { moveLink, renderMoveSheet } from "./views/move-sheet.js";
 import { renderInstanceSheet } from "./views/instance-sheet.js";
-import { bestInstanceForForm, buildInstance, instanceLevel } from "./instances.js";
+import {
+  bestInstanceForForm, buildInstance, instanceLevel, reviseInstanceCp,
+} from "./instances.js";
 import { parsePokeGenieCsv } from "./poke-genie-import.js";
 import {
   completeDefense,
@@ -41,10 +46,37 @@ import {
   getRecentGymNames,
   getTopAvailableDefender,
   setCachedGymCoords,
+  speciesDefendingGym,
 } from "./gym-availability.js";
-import { exportFeedback, recordFeedback } from "./feedback.js";
+import {
+  affordability,
+  clearCandyCount,
+  clearMegaEnergyCount,
+  clearStardust,
+  loadCandyInventory,
+  loadMegaEnergyInventory,
+  loadStardust,
+  saveStardust,
+  setCandyCount,
+  setMegaEnergyCount,
+} from "./resource-inventory.js";
+import {
+  exportFeedback, loadFeedback, recordFeedback, saveFeedback,
+} from "./feedback.js";
 import { applyTextSize, loadTextSize, saveTextSize } from "./text-size.js";
+import { clearDiagnostics, exportDiagnostics, installDiagnosticsCapture, loadDiagnostics } from "./diagnostics.js";
 import { applyTheme, loadTheme, saveTheme } from "./theme.js";
+import {
+  buildBackupEnvelope,
+  mergeBackupPayload,
+  parseBackupEnvelope,
+  recordBackupNow,
+  replaceBackupPayload,
+  shouldShowBackupNudge,
+  snoozeBackupNudge,
+  stableBackupJson,
+  summarizeBackup,
+} from "./backup.js";
 import { createPvpState, renderPvp } from "./views/pvp.js";
 import { withMyTeamOverride } from "./pvp-team.js";
 import { renderRaids } from "./views/raids.js";
@@ -52,7 +84,9 @@ import {
   advanceDrillQuestion,
   answerDrillQuestion,
   createDrillState,
+  loadDrillStats,
   restartDrillRound,
+  saveDrillStats,
   setDrillMode,
 } from "./drill.js";
 import { renderDrill } from "./views/drill.js";
@@ -68,6 +102,7 @@ import {
 } from "./swap.js";
 import { renderSwap } from "./views/swap.js";
 import { renderCoach } from "./views/coach.js";
+import { renderToday, toggleTodayTask } from "./views/today.js";
 import { triageRoster } from "./triage.js";
 import {
   advanceTriageView,
@@ -89,9 +124,140 @@ function usableState(state) {
 }
 
 
+// Route -> release file paths (release-manager.js loadReleaseFiles paths)
+// that route's data depends on. core.json loads eagerly for every route
+// (forms/meta/methodology); everything below loads lazily on first visit to
+// a route that needs it, then stays cached in memory for the session. Routes
+// not listed here (basics/maxbasics/types/glossary/drill) render from static
+// copy only and never touch release chunk data.
+export const ROUTE_CHUNKS = Object.freeze({
+  home: ["raid-targets.json", "current-bosses.json", "current-events.json"],
+  raids: ["raids.json", "raid-targets.json"],
+  gyms: ["gyms.json"],
+  pvp: ["pvp.json"],
+  swap: ["pvp.json"],
+  coach: ["raid-targets.json", "current-bosses.json", "current-events.json", "extras.json", "pvp.json"],
+  // Today composes the same feeds Coach does (events + buildCoachSummary),
+  // so it waits on the same chunk set — a checklist built from partial data
+  // would confidently tell the user "nothing on today".
+  today: ["raid-targets.json", "current-bosses.json", "current-events.json", "extras.json", "pvp.json"],
+  triage: ["raids.json", "pvp.json", "extras.json"],
+  more: ["extras.json"],
+});
+
+export function chunksNeededFor(route, loadedChunkPaths) {
+  return (ROUTE_CHUNKS[route] ?? []).filter((path) => !loadedChunkPaths.has(path));
+}
+
+export function routeChunksReady(route, loadedChunkPaths) {
+  return (ROUTE_CHUNKS[route] ?? []).every((path) => loadedChunkPaths.has(path));
+}
+
+
+// Mirrors pwa.py's VIEW_KEYS: which top-level `state` fields each release
+// file's data lands as, once merged in.
+const CHUNK_FIELDS = Object.freeze({
+  "raids.json": ["raids"],
+  "raid-targets.json": ["raidTargetTool"],
+  "gyms.json": ["gym", "placement"],
+  "pvp.json": ["pvp", "pvpTeams", "pvpAlternatives"],
+  "extras.json": ["budgets", "megasPrimals", "futureProof", "coveragePlanner"],
+  "current-bosses.json": ["currentBosses"],
+  "current-events.json": ["currentEvents"],
+});
+
+// bootstrap()'s default for loadedChunkPaths when a caller (a test, or any
+// direct bootstrap() call outside startFieldGuide's own explicit tracking)
+// hands it an already-fully-populated `state` object: infer which chunks are
+// "loaded" from which fields are actually present, so pre-existing callers
+// that build a complete fixture state don't have to know this mechanism
+// exists. startFieldGuide always threads its own real fetch-tracked Set
+// instead, which is the only way to know an *optional* file (current-bosses/
+// current-events) was fetched-and-genuinely-absent rather than never tried.
+export function inferChunkPaths(state) {
+  const loaded = new Set(["core.json"]);
+  for (const [path, fields] of Object.entries(CHUNK_FIELDS)) {
+    if (fields.some((field) => Object.hasOwn(state ?? {}, field))) loaded.add(path);
+  }
+  return loaded;
+}
+
+
+// Owns the route-driven lazy chunk fetch/merge: which release files are
+// loaded so far for the current release, and fetching a route's missing
+// ones on first visit. Standalone (no DOM) so it's unit-testable directly;
+// startFieldGuide is the only caller and supplies the re-render side effect.
+export function createRouteChunkLoader({ releaseManager, getReleaseState, onChunksLoaded = () => {} }) {
+  // Two sets, deliberately not one: `claimedChunkPaths` dedups in-flight
+  // fetches (a path is claimed the instant a fetch starts); `loadedChunkPaths`
+  // is the honesty gate bootstrap()'s routeChunksReady() renders off, and only
+  // gains a path once its data has actually landed in extraChunkData. A
+  // second visit to the same route while the first fetch is still in flight
+  // must see the path as claimed (skip a duplicate fetch) but NOT loaded
+  // (skip rendering data that isn't in `state` yet) — conflating the two into
+  // one Set let that second visit render a full view off absent data.
+  let claimedChunkPaths = new Set(["core.json"]);
+  let loadedChunkPaths = new Set(["core.json"]);
+  let extraChunkData = {};
+  return {
+    // Call whenever a wholesale-new releaseState.data lands (install/update/
+    // rollback) — chunk data belongs to one specific release and must never
+    // leak across a release change.
+    reset() {
+      claimedChunkPaths = new Set(["core.json"]);
+      loadedChunkPaths = new Set(["core.json"]);
+      extraChunkData = {};
+    },
+    get loadedChunkPaths() { return loadedChunkPaths; },
+    get extraChunkData() { return extraChunkData; },
+    async ensureRouteChunks(route) {
+      const releaseState = getReleaseState();
+      const manifest = releaseState?.manifest;
+      if (!manifest) return;
+      const requestReleaseId = manifest.releaseId;
+      const missing = chunksNeededFor(route, claimedChunkPaths);
+      if (!missing.length) return;
+      // Claim immediately so a second visit to the same (or another route
+      // needing an overlapping file) while this fetch is in flight doesn't
+      // start a duplicate request; a failure below releases the claim so
+      // the next visit retries.
+      for (const path of missing) claimedChunkPaths.add(path);
+      let chunk;
+      try {
+        chunk = await releaseManager.loadReleaseFiles(manifest, missing);
+      } catch {
+        // A release install/update/rollback may have landed while this fetch
+        // was in flight — that already called reset(), repointing
+        // claimedChunkPaths to a new Set for the new release. Deleting into it
+        // here would strip legitimate claims/loads that belong to the new
+        // release, not this stale failed request.
+        if (getReleaseState()?.manifest?.releaseId !== requestReleaseId) return;
+        for (const path of missing) claimedChunkPaths.delete(path);
+        return; // Fallback/loading copy stays up; the next visit retries.
+      }
+      // A release install/update/rollback may have landed while this fetch
+      // was in flight — that already called reset(); don't let a stale
+      // release's chunk data merge into the new one.
+      if (getReleaseState()?.manifest?.releaseId !== requestReleaseId) return;
+      for (const path of missing) loadedChunkPaths.add(path);
+      Object.assign(extraChunkData, chunk);
+      onChunksLoaded();
+    },
+  };
+}
+
+
 function basePathFrom(location) {
   const path = location.pathname;
   return path.endsWith("/") ? path : path.slice(0, path.lastIndexOf("/") + 1);
+}
+
+
+// Reuses the same static "fallback section" styling the pre-JS index.html
+// sections already use (see fallbackSections) for the brief window between
+// a route's first visit and its release chunk finishing its fetch+parse.
+function chunkLoadingNotice(label) {
+  return `<p class="status-kicker">Loading ${escapeHtml(label)} data…</p>`;
 }
 
 
@@ -101,6 +267,54 @@ function renderSearchResults(results, forms, roster) {
   return `<ul>${results.slice(0, 10).map((result) => (
     `<li class="search-result-card${owned.has(result.formId) ? " is-owned" : ""}">${spriteHtml(result.formId, forms, result.name, forms?.[result.formId]?.primary_type)}<strong>${escapeHtml(result.name)}</strong> <span>${escapeHtml(result.resultCategory)}</span>${ownedStarButton({ formId: result.formId, name: result.name, owned: owned.has(result.formId), route: "search" })}</li>`
   )).join("")}</ul>`;
+}
+
+
+// Web Push groundwork — flag-gated, no relay exists yet. See
+// docs/push-notifications-spike.md for the full spike and the operator's
+// relay decision. Default OFF: no permission prompt, no subscribe call, no
+// network activity unless a developer has opted in via the localStorage
+// dev toggle documented there.
+const PUSH_FLAG_KEY = "pogo-push-flag-dev";
+
+export function isPushFlagEnabled(storage) {
+  return storage?.getItem?.(PUSH_FLAG_KEY) === "1";
+}
+
+export function setPushFlag(storage, enabled) {
+  try {
+    if (enabled) storage?.setItem?.(PUSH_FLAG_KEY, "1");
+    else storage?.removeItem?.(PUSH_FLAG_KEY);
+  } catch {
+    // Storage can legitimately be unavailable — the toggle still applies
+    // for this session, it just won't persist to the next visit.
+  }
+}
+
+
+// Permission state machine. The Notification API's own "granted"/"denied"/
+// "default" is the source of truth; this just folds the flag and
+// unsupported-browser cases into the same small state set a UI can switch
+// on. There is no "pending" state — requestPushPermission() is a single
+// awaited call, not a stored transition.
+export const PUSH_STATES = Object.freeze(["unsupported", "flag-off", "default", "denied", "granted"]);
+
+export function pushState({ flagEnabled, permission } = {}) {
+  if (!flagEnabled) return "flag-off";
+  if (permission === "granted" || permission === "denied") return permission;
+  if (permission === "default") return "default";
+  return "unsupported";
+}
+
+// Only call this from an explicit user tap handler — never on load or on a
+// flag flip. Requesting permission automatically burns the browser's one
+// prompt and can get the origin silently blocked for the rest of the
+// install.
+export async function requestPushPermission({ flagEnabled, notification = globalThis.Notification } = {}) {
+  if (!flagEnabled) return "flag-off";
+  if (!notification?.requestPermission) return "unsupported";
+  const permission = await notification.requestPermission();
+  return pushState({ flagEnabled, permission });
 }
 
 
@@ -193,6 +407,43 @@ function updateBanner(documentObject, releaseState, storage) {
     label.textContent = releaseState.error
       ? "Update failed — tap to retry"
       : "New version ready — tap to update";
+  }
+}
+
+
+// Poke Genie CSV imports are a point-in-time snapshot (see poke-genie-import.js);
+// nudge to re-import once it's plausibly stale. Same "ready/dismissed/applied"
+// shape as updateBannerPhase, but the snooze is a 7-day expiry instead of a
+// permanent per-release dismissal, since staleness never resolves itself.
+const STALENESS_THRESHOLD_MS = 14 * 24 * 60 * 60 * 1000;
+const STALENESS_SNOOZE_MS = 7 * 24 * 60 * 60 * 1000;
+// Views that read roster.instances for CP/IV-precise guidance — where a stale
+// import actually misleads. "more" is where My Roster + re-import live.
+const STALENESS_BANNER_ROUTES = new Set(["more", "coach", "swap", "triage"]);
+
+function stalenessSnoozeKey(importedAt) {
+  return `poke-genie-staleness-snoozed:${importedAt}`;
+}
+
+export function pokeGenieStalenessPhase(roster, storage, now = Date.now()) {
+  const importedAt = roster?.preferences?.pokeGenieImport?.importedAt;
+  const importedMs = typeof importedAt === "string" ? Date.parse(importedAt) : NaN;
+  if (Number.isNaN(importedMs) || now - importedMs < STALENESS_THRESHOLD_MS) return "applied";
+  const snoozedUntil = Number(storage?.getItem?.(stalenessSnoozeKey(importedAt)));
+  return Number.isFinite(snoozedUntil) && now < snoozedUntil ? "dismissed" : "ready";
+}
+
+function updateStalenessBanner(documentObject, roster, storage, currentRoute) {
+  const banner = documentObject.getElementById?.("staleness-banner");
+  if (!banner) return;
+  const visible = STALENESS_BANNER_ROUTES.has(currentRoute) && pokeGenieStalenessPhase(roster, storage) === "ready";
+  banner.hidden = !visible;
+  if (!visible) return;
+  const label = documentObject.getElementById?.("staleness-banner-label");
+  if (label) {
+    const importedAt = roster.preferences.pokeGenieImport.importedAt;
+    const days = Math.floor((Date.now() - Date.parse(importedAt)) / (24 * 60 * 60 * 1000));
+    label.textContent = `Your import is ${days} days old — Pokémon you've changed since won't match. Re-import from Poke Genie to refresh.`;
   }
 }
 
@@ -370,6 +621,42 @@ function raidTargetMatchesCategory(target, form, category) {
 }
 
 
+// "Mega", "Super Mega", or "Primal" if the form mega-evolves; null otherwise.
+// Shares the same tag/name checks as raidTargetMatchesCategory() above —
+// composed here rather than re-derived, so the guidance card and the
+// category filter never disagree on what counts as a mega-family target.
+function megaKind(bossFormId, form) {
+  const tags = new Set(form?.tags ?? []);
+  const formName = String(form?.form ?? "").toUpperCase();
+  if (SUPER_MEGA_FORM_IDS.has(bossFormId)) return "Super Mega";
+  if (formName === "PRIMAL") return "Primal";
+  if (tags.has("mega")) return "Mega";
+  return null;
+}
+
+
+// Teach copy for mega-family raid targets: the one-active-mega rule and the
+// per-species (per-form, since the May 2026 X/Y split) Mega Energy scope.
+// Both facts verified against Bulbapedia's "Mega Evolution (GO)" and
+// "Mega Energy" pages (2026). Deliberately does not hardcode a Mega Energy
+// cost table — Niantic tunes per-species costs over time and this app has
+// no sourced, current figure to show; the in-game screen always has the
+// live number. Mega Energy count below is optional manual tracking only,
+// same "you tell us" honesty as Candy.
+function megaGuidanceCard(kind, bossFormId, megaEnergyInventory) {
+  const owned = megaEnergyInventory?.[bossFormId];
+  return `<div class="mega-guidance-card">
+    <p class="status-kicker">${escapeHtml(kind)} guidance</p>
+    <p>Only <strong>one Mega-Evolved Pokémon can be active at a time</strong>, account-wide — Mega Evolving a second one reverts the first.</p>
+    <p>Mega Energy is species-specific, and (since a May 2026 update) Mega X and Mega Y of the same species use separate Energy pools — Energy for one species or variant can't Mega Evolve a different one.</p>
+    <p class="raid-ready-note">Mega Energy costs vary by species and change with Niantic updates, so this guide doesn't show a number here — check the in-game Mega Evolution screen for the current cost.</p>
+    <label class="resource-inline-input">Your Mega Energy for this form (optional — the game doesn't share this, you tell us)
+      <input inputmode="numeric" data-mega-energy-input data-mega-energy-form-id="${escapeHtml(bossFormId)}" value="${owned === null || owned === undefined ? "" : escapeHtml(owned)}">
+    </label>
+  </div>`;
+}
+
+
 export function raidTargetsForCategory(targets = [], forms = {}, category = "all") {
   const safeCategory = RAID_TARGET_CATEGORY_SET.has(category) ? category : "all";
   return [...targets]
@@ -416,7 +703,10 @@ function gymState(
 
 
 function blankInstanceDraft() {
-  return { editingId: null, cp: "", ivs: { atk: "", def: "", sta: "" }, fastMove: "", chargedMoves: [], nickname: "" };
+  return {
+    editingId: null, cp: "", ivs: { atk: "", def: "", sta: "" }, fastMove: "", chargedMoves: [],
+    nickname: "", isShiny: false, isLucky: false,
+  };
 }
 
 
@@ -441,7 +731,23 @@ function blankDefenseLogDraft(now = Date.now()) {
     shareOpen: false,
     geoLoading: false,
     lastGeoCoords: null,
+    autoPickNote: "",
+    autoPicked: false,
   };
+}
+
+// The gyms() prefill only runs while the pokemon field is blank, so changing
+// the gym *after* a suggestion was auto-filled would otherwise leave a stale
+// (possibly now-excluded) defender sitting in the field. Call this whenever
+// gymName changes so an auto-picked value clears and the prefill re-runs
+// against the new gym's exclusions; a hand-typed pick is left alone.
+function resetAutoPickedDefender(draft) {
+  if (draft.autoPicked) {
+    draft.pokemon = "";
+    draft.instanceId = null;
+    draft.autoPickNote = "";
+    draft.autoPicked = false;
+  }
 }
 
 
@@ -453,6 +759,8 @@ function draftFromInstance(instance) {
     fastMove: instance.fastMove ?? "",
     chargedMoves: [...(instance.chargedMoves ?? [])],
     nickname: instance.nickname ?? "",
+    isShiny: Boolean(instance.isShiny),
+    isLucky: Boolean(instance.isLucky),
   };
 }
 
@@ -489,12 +797,19 @@ export function createInteractionState({
     installMessage: "",
     rosterMessage: "",
     rosterQuery: "",
+    collectionQuery: "",
+    collectionFilter: "all",
     interactionMessage: "",
     moveSheet: null,
     instanceSheet: null,
     rosterShareOpen: false,
+    diagnostics: { copyStatus: "", copyPayload: "", storageEstimate: undefined },
     textSize: loadTextSize(storage),
     theme: loadTheme(storage),
+    trainerProfile: loadTrainerProfile(storage),
+    weather: loadWeather(storage),
+    backupNudge: shouldShowBackupNudge(storage),
+    backupImportPreview: null,
     defenseLog: loadDefenseLog(storage),
     defenseLogDraft: (() => {
       const draft = blankDefenseLogDraft(Date.now());
@@ -502,6 +817,9 @@ export function createInteractionState({
       draft.recentGyms = getRecentGymNames(log);
       return draft;
     })(),
+    stardust: loadStardust(storage),
+    candyInventory: loadCandyInventory(storage),
+    megaEnergyInventory: loadMegaEnergyInventory(storage),
   };
 }
 
@@ -530,7 +848,10 @@ export function createInteractionController({
   onClipboardCopy = null,
   onRosterShareCopy = null,
   onTriageCopy = null,
+  onDiagnosticsCopy = null,
+  onConfirm = () => true,
   onFeedbackExport = null,
+  onBackupExport = null,
   getTriageResult = () => ({ entries: [] }),
   onRosterChanged = () => {},
   searchRefresh = () => {},
@@ -582,7 +903,10 @@ export function createInteractionController({
     onRosterExport,
     onRosterShareCopy: onRosterShareCopy ?? onClipboardCopy,
     onTriageCopy: onTriageCopy ?? onClipboardCopy,
+    onDiagnosticsCopy: onDiagnosticsCopy ?? onClipboardCopy,
+    onConfirm,
     onFeedbackExport,
+    onBackupExport,
     getTriageResult,
     handleFailure(error) {
       ui.interactionMessage = `Could not save changes: ${error?.message ?? error}`;
@@ -599,6 +923,20 @@ export function createInteractionController({
         const ownerDocument = rosterSearch.ownerDocument;
         rerender("more");
         const nextSearch = ownerDocument?.querySelector?.("[data-roster-search]");
+        nextSearch?.focus?.({ preventScroll: true });
+        nextSearch?.setSelectionRange?.(caret, caret);
+        return;
+      }
+      const collectionSearch = event?.target?.closest?.("[data-collection-search]");
+      if (collectionSearch) {
+        ui.collectionQuery = String(collectionSearch.value ?? "").slice(0, 80);
+        const caret = Math.min(
+          Number.isInteger(collectionSearch.selectionStart) ? collectionSearch.selectionStart : ui.collectionQuery.length,
+          ui.collectionQuery.length,
+        );
+        const ownerDocument = collectionSearch.ownerDocument;
+        rerender("more");
+        const nextSearch = ownerDocument?.querySelector?.("[data-collection-search]");
         nextSearch?.focus?.({ preventScroll: true });
         nextSearch?.setSelectionRange?.(caret, caret);
         return;
@@ -662,6 +1000,60 @@ export function createInteractionController({
         rerender("raids");
         return;
       }
+      const stardustInput = target?.closest?.("[data-stardust-input]");
+      if (stardustInput) {
+        if (stardustInput.value === "") {
+          ui.stardust = clearStardust(storage);
+        } else {
+          try {
+            ui.stardust = saveStardust(storage, stardustInput.value);
+          } catch {
+            // Invalid entry (negative/non-integer) — keep the last good value.
+          }
+        }
+        // The same entry field lives on the Raid Target view and the trainer
+        // profile card (More) — rerender whichever route hosts the control.
+        rerender(stardustInput.dataset.stardustRoute ?? "raids");
+        return;
+      }
+      const candyInput = target?.closest?.("[data-candy-input]");
+      if (candyInput && candyInput.dataset.candyFormId) {
+        if (candyInput.value === "") {
+          ui.candyInventory = clearCandyCount(storage, candyInput.dataset.candyFormId);
+        } else {
+          try {
+            ui.candyInventory = setCandyCount(storage, candyInput.dataset.candyFormId, candyInput.value);
+          } catch {
+            // Invalid entry — keep the last good value.
+          }
+        }
+        rerender("raids");
+        return;
+      }
+      const megaEnergyInput = target?.closest?.("[data-mega-energy-input]");
+      if (megaEnergyInput && megaEnergyInput.dataset.megaEnergyFormId) {
+        if (megaEnergyInput.value === "") {
+          ui.megaEnergyInventory = clearMegaEnergyCount(storage, megaEnergyInput.dataset.megaEnergyFormId);
+        } else {
+          try {
+            ui.megaEnergyInventory = setMegaEnergyCount(
+              storage, megaEnergyInput.dataset.megaEnergyFormId, megaEnergyInput.value,
+            );
+          } catch {
+            // Invalid entry — keep the last good value.
+          }
+        }
+        rerender("raids");
+        return;
+      }
+      // Weather is manual and session-scoped (resets daily) — see raid-target.js —
+      // not part of the persisted raid task filters the other raid controls share above.
+      const weatherChoice = target?.closest?.("[data-weather-choice]");
+      if (weatherChoice) {
+        ui.weather = saveWeather(storage, weatherChoice.value);
+        rerender("raids");
+        return;
+      }
       const gymLineup = target?.closest?.("[data-gym-lineup]");
       if (gymLineup) {
         const nextUi = structuredClone(ui);
@@ -692,11 +1084,13 @@ export function createInteractionController({
         // A hand-edited name may no longer be the suggested instance; drop
         // the id rather than badge the wrong Pokémon (honest-matching rule).
         ui.defenseLogDraft.instanceId = null;
+        ui.defenseLogDraft.autoPicked = false;
         rerender("gyms");
         return;
       }
       const defenseLogGym = target?.closest?.("[data-defense-log-gym]");
       if (defenseLogGym) {
+        resetAutoPickedDefender(ui.defenseLogDraft);
         ui.defenseLogDraft.gymName = defenseLogGym.value;
         rerender("gyms");
         return;
@@ -705,6 +1099,23 @@ export function createInteractionController({
       if (defenseLogStart) {
         ui.defenseLogDraft.startedAt = defenseLogStart.value;
         rerender("gyms");
+        return;
+      }
+      const trainerLevelControl = target?.closest?.("[data-trainer-level]");
+      if (trainerLevelControl) {
+        const raw = trainerLevelControl.value;
+        ui.trainerProfile = saveTrainerProfile(storage, {
+          ...ui.trainerProfile,
+          level: raw === "" ? null : Number(raw),
+        });
+        onRosterChanged(); // trainer level feeds triage's memoized power-up cap notes too
+        rerender("more");
+        return;
+      }
+      const trainerNameControl = target?.closest?.("[data-trainer-name]");
+      if (trainerNameControl) {
+        ui.trainerProfile = saveTrainerProfile(storage, { ...ui.trainerProfile, name: trainerNameControl.value });
+        rerender("more");
         return;
       }
       const defenseLogPlayerName = target?.closest?.("[data-defense-log-player-name]");
@@ -755,6 +1166,13 @@ export function createInteractionController({
       const instanceNickname = target?.closest?.("[data-instance-nickname]");
       if (instanceNickname && ui.instanceSheet) {
         ui.instanceSheet.draft.nickname = instanceNickname.value;
+        rerender(ui.instanceSheet.returnRoute ?? "more");
+        return;
+      }
+      const quickCpInput = target?.closest?.("[data-quick-cp-input]");
+      if (quickCpInput && ui.instanceSheet?.quickCp) {
+        ui.instanceSheet.quickCp.value = quickCpInput.value;
+        ui.instanceSheet.quickCp.error = "";
         rerender(ui.instanceSheet.returnRoute ?? "more");
         return;
       }
@@ -825,12 +1243,18 @@ export function createInteractionController({
               }
               return {
                 ...current,
-                schemaVersion: 2,
+                schemaVersion: ROSTER_SCHEMA,
                 ownedFormIds: [...owned].sort(),
                 ownedFormCounts: Object.fromEntries(
                   Object.entries(counts).sort(([left], [right]) => left.localeCompare(right)),
                 ),
                 instances: [...(current.instances ?? []), ...parsed],
+                preferences: {
+                  ...(current.preferences ?? {}),
+                  // Point-in-time snapshot stamp — see pokeGenieStalenessPhase()
+                  // for the staleness nudge this feeds.
+                  pokeGenieImport: { importedAt: new Date().toISOString(), rowCount: parsed.length },
+                },
               };
             });
           }
@@ -842,6 +1266,20 @@ export function createInteractionController({
             : `Poke Genie import found nothing to add.${skipped}`;
         } catch (error) {
           ui.rosterMessage = `Poke Genie import failed: ${error?.message ?? error}`;
+        }
+        rerender("more");
+      }
+      const backupImport = target?.closest?.('[data-action="backup-import"]')
+        ?? (target?.dataset?.action === "backup-import" ? target : null);
+      if (backupImport?.files?.[0]) {
+        try {
+          const text = await backupImport.files[0].text();
+          const envelope = await parseBackupEnvelope(text, validFormIds);
+          ui.backupImportPreview = { envelope, summary: summarizeBackup(envelope) };
+          ui.rosterMessage = "";
+        } catch (error) {
+          ui.backupImportPreview = null;
+          ui.rosterMessage = `Backup file could not be read: ${error?.message ?? error}`;
         }
         rerender("more");
       }
@@ -901,7 +1339,17 @@ export function createInteractionController({
             draft: draftFromInstance(instance),
             error: "",
             focusInstanceId: ui.instanceSheet.returnRoute === "triage" ? instance.id : null,
+            quickCp: null,
           };
+        }
+        rerenderCurrent();
+        return;
+      }
+      const quickCpInstance = target?.closest?.("[data-quick-cp-instance-id]");
+      if (quickCpInstance && ui.instanceSheet) {
+        const instance = (roster.instances ?? []).find((row) => row.id === quickCpInstance.dataset.quickCpInstanceId);
+        if (instance) {
+          ui.instanceSheet.quickCp = { instanceId: instance.id, value: String(instance.cp), error: "" };
         }
         rerenderCurrent();
         return;
@@ -940,6 +1388,56 @@ export function createInteractionController({
         rerenderCurrent();
         return;
       }
+      const instanceShinyToggle = target?.closest?.("[data-instance-shiny-toggle]");
+      if (instanceShinyToggle && ui.instanceSheet) {
+        ui.instanceSheet.draft.isShiny = !ui.instanceSheet.draft.isShiny;
+        rerenderCurrent();
+        return;
+      }
+      const instanceLuckyToggle = target?.closest?.("[data-instance-lucky-toggle]");
+      if (instanceLuckyToggle && ui.instanceSheet) {
+        ui.instanceSheet.draft.isLucky = !ui.instanceSheet.draft.isLucky;
+        rerenderCurrent();
+        return;
+      }
+      const shinyFormToggle = target?.closest?.("[data-shiny-toggle-form-id]");
+      if (shinyFormToggle) {
+        const formId = shinyFormToggle.dataset.shinyToggleFormId;
+        // A shiny instance forces this true — the quick-toggle can't lie it
+        // back off (mirrors the disabled state rendered in more.js).
+        const forced = (roster.instances ?? []).some((row) => row.formId === formId && row.isShiny);
+        if (!forced && validFormIds.has(formId)) {
+          failureRoute = "more";
+          await mutateRoster((current) => {
+            const flagged = new Set(current.shinyOwnedFormIds ?? []);
+            if (flagged.has(formId)) flagged.delete(formId); else flagged.add(formId);
+            return { ...current, schemaVersion: ROSTER_SCHEMA, shinyOwnedFormIds: [...flagged].sort() };
+          });
+        }
+        rerender("more");
+        return;
+      }
+      const luckyFormToggle = target?.closest?.("[data-lucky-toggle-form-id]");
+      if (luckyFormToggle) {
+        const formId = luckyFormToggle.dataset.luckyToggleFormId;
+        const forced = (roster.instances ?? []).some((row) => row.formId === formId && row.isLucky);
+        if (!forced && validFormIds.has(formId)) {
+          failureRoute = "more";
+          await mutateRoster((current) => {
+            const flagged = new Set(current.luckyOwnedFormIds ?? []);
+            if (flagged.has(formId)) flagged.delete(formId); else flagged.add(formId);
+            return { ...current, schemaVersion: ROSTER_SCHEMA, luckyOwnedFormIds: [...flagged].sort() };
+          });
+        }
+        rerender("more");
+        return;
+      }
+      const collectionFilterControl = target?.closest?.("[data-collection-filter]");
+      if (collectionFilterControl) {
+        ui.collectionFilter = collectionFilterControl.dataset.collectionFilter;
+        rerender("more");
+        return;
+      }
       const textSizeControl = target?.closest?.("[data-text-size]");
       if (textSizeControl) {
         const size = saveTextSize(storage, textSizeControl.dataset.textSize);
@@ -954,6 +1452,22 @@ export function createInteractionController({
         applyTheme(rootElement, theme);
         ui.theme = theme;
         rerender("more");
+        return;
+      }
+      const trainerTeamControl = target?.closest?.("[data-trainer-team]");
+      if (trainerTeamControl) {
+        const nextTeam = trainerTeamControl.dataset.trainerTeam;
+        ui.trainerProfile = saveTrainerProfile(storage, {
+          ...ui.trainerProfile,
+          team: ui.trainerProfile.team === nextTeam ? null : nextTeam, // tap again to clear
+        });
+        rerender("more");
+        return;
+      }
+      const requestPushButton = target?.closest?.('[data-action="request-push-permission"]');
+      if (requestPushButton) {
+        requestPushPermission({ flagEnabled: isPushFlagEnabled(storage), notification: windowObject.Notification })
+          .then(() => rerender("more"));
         return;
       }
       const feedbackButton = target?.closest?.("[data-feedback-verdict]");
@@ -1028,7 +1542,7 @@ export function createInteractionController({
           };
         };
         if (ownedControl.dataset.ownedRoute === "search") {
-          await mutateRoster((current) => ({ ...current, schemaVersion: 2, ...toggleOwnedFields(current) }));
+          await mutateRoster((current) => ({ ...current, schemaVersion: ROSTER_SCHEMA, ...toggleOwnedFields(current) }));
           searchRefresh();
           return;
         }
@@ -1038,7 +1552,7 @@ export function createInteractionController({
         const filters = taskFilters(route, nextUi);
         await mutateRoster((current) => ({
           ...current,
-          schemaVersion: 2,
+          schemaVersion: ROSTER_SCHEMA,
           ...toggleOwnedFields(current),
           preferences: {
             ...(current.preferences ?? {}),
@@ -1076,7 +1590,7 @@ export function createInteractionController({
           }
           return {
             ...current,
-            schemaVersion: 2,
+            schemaVersion: ROSTER_SCHEMA,
             ownedFormIds: [...owned].sort(),
             ownedFormCounts: Object.fromEntries(
               Object.entries(counts).sort(([left], [right]) => left.localeCompare(right)),
@@ -1213,12 +1727,24 @@ export function createInteractionController({
         const route = actionEl.dataset.guideRoute;
         if (route) showGuide(route, storage);
         rerenderCurrent();
+      } else if (action === "toggle-today-task") {
+        const taskId = actionEl.dataset.todayTaskId;
+        if (taskId) toggleTodayTask(taskId, storage);
+        rerenderCurrent();
       } else if (action === "scroll-app-top") {
         scrollToTop();
       } else if (action === "dismiss-update-banner") {
         const releaseId = releaseManager?.state?.candidate?.releaseId;
         if (releaseId) storage?.setItem?.(updateBannerDismissedKey(releaseId), "1");
         rerenderCurrent();
+      } else if (action === "dismiss-staleness-banner") {
+        const importedAt = roster?.preferences?.pokeGenieImport?.importedAt;
+        if (importedAt) storage?.setItem?.(stalenessSnoozeKey(importedAt), String(Date.now() + STALENESS_SNOOZE_MS));
+        rerenderCurrent();
+      } else if (action === "dismiss-backup-nudge") {
+        snoozeBackupNudge(storage);
+        ui.backupNudge = false;
+        rerender("more");
       } else if (action === "apply-update") await releaseManager?.applyUpdate();
       else if (action === "rollback-release") await releaseManager?.rollback();
       else if (action === "check-update") await releaseManager?.initialize();
@@ -1244,6 +1770,76 @@ export function createInteractionController({
         const payload = exportFeedback(storage);
         (api.onFeedbackExport ?? onFeedbackExport)?.(payload);
         rerender("more");
+      } else if (action === "backup-export") {
+        const envelope = buildBackupEnvelope({
+          roster: structuredClone(roster),
+          defenseLog: structuredClone(ui.defenseLog),
+          textSize: ui.textSize,
+          theme: ui.theme,
+          drillStats: loadDrillStats(storage),
+          feedback: loadFeedback(storage),
+          appShellRevision: APP_SHELL_REVISION,
+        });
+        (api.onBackupExport ?? onBackupExport)?.(stableBackupJson(envelope));
+        recordBackupNow(storage);
+        ui.backupNudge = false;
+        ui.rosterMessage = "Backup downloaded.";
+        rerender("more");
+      } else if (action === "backup-restore-cancel") {
+        ui.backupImportPreview = null;
+        rerender("more");
+      } else if (action === "backup-restore-merge" || action === "backup-restore-replace") {
+        const preview = ui.backupImportPreview;
+        if (!preview) { rerender("more"); return; }
+        const mode = action === "backup-restore-merge" ? "merge" : "replace";
+        const current = {
+          roster: structuredClone(roster),
+          defenseLog: structuredClone(ui.defenseLog),
+          textSize: ui.textSize,
+          theme: ui.theme,
+          drillStats: loadDrillStats(storage),
+          feedback: loadFeedback(storage),
+        };
+        const restored = mode === "merge"
+          ? mergeBackupPayload(current, preview.envelope.payload)
+          : replaceBackupPayload(preview.envelope.payload);
+        failureRoute = "more";
+        await mutateRoster(() => restored.roster);
+        ui.defenseLog = saveDefenseLog(storage, restored.defenseLog);
+        ui.textSize = saveTextSize(storage, restored.textSize);
+        applyTextSize(rootElement, ui.textSize);
+        ui.theme = saveTheme(storage, restored.theme);
+        applyTheme(rootElement, ui.theme);
+        ui.drill.stats = saveDrillStats(storage, restored.drillStats);
+        saveFeedback(storage, restored.feedback);
+        recordBackupNow(storage);
+        ui.backupNudge = false;
+        ui.backupImportPreview = null;
+        ui.rosterMessage = mode === "merge"
+          ? "Backup merged into your data."
+          : "Your data was replaced from the backup.";
+        rerender("more");
+      } else if (action === "copy-diagnostics-entry") {
+        const index = Number(actionEl.dataset.diagnosticsIndex);
+        const entry = loadDiagnostics(storage)[index];
+        const payload = entry ? `${JSON.stringify(entry, null, 2)}\n` : "";
+        const copied = Boolean(payload) && await api.onDiagnosticsCopy?.(payload);
+        ui.diagnostics.copyStatus = copied ? "success" : "failure";
+        ui.diagnostics.copyPayload = copied ? "" : payload;
+        rerender("more");
+      } else if (action === "copy-diagnostics-all") {
+        const payload = exportDiagnostics(storage);
+        const copied = await api.onDiagnosticsCopy?.(payload);
+        ui.diagnostics.copyStatus = copied ? "success" : "failure";
+        ui.diagnostics.copyPayload = copied ? "" : payload;
+        rerender("more");
+      } else if (action === "clear-diagnostics") {
+        if (api.onConfirm?.("Clear all diagnostics entries? This can't be undone.")) {
+          clearDiagnostics(storage);
+          ui.diagnostics.copyStatus = "";
+          ui.diagnostics.copyPayload = "";
+          rerender("more");
+        }
       } else if (action === "cancel-edit-instance") {
         const returnRoute = ui.instanceSheet?.returnRoute ?? "more";
         if (ui.instanceSheet) {
@@ -1272,6 +1868,29 @@ export function createInteractionController({
             }
           } catch (error) {
             ui.instanceSheet.error = error?.message ?? String(error);
+          }
+        }
+        rerender(returnRoute);
+      } else if (action === "cancel-quick-cp") {
+        const returnRoute = ui.instanceSheet?.returnRoute ?? "more";
+        if (ui.instanceSheet) ui.instanceSheet.quickCp = null;
+        rerender(returnRoute);
+      } else if (action === "save-quick-cp") {
+        const returnRoute = ui.instanceSheet?.returnRoute ?? "more";
+        const quickCp = ui.instanceSheet?.quickCp;
+        if (quickCp) {
+          const instance = (roster.instances ?? []).find((row) => row.id === quickCp.instanceId);
+          const form = forms[ui.instanceSheet.formId];
+          try {
+            const revised = reviseInstanceCp(form, instance, Number(quickCp.value));
+            failureRoute = returnRoute;
+            await mutateRoster((current) => ({
+              ...current,
+              instances: (current.instances ?? []).map((row) => (row.id === revised.id ? revised : row)),
+            }));
+            ui.instanceSheet.quickCp = null;
+          } catch (error) {
+            ui.instanceSheet.quickCp.error = error?.message ?? String(error);
           }
         }
         rerender(returnRoute);
@@ -1357,6 +1976,7 @@ export function createInteractionController({
             }
             const nearest = findNearestCachedGym(storage, latitude, longitude);
             if (nearest) {
+              resetAutoPickedDefender(ui.defenseLogDraft);
               ui.defenseLogDraft.gymName = nearest;
               ui.defenseLogDraft.message = `Preselected nearest gym: ${nearest}`;
             } else {
@@ -1385,6 +2005,7 @@ export function createInteractionController({
         // Recent gyms chip tap: prefill gym name
         const gym = actionEl.dataset.gym;
         if (gym) {
+          resetAutoPickedDefender(ui.defenseLogDraft);
           ui.defenseLogDraft.gymName = gym;
           ui.defenseLogDraft.message = "";
         }
@@ -1436,7 +2057,29 @@ function moveWithElite(moveId, elite, kind) {
 // Honesty flag: when the roster has a detailed instance (exact CP/IVs) for this form, its
 // derived level replaces the flat "fresh Level 20 catch" guess and the panel says so — the
 // upgrade path the flat-assumption ponytail note above used to invite.
-function raidReadyPanel(formId, forms, fromLevel, instance) {
+// Turns an affordability() verdict into one honest line — never claims
+// "can afford" off a currency the player never entered.
+function affordabilityLine(afford) {
+  if (afford.status === "unknown") {
+    return "Enter your Candy and Stardust below to check affordability.";
+  }
+  if (afford.status === "can-afford") {
+    return "You can afford this power-up right now.";
+  }
+  if (afford.status === "short") {
+    const parts = [];
+    if (afford.candyKnown && afford.candyShort > 0) parts.push(`${afford.candyShort} more Candy`);
+    if (afford.stardustKnown && afford.stardustShort > 0) parts.push(`${afford.stardustShort.toLocaleString()} more Stardust`);
+    return `Short: need ${parts.join(" and ")}.`;
+  }
+  // "partial": one currency is recorded and sufficient, the other is unknown.
+  const known = afford.candyKnown ? "Candy" : "Stardust";
+  const unknown = afford.candyKnown ? "Stardust" : "Candy";
+  return `Enough ${known} recorded — enter your ${unknown} below to confirm.`;
+}
+
+
+function raidReadyPanel(formId, forms, fromLevel, instance, stardustOwned, candyOwned) {
   const derivedLevel = instance ? instanceLevel(forms?.[formId], instance) : null;
   const level = derivedLevel ?? fromLevel;
   const { candy, stardust } = powerUpCost(level, 40);
@@ -1447,12 +2090,19 @@ function raidReadyPanel(formId, forms, fromLevel, instance) {
   const levelLine = derivedLevel === null
     ? `Level ${escapeHtml(level)} → 40 (assuming a fresh raid catch)`
     : `Level ${escapeHtml(level)} → 40 (from your saved CP/IVs)`;
+  const afford = affordability({
+    candyNeeded: candy, stardustNeeded: stardust, candyOwned, stardustOwned,
+  });
   return `<div class="raid-ready-panel">
     <p class="status-kicker">Make it raid-ready</p>
     <p>${levelLine}: <strong>${escapeHtml(candy)} Candy</strong> + <strong>${escapeHtml(stardust.toLocaleString())} Stardust</strong></p>
     ${Number.isInteger(buddyKm) && buddyKm > 0 ? `<p>Walking earns 1 Candy per ${escapeHtml(buddyKm)} km as your buddy.</p>` : ""}
     <p class="raid-ready-note">Stardust is hard to earn back — power up Pokemon you'll use a lot.</p>
     <p class="raid-ready-note">Levels above 40 use XL Candy — not covered here.</p>
+    <p class="resource-affordability" data-affordability="${escapeHtml(afford.status)}">${affordabilityLine(afford)}</p>
+    <label class="resource-inline-input">Your Candy for ${escapeHtml(forms?.[formId]?.name ?? "this Pokémon")} (optional — the game doesn't share this, you tell us)
+      <input inputmode="numeric" data-candy-input data-candy-form-id="${escapeHtml(formId)}" value="${candyOwned === null || candyOwned === undefined ? "" : escapeHtml(candyOwned)}">
+    </label>
   </div>`;
 }
 
@@ -1467,7 +2117,9 @@ function feedbackThumbs(surface, formId) {
 }
 
 
-function raidCounterCard(row, roster, forms, { fromLevel, budgetPickIds, deploymentMap } = {}, bossTypes = []) {
+function raidCounterCard(row, roster, forms, {
+  fromLevel, budgetPickIds, deploymentMap, stardust, candyInventory,
+} = {}, bossTypes = []) {
   const owned = (roster.ownedFormIds ?? []).includes(row.formId);
   const ownedCount = owned
     ? (Number.isInteger(roster.ownedFormCounts?.[row.formId]) ? roster.ownedFormCounts[row.formId] : 1)
@@ -1494,11 +2146,11 @@ function raidCounterCard(row, roster, forms, { fromLevel, budgetPickIds, deploym
     ${because ? `<p class="raid-because">${escapeHtml(because)}</p>` : ""}
     <p><strong>Optimal DPS moves:</strong> ${optimalMoves}</p>
     ${movesDisagree ? `<p><strong>Practical moves:</strong> ${practicalMoves}</p>` : ""}
-    <p>${Number.isFinite(Number(dps)) ? `${Number(dps).toFixed(2)} standardized DPS` : "DPS unavailable"} · ${escapeHtml(row.investmentTier)}</p>
+    <p>${Number.isFinite(Number(dps)) ? `${Number(dps).toFixed(2)} standardized DPS` : "DPS unavailable"} · ${escapeHtml(row.investmentTier)}${row.weatherBoosted ? ` · <span class="weather-boosted-badge">Boosted today</span>` : ""}</p>
     <p><strong>Availability:</strong> ${escapeHtml(row.availability ?? "Availability not documented")}</p>
     ${isBudgetPick ? `<p class="budget-verdict">Community pick: strong value</p>` : ""}
     ${deployment ? `<p class="budget-verdict">Defending a gym right now</p>` : ""}
-    ${raidReadyPanel(row.formId, forms, fromLevel, bestInstance)}
+    ${raidReadyPanel(row.formId, forms, fromLevel, bestInstance, stardust, candyInventory?.[row.formId])}
     ${ownedStarButton({ formId: row.formId, name: row.pokemon, owned, route: "raids" })}
     <span class="owned-count">${owned ? `Owned ×${ownedCount}` : "Not owned"}</span>
     ${feedbackThumbs("raid-counter", row.formId)}
@@ -1514,7 +2166,7 @@ function beginnerCounterCard(row, roster) {
     ? (Number.isInteger(roster.ownedFormCounts?.[row.formId]) ? roster.ownedFormCounts[row.formId] : 1)
     : 0;
   return `<li class="raid-card${owned ? " is-owned" : ""}" data-form-id="${escapeHtml(row.formId)}">
-    <p class="raid-rank">#${escapeHtml(row.typeRank ?? row.rank)}</p>
+    <p class="raid-rank">#${escapeHtml(row.typeRank ?? row.rank)}${row.weatherBoosted ? ` · <span class="weather-boosted-badge">Boosted today</span>` : ""}</p>
     <h4>${escapeHtml(row.pokemon)}</h4>
     <p><strong>Availability:</strong> ${escapeHtml(row.availability ?? "Availability not documented")}</p>
     ${ownedStarButton({ formId: row.formId, name: row.pokemon, owned, route: "raids" })}
@@ -1548,6 +2200,7 @@ function raidTargetSurface(state, ui, roster) {
     observedCp: ui.raid.observedCp,
     encounterLevel: ui.raid.encounterLevel,
     ownedFormIds: roster.ownedFormIds,
+    weather: ui.weather,
   }, state);
   const lanes = {
     regular: ["Regular, Mega & Primal", plan.regularCounters, plan.beginnerRegularGroups],
@@ -1561,7 +2214,9 @@ function raidTargetSurface(state, ui, roster) {
   // Fresh raid catch (Level 20), independent of the boss's own encounter/weather CP above —
   // that widget verifies the BOSS's catch, not the level of the player's counter Pokemon.
   const deploymentMap = buildDeploymentMap(ui.defenseLog, Date.now());
-  const cardOptions = { fromLevel: 20, budgetPickIds, deploymentMap };
+  const cardOptions = {
+    fromLevel: 20, budgetPickIds, deploymentMap, stardust: ui.stardust, candyInventory: ui.candyInventory,
+  };
   return `<section class="raid-target-view" aria-labelledby="raid-target-title">
     <h2 id="raid-target-title">Raid Target</h2>
     <div class="pvp-controls">
@@ -1569,6 +2224,9 @@ function raidTargetSurface(state, ui, roster) {
       <label>Exact boss form<select data-raid-target>${targets.map((target) => option(target.bossFormId, target.boss, ui.raid.targetFormId)).join("")}</select></label>
       <label>Encounter level<select data-encounter-level>${option("normal", "Level 20", ui.raid.encounterLevel)}${option("weatherBoosted", "Weather boosted · Level 25", ui.raid.encounterLevel)}</select></label>
       <label>Observed catch CP<input inputmode="numeric" data-observed-cp value="${escapeHtml(ui.raid.observedCp)}"></label>
+      <label class="resource-inline-input">Your Stardust (optional — the game doesn't share this, you tell us)
+        <input inputmode="numeric" data-stardust-input value="${ui.stardust === null || ui.stardust === undefined ? "" : escapeHtml(ui.stardust)}">
+      </label>
     </div>
     <div class="raid-boss-summary">
       <p class="raid-boss-heading"><strong>${escapeHtml(plan.target.boss)}</strong> ${bossTypes.map(typeChip).join("")}</p>
@@ -1589,8 +2247,15 @@ function raidTargetSurface(state, ui, roster) {
       </div>
     </div>
     <p><strong>${jargonTerm("weather-boost", "Weather boost")}:</strong> ${escapeHtml(plan.weatherBoostConditions.join(", ") || "No boosting weather documented")}</p>
+    ${plan.weather !== "None" ? `<p class="raid-weather-now">${plan.bossBoostedNow
+      ? `<strong>Boosted right now (${escapeHtml(plan.weather)}):</strong> this boss is stronger and its catch will be Level 25.`
+      : `Not boosted right now (${escapeHtml(plan.weather)}) — this boss stays at its normal Level 20 catch.`}</p>` : ""}
     <p aria-live="polite">${plan.hundoVerdict.label ? `<strong>${escapeHtml(plan.hundoVerdict.label)}</strong> — ` : ""}${escapeHtml(plan.hundoVerdict.message)}</p>
     ${plan.target.encounterNote ? `<p>${escapeHtml(plan.target.encounterNote)}</p>` : ""}
+    ${(() => {
+    const kind = megaKind(plan.target.bossFormId, forms[plan.target.bossFormId]);
+    return kind ? megaGuidanceCard(kind, plan.target.bossFormId, ui.megaEnergyInventory) : "";
+  })()}
     <div class="beatability-card" data-beatability-band="${escapeHtml(plan.beatability.band)}">
       <p class="status-kicker">Can we beat this?</p>
       <p class="beatability-headline"><strong>${escapeHtml(plan.beatability.headline)}</strong></p>
@@ -1618,6 +2283,7 @@ function raidTargetSurface(state, ui, roster) {
 function renderRaidSurface(state, ui, roster) {
   const controls = `<div class="pvp-controls" aria-label="Raid tools">
     <label>Attacking type<select data-raid-type>${ATTACK_TYPES.map((type) => option(type, type, ui.raid.attackingType)).join("")}</select></label>
+    <label>Current weather<select data-weather-choice>${WEATHERS.map((weather) => option(weather, weather, ui.weather)).join("")}</select></label>
     <fieldset><legend>Raid view</legend>
       <button type="button" data-raid-view="rankings" aria-pressed="${ui.raid.view === "rankings"}">Top 15 by type</button>
       <button type="button" data-raid-view="target" aria-pressed="${ui.raid.view === "target"}">Raid Target</button>
@@ -1729,12 +2395,18 @@ export function bootstrap({
   windowObject = globalThis.window,
   documentObject = globalThis.document,
   state = windowObject?.__FIELD_GUIDE_STATE__,
-  roster = { schemaVersion: 2, ownedFormIds: [], ownedFormCounts: {}, favorites: [], preferences: {} },
+  roster = { schemaVersion: ROSTER_SCHEMA, ownedFormIds: [], ownedFormCounts: {}, favorites: [], preferences: {} },
   releaseState = {},
   releaseManager = null,
   rosterStore = null,
   uiState = null,
   installPrompt = null,
+  // Which release chunk files (see ROUTE_CHUNKS) are already merged into
+  // `state`; drives the loading fallback below and what onRouteVisit fetches.
+  loadedChunkPaths = inferChunkPaths(state),
+  // Fired (fire-and-forget) whenever a route renders, so the caller can lazy
+  // -fetch that route's missing chunks and re-bootstrap once they land.
+  onRouteVisit = null,
 } = {}) {
   const app = documentObject?.getElementById?.("app");
   if (!app || !windowObject || !usableState(state)) {
@@ -1772,7 +2444,7 @@ export function bootstrap({
   let currentRoute = "home";
   let triageResult = null;
   const getTriageResult = () => {
-    if (!triageResult) triageResult = triageRoster({ data: state, roster });
+    if (!triageResult) triageResult = triageRoster({ data: state, roster, trainerLevel: ui.trainerProfile.level });
     return triageResult;
   };
   const renderers = {
@@ -1786,6 +2458,7 @@ export function bootstrap({
         currentEvents: state.currentEvents,
         raidTargetTool: state.raidTargetTool,
         forms: state.core.forms,
+        raids: state.raids,
         whatsNew: whatsNewCard(releaseState, storage),
       });
       searchRefresh = bindSearch(documentObject, index, state.core.forms, roster);
@@ -1833,12 +2506,28 @@ export function bootstrap({
           ...row,
           instanceId: bestInstanceForForm(roster.instances ?? [], row.formId)?.id ?? null,
         }));
-        const topFormId = getTopAvailableDefender(suggestions, deploymentMap);
+        // Species already defending THIS gym (one of each species per gym is a
+        // real game rule — see gym-availability.js) are excluded, falling back
+        // silently to an empty set when the gym field is blank or has no log data.
+        const excludedSpecies = speciesDefendingGym(ui.defenseLog, ui.defenseLogDraft.gymName);
+        const skippedForGym = suggestions.find((row) => (
+          !deploymentMap.has(row.instanceId ?? row.formId) && excludedSpecies.has(row.pokemon)
+        ));
+        const topFormId = getTopAvailableDefender(suggestions, deploymentMap, excludedSpecies);
         if (topFormId) {
           ui.defenseLogDraft.pokemon = state.core.forms[topFormId]?.name ?? topFormId;
           // Carry the exact roster instance so the logged entry can be
           // matched for availability badging; hand-typed names never get one.
           ui.defenseLogDraft.instanceId = suggestions.find((row) => row.formId === topFormId)?.instanceId ?? null;
+          ui.defenseLogDraft.autoPicked = true;
+          ui.defenseLogDraft.autoPickNote = skippedForGym && skippedForGym.formId !== topFormId
+            ? `${skippedForGym.pokemon} already defends ${ui.defenseLogDraft.gymName} — suggesting the next best available option instead.`
+            : "";
+        } else {
+          // No available defender (all owned suggestions deployed or excluded)
+          // — clear any note left over from a previous prefill pass so it
+          // doesn't describe a Pokémon that's no longer suggested.
+          ui.defenseLogDraft.autoPickNote = "";
         }
       }
       app.innerHTML = interactionNotice(ui) + (state.gym
@@ -1852,6 +2541,7 @@ export function bootstrap({
           defenseLog: ui.defenseLog,
           defenseLogDraft: ui.defenseLogDraft,
           rosterInstances: roster.instances,
+          trainerTeam: ui.trainerProfile.team,
         })}`
         : fallbackSections.gyms);
     },
@@ -1860,7 +2550,7 @@ export function bootstrap({
         ? renderPvp({
           pvp: state.pvp, pvpTeams: state.pvpTeams,
           pvpAlternatives: state.pvpAlternatives, forms: state.core.forms,
-          roster, state: ui.pvp,
+          roster, state: ui.pvp, trainerLevel: ui.trainerProfile.level,
         })
         : fallbackSections.pvp);
     },
@@ -1870,35 +2560,93 @@ export function bootstrap({
           pvp: state.pvp, pvpTeams: state.pvpTeams, forms: state.core.forms,
           roster, state: ui.swap, moveCatalog,
         })
-        : fallbackSections.swap);
+        : (fallbackSections.swap || chunkLoadingNotice("Swap")));
     },
     coach() {
-      app.innerHTML = interactionNotice(ui) + renderCoach({ data: state, roster });
+      // Coach composes raid targets, current bosses/events, PvP teams, and
+      // Future-Proof picks from several release chunks — a partial mix would
+      // silently under-report (e.g. "nothing worth raiding" because bosses
+      // just haven't loaded yet), so it waits for all of them rather than
+      // rendering a misleading summary.
+      app.innerHTML = interactionNotice(ui) + (routeChunksReady("coach", loadedChunkPaths)
+        ? renderCoach({ data: state, roster, trainerLevel: ui.trainerProfile.level })
+        : chunkLoadingNotice("Coach"));
+    },
+    today() {
+      // Same honesty gate as Coach: the checklist reads events + coach picks,
+      // so it waits for those chunks instead of claiming an empty day.
+      app.innerHTML = interactionNotice(ui) + (routeChunksReady("today", loadedChunkPaths)
+        ? renderToday({
+          data: state, roster, defenseLog: ui.defenseLog, storage,
+        })
+        : chunkLoadingNotice("Today"));
     },
     triage() {
-      app.innerHTML = interactionNotice(ui) + renderTriage({
-        result: getTriageResult(),
-        forms: state.core.forms,
-        state: ui.triage,
-        showGuide: showTriageGuide(storage),
-      });
+      // Same honesty concern as Coach: a "cut" or "keep" verdict computed
+      // from partially-loaded raids/pvp/budget data would be wrong, not just
+      // incomplete, so triage waits for its chunks before judging the roster.
+      app.innerHTML = interactionNotice(ui) + (routeChunksReady("triage", loadedChunkPaths)
+        ? renderTriage({
+          result: getTriageResult(),
+          forms: state.core.forms,
+          state: ui.triage,
+          showGuide: showTriageGuide(storage),
+        })
+        : chunkLoadingNotice("Triage"));
     },
     more() {
-      app.innerHTML = renderMore({
-        ...state.core,
-        budgets: state.budgets,
-        megasPrimals: state.megasPrimals,
-        futureProof: state.futureProof,
-        coveragePlanner: state.coveragePlanner,
-        listId: ui.moreList ?? new URLSearchParams(windowObject.location?.search ?? "").get("list"),
-        roster,
-        rosterQuery: ui.rosterQuery,
-        rosterShareOpen: ui.rosterShareOpen,
-        textSize: ui.textSize,
-        theme: ui.theme,
-        release: releaseView(releaseState),
-        update: { ...releaseState, label: releaseLabel(releaseState) },
-      }) + interactionNotice(ui);
+      // Storage estimate is async and only needs fetching once per session;
+      // cache it on ui.diagnostics and rerender More when it resolves.
+      if (ui.diagnostics.storageEstimate === undefined) {
+        ui.diagnostics.storageEstimate = null;
+        windowObject.navigator?.storage?.estimate?.()
+          .then((estimate) => {
+            ui.diagnostics.storageEstimate = estimate ?? false;
+            if (currentRoute === "more") renderers.more();
+          })
+          .catch(() => { ui.diagnostics.storageEstimate = false; });
+      }
+      app.innerHTML = (routeChunksReady("more", loadedChunkPaths)
+        ? renderMore({
+          ...state.core,
+          budgets: state.budgets,
+          megasPrimals: state.megasPrimals,
+          futureProof: state.futureProof,
+          coveragePlanner: state.coveragePlanner,
+          listId: ui.moreList ?? new URLSearchParams(windowObject.location?.search ?? "").get("list"),
+          roster,
+          rosterQuery: ui.rosterQuery,
+          collectionQuery: ui.collectionQuery,
+          collectionFilter: ui.collectionFilter,
+          rosterShareOpen: ui.rosterShareOpen,
+          textSize: ui.textSize,
+          theme: ui.theme,
+          trainerProfile: ui.trainerProfile,
+          stardust: ui.stardust,
+          backupNudge: ui.backupNudge,
+          backupImportPreview: ui.backupImportPreview,
+          pushFlag: isPushFlagEnabled(storage),
+          pushPermission: pushState({
+            flagEnabled: isPushFlagEnabled(storage),
+            permission: windowObject.Notification?.permission,
+          }),
+          release: releaseView(releaseState),
+          update: { ...releaseState, label: releaseLabel(releaseState) },
+          diagnostics: {
+            entries: loadDiagnostics(storage),
+            copyStatus: ui.diagnostics.copyStatus,
+            copyPayload: ui.diagnostics.copyPayload,
+            storageEstimate: ui.diagnostics.storageEstimate,
+            swControllerState: !windowObject.navigator?.serviceWorker
+              ? "unsupported"
+              : (windowObject.navigator.serviceWorker.controller ? "controlled" : "not controlled"),
+            selfRepairAt: Number(storage?.getItem?.(SELF_REPAIR_GUARD_KEY)) || null,
+            // Which release chunks have actually merged into state this
+            // session — "why is Coach stuck loading" support signal.
+            loadedChunks: [...loadedChunkPaths].sort(),
+          },
+        })
+        : fallbackSections.more) + interactionNotice(ui);
     },
   };
   for (const route of Object.keys(renderers)) {
@@ -1925,6 +2673,14 @@ export function bootstrap({
         }
       }
       base();
+      // Route-driven chunk loading: kick off (fire-and-forget) any release
+      // chunk this route needs but hasn't loaded yet, AFTER base() has
+      // rendered off the current loadedChunkPaths — ensureRouteChunks claims
+      // missing paths synchronously (before its first await), so calling it
+      // first would make routeChunksReady lie to base() about data that
+      // hasn't landed yet. onRouteVisit re-bootstraps once the fetch lands
+      // so the loading notice/fallback above swaps for the real view.
+      onRouteVisit?.(route);
       // Prepend into #app so the guide scrolls with the view instead of
       // sitting in fixed chrome above the bezel. insertAdjacentHTML (not a
       // second innerHTML assignment) only parses the new fragment, so it
@@ -1947,10 +2703,12 @@ export function bootstrap({
           draft: ui.instanceSheet.draft,
           error: ui.instanceSheet.error,
           focusInstanceId: ui.instanceSheet.focusInstanceId,
+          quickCp: ui.instanceSheet.quickCp,
         });
       }
       updateLeds(documentObject, releaseState, roster);
       updateBanner(documentObject, releaseState, storage);
+      updateStalenessBanner(documentObject, roster, storage, currentRoute);
     };
   }
   const router = createRouter({
@@ -1985,6 +2743,9 @@ export function bootstrap({
     onFeedbackExport(payload) {
       downloadFile("pokemon-go-field-guide-feedback.json", payload, { documentObject, windowObject });
     },
+    onBackupExport(payload) {
+      downloadFile("pokemon-go-field-guide-backup.json", payload, { documentObject, windowObject });
+    },
     async onClipboardCopy(payload) {
       const clipboard = windowObject.navigator?.clipboard;
       if (!clipboard?.writeText) return false;
@@ -1995,6 +2756,7 @@ export function bootstrap({
         return false;
       }
     },
+    onConfirm: (message) => Boolean(windowObject.confirm?.(message)),
     getTriageResult,
     onRosterChanged() { triageResult = null; },
     searchRefresh: () => searchRefresh(),
@@ -2007,6 +2769,7 @@ export function bootstrap({
   router.start();
   const stopInteractions = bindInteractions(app, controller, [
     documentObject.getElementById?.("update-banner"),
+    documentObject.getElementById?.("staleness-banner"),
   ]);
   return { status: "ready", router, searchIndex: index, controller, ui, stopInteractions };
 }
@@ -2051,29 +2814,52 @@ export async function startFieldGuide({
 } = {}) {
   const root = documentObject?.documentElement;
   root?.setAttribute?.("data-offline-ready", "false");
+  installDiagnosticsCapture({
+    windowObject,
+    getRoute: () => windowObject?.location?.hash?.slice(1) || "home",
+    getShellRevision: () => APP_SHELL_REVISION,
+    getReleaseId: () => releaseManager?.state?.manifest?.releaseId ?? "unknown",
+  });
   let active = null;
   let roster = {
-    schemaVersion: 2, ownedFormIds: [], ownedFormCounts: {}, favorites: [], preferences: {},
+    schemaVersion: ROSTER_SCHEMA, ownedFormIds: [], ownedFormCounts: {}, favorites: [], preferences: {},
   };
   const ui = createInteractionState({ roster, storage: windowObject?.localStorage ?? null });
   let store = rosterStore;
-  releaseManager.subscribe((releaseState) => {
-    root?.setAttribute?.("data-offline-ready", releaseState.offlineReady ? "true" : "false");
-    if (!releaseState.data) return;
+  let releaseState;
+  function mergedState() {
+    return { core: releaseState.data, ...releaseState.data, ...chunkLoader.extraChunkData };
+  }
+  function rebootstrap() {
     active?.router?.stop?.();
     active?.stopInteractions?.();
     active = bootstrap({
       windowObject,
       documentObject,
-      state: { core: releaseState.data, ...releaseState.data },
+      state: mergedState(),
       roster,
       releaseState,
       releaseManager,
       rosterStore: store,
       uiState: ui,
+      loadedChunkPaths: chunkLoader.loadedChunkPaths,
+      onRouteVisit: chunkLoader.ensureRouteChunks,
     });
+  }
+  // core.json loads eagerly (see ReleaseManager); raids/pvp/gyms/extras load
+  // lazily per route — see ROUTE_CHUNKS and createRouteChunkLoader.
+  const chunkLoader = createRouteChunkLoader({
+    releaseManager,
+    getReleaseState: () => releaseState,
+    onChunksLoaded: rebootstrap,
   });
-  let releaseState;
+  releaseManager.subscribe((nextReleaseState) => {
+    releaseState = nextReleaseState;
+    root?.setAttribute?.("data-offline-ready", releaseState.offlineReady ? "true" : "false");
+    if (!releaseState.data) return;
+    chunkLoader.reset();
+    rebootstrap();
+  });
   try {
     releaseState = await releaseManager.initialize();
   } catch {
@@ -2100,18 +2886,7 @@ export async function startFieldGuide({
         storage: windowObject?.localStorage ?? null,
       }));
       if (priorRaid) ui.raid = raidState(priorRaid, validFormIds);
-      active?.router?.stop?.();
-      active?.stopInteractions?.();
-      active = bootstrap({
-        windowObject,
-        documentObject,
-        state: { core: releaseState.data, ...releaseState.data },
-        roster,
-        releaseState,
-        releaseManager,
-        rosterStore: store,
-        uiState: ui,
-      });
+      rebootstrap();
     } catch {
       // Roster failure must not replace a usable guide with an empty shell.
     }

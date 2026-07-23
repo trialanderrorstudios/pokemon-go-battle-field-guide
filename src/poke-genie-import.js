@@ -3,8 +3,15 @@
 // (src/gopvpsim/user_collection.py): Name, Form, CP, Atk IV, Def IV, Sta IV,
 // Level Min, Shadow/Purified, Lucky, Gender, plus Quick Move/Charge Move/
 // Charge Move 2 (moves aren't part of this app's roster schema yet).
-// Level Min/Lucky/Gender/moves are ignored — imported instances carry CP/IVs
+// Level Min/Gender/moves are ignored — imported instances carry CP/IVs
 // only; buildImportedInstance() leaves moves unset rather than guessing.
+// Lucky IS ingested (round 9). Per the same reference, gopvpsim parses
+// Lucky as row['Lucky'].strip() == '1' — numeric, same encoding family as
+// Shadow/Purified (0/1/2) — so "1" is the primary match; "yes"/"true" are
+// also accepted in case an export variant uses a text flag instead.
+// Honest-scope gap: Poke Genie's CSV has no shiny column at all
+// (shiny isn't Genie-detectable — it's an IV/appraisal tool), so shiny
+// status can only come from manual toggles in this app, never from import.
 import { buildImportedInstance } from "./instances.js";
 
 const REQUIRED_COLUMNS = ["Name", "Form", "CP", "Atk IV", "Def IV", "Sta IV"];
@@ -115,8 +122,10 @@ export function parsePokeGenieCsv(text, forms) {
       return;
     }
     const ivs = { atk: Number(cell("Atk IV")), def: Number(cell("Def IV")), sta: Number(cell("Sta IV")) };
+    const luckyCell = cell("Lucky").trim().toLowerCase();
+    const isLucky = luckyCell === "1" || luckyCell === "yes" || luckyCell === "true";
     try {
-      instances.push(buildImportedInstance(form, { cp: Number(cell("CP")), ivs }));
+      instances.push(buildImportedInstance(form, { cp: Number(cell("CP")), ivs, isLucky }));
     } catch (error) {
       errors.push(`Row ${rowNumber} (${name}): ${error.message}`);
     }

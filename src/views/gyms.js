@@ -5,6 +5,16 @@ import { jargonTerm } from "../glossary.js";
 import { buildLeaderboard, exportPlayerLog } from "../gym-defense-log.js";
 import { buildDeploymentMap } from "../gym-availability.js";
 import { bestInstanceForForm } from "../instances.js";
+import { TEAM_SET } from "../storage.js";
+
+// Team (GO): Bulbapedia's "Team (GO)" article — official team colors.
+const TEAM_LABELS = Object.freeze({ valor: "Valor", mystic: "Mystic", instinct: "Instinct" });
+
+function teamBadge(team) {
+  return TEAM_SET.has(team)
+    ? `<span class="team-badge" data-team="${escapeHtml(team)}">${escapeHtml(TEAM_LABELS[team])}</span>`
+    : "";
+}
 
 
 function sectionHeading(kicker, title, id) {
@@ -98,13 +108,23 @@ function motivationSection() {
 }
 
 
-function defenseSection(gym, forms, ownedFormIds) {
+// You can only drop a defender into a gym your own team already controls
+// (or an uncontested neutral one) — a rival-team gym has to be knocked to
+// neutral first. Source: Bulbapedia's "Gym (GO)" article.
+function ownTeamGymNote(trainerTeam) {
+  return TEAM_SET.has(trainerTeam)
+    ? `You can only deploy a defender into a gym Team ${escapeHtml(TEAM_LABELS[trainerTeam])} already controls (or an open, neutral one) — a rival-team gym has to be knocked to neutral first.`
+    : `You can only deploy a defender into a gym your own team already controls (or an open, neutral one) — a rival-team gym has to be knocked to neutral first.`;
+}
+
+function defenseSection(gym, forms, ownedFormIds, trainerTeam) {
   const warnings = (gym.placementWarnings ?? []).map((warning) => `<aside class="gym-warning">
     <strong>${escapeHtml(warning.message)}</strong><p>${escapeHtml(warning.recommendation)}</p>
   </aside>`).join("");
   return `<section class="gym-section" aria-labelledby="gym-defense-title">
     ${sectionHeading("Break the attacker's flow", "Defender placement", "gym-defense-title")}
     <p class="gym-intro">Alternate weaknesses and consider motivation decay; defense delays attackers but cannot guarantee a hold.</p>
+    <p class="gym-team-note">${ownTeamGymNote(trainerTeam)}</p>
     <p class="gym-iv-note">IV spread for a defender: favor Defense and Stamina over Attack. There's no CP cap to work around here, but higher Attack IV only inflates CP — and higher CP decays motivation faster — without adding any staying power.</p>
     ${warnings}
     <ul class="gym-card-list">${(gym.defenders ?? []).map((row) => defenderCard(row, forms, ownedFormIds)).join("")}</ul>
@@ -219,7 +239,7 @@ function defenseLeaderboardTable(rows) {
   return `<div class="table-scroll"><table class="defense-leaderboard">
     <thead><tr><th>Player</th><th>Longest defense</th><th>Total defense time</th><th>Active now</th></tr></thead>
     <tbody>${rows.map((row) => `<tr>
-      <td>${escapeHtml(row.playerName)}</td>
+      <td>${escapeHtml(row.playerName)} ${teamBadge(row.team)}</td>
       <td>${escapeHtml(formatDefenseDuration(row.longestMs))}${row.longestPokemon ? ` · ${escapeHtml(row.longestPokemon)}` : ""}</td>
       <td>${escapeHtml(formatDefenseDuration(row.totalMs))}</td>
       <td>${row.active.length}</td>
@@ -241,10 +261,10 @@ function completeDefenseForm(completeDraft = {}) {
 
 
 function activeDefendersSection(rows, draft) {
-  const active = rows.flatMap((row) => row.active.map((entry) => ({ ...entry, playerName: row.playerName })));
+  const active = rows.flatMap((row) => row.active.map((entry) => ({ ...entry, playerName: row.playerName, team: row.team })));
   if (!active.length) return `<p class="gym-empty">No defenders currently up.</p>`;
   return `<ul class="gym-card-list">${active.map((entry) => `<li class="gym-card" data-defense-entry-id="${escapeHtml(entry.id)}">
-    <p class="gym-rank">${escapeHtml(entry.playerName)}</p>
+    <p class="gym-rank">${escapeHtml(entry.playerName)} ${teamBadge(entry.team)}</p>
     <p><strong>${escapeHtml(entry.pokemon)}</strong> · ${escapeHtml(entry.gymName)}</p>
     <p>Holding for ${escapeHtml(formatDefenseDuration(entry.elapsedMs))}</p>
     ${entry.isLocal ? (draft.completingId === entry.id
@@ -261,9 +281,9 @@ function activeDefendersSection(rows, draft) {
 // "it came back" entries, a longest/total/active leaderboard across the
 // local player plus any imported friends, and a copy-paste share block —
 // see web/src/gym-defense-log.js for the data model and format.
-export function renderDefenseLog({ log, now = Date.now(), draft = {} } = {}) {
+export function renderDefenseLog({ log, now = Date.now(), draft = {}, trainerTeam = null } = {}) {
   const safeLog = log ?? { localPlayerName: "You", entries: [] };
-  const rows = buildLeaderboard(safeLog, now);
+  const rows = buildLeaderboard(safeLog, now, trainerTeam);
   const message = draft.message ?? "";
   return `<section class="gym-section" aria-labelledby="gym-defense-log-title">
     ${sectionHeading("Manual, honest tracking", "Gym Defense Leaderboard", "gym-defense-log-title")}
@@ -277,6 +297,7 @@ export function renderDefenseLog({ log, now = Date.now(), draft = {} } = {}) {
     ${activeDefendersSection(rows, draft)}
     <h3>Drop a defender</h3>
     ${(draft.recentGyms ?? []).length > 0 ? `<p class="defense-log-recents">Quick pick: ${(draft.recentGyms ?? []).map((gym) => `<button type="button" class="chip" data-action="defense-log-quick-gym" data-gym="${escapeHtml(gym)}">${escapeHtml(gym)}</button>`).join(" ")}</p>` : ""}
+    ${draft.autoPickNote ? `<p class="defense-log-autopick-note">${escapeHtml(draft.autoPickNote)}</p>` : ""}
     <div class="defense-log-form">
       <label>Pokémon<input type="text" maxlength="60" data-defense-log-pokemon value="${escapeHtml(draft.pokemon ?? "")}"></label>
       <label>Gym name<input type="text" maxlength="80" data-defense-log-gym value="${escapeHtml(draft.gymName ?? "")}"></label>
@@ -287,7 +308,7 @@ export function renderDefenseLog({ log, now = Date.now(), draft = {} } = {}) {
     <h3>Send your leaderboard to a friend</h3>
     <p>Copy-and-paste: send the text below, they paste it into "Import a friend's leaderboard" below in their own app.</p>
     <button type="button" data-action="defense-log-toggle-share" aria-expanded="${Boolean(draft.shareOpen)}">${draft.shareOpen ? "Hide my leaderboard text" : "Show my leaderboard text"}</button>
-    ${draft.shareOpen ? `<pre class="roster-share-text">${escapeHtml(exportPlayerLog(safeLog))}</pre>
+    ${draft.shareOpen ? `<pre class="roster-share-text">${escapeHtml(exportPlayerLog(safeLog, trainerTeam))}</pre>
     <button type="button" data-action="defense-log-copy-share">Copy to clipboard</button>` : ""}
     <h3>Import a friend's leaderboard</h3>
     <div class="defense-log-form">
@@ -309,15 +330,16 @@ export function renderGyms({
   defenseLogDraft = {},
   rosterInstances = [],
   now = Date.now(),
+  trainerTeam = null,
 } = {}) {
   const deploymentMap = buildDeploymentMap(defenseLog, now);
   return `<div class="gyms-view">
     ${renderPlacementCoach({ placementResult, ownedIndex, overallIndex, rosterInstances, deploymentMap })}
     ${offenseSection(gym, forms)}
     ${staggerSection(gym)}
-    ${defenseSection(gym, forms, ownedFormIds)}
+    ${defenseSection(gym, forms, ownedFormIds, trainerTeam)}
     ${motivationSection()}
     ${ownedDefenderEditor(gym.defenders, ownedFormIds)}
-    ${renderDefenseLog({ log: defenseLog, now, draft: defenseLogDraft })}
+    ${renderDefenseLog({ log: defenseLog, now, draft: defenseLogDraft, trainerTeam })}
   </div>`;
 }

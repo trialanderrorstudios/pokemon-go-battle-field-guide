@@ -1,4 +1,4 @@
-import { escapeHtml } from "./home.js";
+import { escapeHtml, shinyLuckyBadges } from "./home.js";
 import { displayMoveName } from "./move-sheet.js";
 import { instanceLevel, legalMoves } from "../instances.js";
 
@@ -15,20 +15,40 @@ function moveChip(moveId, selected, dataAttr) {
 }
 
 
-function instanceRow(instance, form) {
+// Lightweight "I changed this one" inline row: just a CP field, no moves —
+// so a moveless Poke Genie import can be corrected without also picking
+// moves. Composes reviseInstanceCp()'s CPM/IV re-validation (see instances.js).
+function quickCpRow(instance, quickCp) {
+  return `<div class="instance-quick-cp">
+    <label class="instance-cp-input">New CP after power-up/level-up/trade
+      <input type="number" inputmode="numeric" min="1" step="1" data-quick-cp-input value="${escapeHtml(quickCp.value ?? "")}">
+    </label>
+    ${quickCp.error ? `<p class="instance-sheet-error" role="alert">${escapeHtml(quickCp.error)}</p>` : ""}
+    <div class="instance-sheet-actions">
+      <button type="button" data-action="cancel-quick-cp">Cancel</button>
+      <button type="button" data-action="save-quick-cp">Save CP</button>
+    </div>
+  </div>`;
+}
+
+
+function instanceRow(instance, form, quickCp) {
   const level = instanceLevel(form, instance);
+  const quickCpActive = quickCp?.instanceId === instance.id;
+  const badges = shinyLuckyBadges(instance);
   return `<li class="instance-row" data-instance-id="${escapeHtml(instance.id)}">
     <div>
-      <h4>${escapeHtml(instance.nickname || form.name)}</h4>
+      <h4>${escapeHtml(instance.nickname || form.name)} ${badges}</h4>
       <p>CP ${escapeHtml(instance.cp)} · ${escapeHtml(instance.ivs.atk)}/${escapeHtml(instance.ivs.def)}/${escapeHtml(instance.ivs.sta)} IV${level !== null ? ` · Level ${escapeHtml(level)}` : ""}</p>
       <p>${instance.fastMove
         ? `${escapeHtml(displayMoveName(instance.fastMove))} + ${(instance.chargedMoves ?? []).map(displayMoveName).join(" / ")}`
         : `<span class="instance-moves-missing">Moves not set — tap Edit to add them.</span>`}</p>
     </div>
-    <div class="instance-row-actions">
+    ${quickCpActive ? quickCpRow(instance, quickCp) : `<div class="instance-row-actions">
       <button type="button" data-edit-instance-id="${escapeHtml(instance.id)}">Edit</button>
+      <button type="button" data-quick-cp-instance-id="${escapeHtml(instance.id)}">I changed this one</button>
       <button type="button" data-delete-instance-id="${escapeHtml(instance.id)}">Delete</button>
-    </div>
+    </div>`}
   </li>`;
 }
 
@@ -37,7 +57,7 @@ function instanceRow(instance, form) {
 // binary owned-star roster. Move pickers are chips over the form's own
 // release-data fast/charged move lists — never free text.
 export function renderInstanceSheet({
-  form, instances = [], draft = null, error = "", focusInstanceId = null,
+  form, instances = [], draft = null, error = "", focusInstanceId = null, quickCp = null,
 } = {}) {
   if (!form || !draft) return "";
   const legal = legalMoves(form);
@@ -50,7 +70,7 @@ export function renderInstanceSheet({
       <button type="button" class="move-sheet-close" data-action="close-instance-sheet" aria-label="Close">✕</button>
       <h2 id="instance-sheet-title">${escapeHtml(form.name)} details</h2>
       <p>Everything below stays on this device. Exact CP/IVs/moves make raid and power-up guidance precise for this specific Pokémon instead of a general assumption.</p>
-      ${existing.length ? `<h3>Your ${escapeHtml(form.name)}s</h3><ul class="instance-list">${existing.map((instance) => instanceRow(instance, form)).join("")}</ul>` : ""}
+      ${existing.length ? `<h3>Your ${escapeHtml(form.name)}s</h3><ul class="instance-list">${existing.map((instance) => instanceRow(instance, form, quickCp)).join("")}</ul>` : ""}
       <h3>${draft.editingId ? "Edit" : "Add"} an instance</h3>
       ${error ? `<p class="instance-sheet-error" role="alert">${escapeHtml(error)}</p>` : ""}
       <label class="instance-cp-input">CP
@@ -69,6 +89,10 @@ export function renderInstanceSheet({
       <label class="instance-nickname-input">Nickname (optional)
         <input type="text" maxlength="60" data-instance-nickname value="${escapeHtml(draft.nickname ?? "")}">
       </label>
+      <div class="app-actions" role="group" aria-label="Shiny and lucky">
+        <button type="button" class="collection-flag-toggle" data-instance-shiny-toggle aria-pressed="${Boolean(draft.isShiny)}">${draft.isShiny ? "★ Shiny" : "☆ Shiny"}</button>
+        <button type="button" class="collection-flag-toggle" data-instance-lucky-toggle aria-pressed="${Boolean(draft.isLucky)}">${draft.isLucky ? "🍀 Lucky" : "Lucky"}</button>
+      </div>
       <div class="instance-sheet-actions">
         ${draft.editingId ? `<button type="button" data-action="cancel-edit-instance">Cancel edit</button>` : ""}
         <button type="button" data-action="save-instance">${draft.editingId ? "Save changes" : "Add instance"}</button>

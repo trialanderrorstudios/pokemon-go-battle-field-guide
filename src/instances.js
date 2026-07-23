@@ -116,10 +116,13 @@ function requireValidCp(form, ivs, cp) {
 
 // Validates raw quick-add-sheet input and returns a persistable roster
 // instance (schema: id, formId, cp, ivs, fastMove, chargedMoves, nickname?,
-// addedAt). Level is deliberately NOT stored — it's derived on demand via
-// solveLevel() from cp+ivs+the form's base stats, so it can never drift from
-// the CPM table. Throws a friendly, user-facing RangeError on invalid input.
-export function buildInstance(form, { cp, ivs, fastMove, chargedMoves, nickname } = {}) {
+// isShiny?, isLucky?, addedAt). Level is deliberately NOT stored — it's
+// derived on demand via solveLevel() from cp+ivs+the form's base stats, so it
+// can never drift from the CPM table. isShiny/isLucky are manual honesty
+// flags (round 9 collection tracking) — omitted entirely when false/unset,
+// same convention as nickname. Throws a friendly, user-facing RangeError on
+// invalid input.
+export function buildInstance(form, { cp, ivs, fastMove, chargedMoves, nickname, isShiny, isLucky } = {}) {
   if (!form?.form_id) throw new RangeError("Unknown Pokémon form.");
   const moveError = validateMoves(form, fastMove, chargedMoves);
   if (moveError) throw new RangeError(moveError);
@@ -133,6 +136,8 @@ export function buildInstance(form, { cp, ivs, fastMove, chargedMoves, nickname 
     fastMove,
     chargedMoves: [...chargedMoves],
     ...(trimmedNickname ? { nickname: trimmedNickname } : {}),
+    ...(isShiny ? { isShiny: true } : {}),
+    ...(isLucky ? { isLucky: true } : {}),
     addedAt: new Date().toISOString(),
   };
 }
@@ -141,8 +146,10 @@ export function buildInstance(form, { cp, ivs, fastMove, chargedMoves, nickname 
 // Same as buildInstance, but for bulk-import sources (e.g. Poke Genie CSV)
 // that carry verified CP/IVs but no move data. Omits fastMove/chargedMoves
 // rather than guessing — the roster UI prompts to add them via the normal
-// edit sheet.
-export function buildImportedInstance(form, { cp, ivs, nickname } = {}) {
+// edit sheet. isLucky is the one Poke Genie collection flag with a real CSV
+// column (see poke-genie-import.js); isShiny isn't in that export, so
+// callers only pass it from other sources.
+export function buildImportedInstance(form, { cp, ivs, nickname, isShiny, isLucky } = {}) {
   if (!form?.form_id) throw new RangeError("Unknown Pokémon form.");
   const cpNumber = requireValidCp(form, ivs, cp);
   const trimmedNickname = typeof nickname === "string" ? nickname.trim() : "";
@@ -152,8 +159,24 @@ export function buildImportedInstance(form, { cp, ivs, nickname } = {}) {
     cp: cpNumber,
     ivs: { atk: ivs.atk, def: ivs.def, sta: ivs.sta },
     ...(trimmedNickname ? { nickname: trimmedNickname } : {}),
+    ...(isShiny ? { isShiny: true } : {}),
+    ...(isLucky ? { isLucky: true } : {}),
     addedAt: new Date().toISOString(),
   };
+}
+
+
+// Lightweight "I changed this one" touch: re-enter just the CP after a
+// power-up/level-up/trade, re-validated against this instance's existing IVs
+// (same requireValidCp the full add/edit sheet uses) without requiring moves
+// to be set — the point is fixing a moveless Poke Genie import as easily as a
+// full manual entry. Stamps updatedAt so consumers can tell this instance was
+// hand-verified since the last bulk import.
+export function reviseInstanceCp(form, instance, cp) {
+  if (!form?.form_id) throw new RangeError("Unknown Pokémon form.");
+  if (!instance) throw new RangeError("Unknown instance.");
+  const cpNumber = requireValidCp(form, instance.ivs, cp);
+  return { ...instance, cp: cpNumber, updatedAt: new Date().toISOString() };
 }
 
 

@@ -2,6 +2,8 @@ import { escapeHtml } from "./home.js";
 import { jargonTerm } from "../glossary.js";
 import { moveLink } from "./move-sheet.js";
 import { stableRosterJson } from "../storage.js";
+import { renderCollectionView } from "./collection.js";
+import { luckyOwnedFormIdSet, shinyOwnedFormIdSet } from "../collection.js";
 
 
 export const MORE_LISTS = Object.freeze({
@@ -9,6 +11,7 @@ export const MORE_LISTS = Object.freeze({
   megas: Object.freeze({ title: "Megas, Primals & Super Megas", group: "Collection" }),
   future: Object.freeze({ title: "Future-Proof Investments", group: "Investment" }),
   coverage: Object.freeze({ title: "Type Coverage Planner", group: "Collection" }),
+  collection: Object.freeze({ title: "Living Dex Collection", group: "Collection" }),
 });
 
 
@@ -114,6 +117,7 @@ function coverageListCard(row) {
 
 
 export function renderMoreList(listId, data = {}) {
+  if (listId === "collection") return renderCollectionView(data);
   const definition = MORE_LISTS[listId];
   if (!definition) return renderMore(data);
   const rows = listRows(listId, data);
@@ -189,6 +193,16 @@ function dataSection(data) {
 }
 
 
+function pokeGenieImportStatus(pokeGenieImport) {
+  const importedAt = pokeGenieImport?.importedAt;
+  const parsed = typeof importedAt === "string" ? new Date(importedAt) : null;
+  if (!parsed || Number.isNaN(parsed.valueOf())) return "No Poke Genie import yet.";
+  const date = parsed.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+  const rowCount = Number.isInteger(pokeGenieImport.rowCount) ? pokeGenieImport.rowCount : 0;
+  return `Last import: ${date} · ${rowCount} Pokémon${rowCount === 1 ? "" : "s"}.`;
+}
+
+
 function appSection(data) {
   const releaseNotes = data.release?.releaseNotes ?? [];
   const update = data.update ?? {};
@@ -213,6 +227,7 @@ function appSection(data) {
     <label class="file-action">Choose roster JSON<input type="file" accept="application/json,.json" data-action="roster-import"></label>
     <button type="button" data-action="roster-export">Export roster JSON</button>
     <p>Import a Poke Genie CSV export to bulk-add ownership, CP, and IVs. This app doesn't import moves yet, so add those afterward via "Add details" on My Roster.</p>
+    <p><strong>${escapeHtml(pokeGenieImportStatus(data.roster?.preferences?.pokeGenieImport))}</strong></p>
     <label class="file-action">Choose Poke Genie CSV<input type="file" accept="text/csv,.csv" data-action="poke-genie-import"></label>
     <h3>Feedback</h3>
     <p>Every "Helpful?" thumbs tap is stored on this device only, never sent anywhere. Export the raw list if you want to review or share it yourself.</p>
@@ -225,6 +240,32 @@ function appSection(data) {
 
 const TEXT_SIZE_LABELS = Object.freeze({ S: "Small", M: "Medium", L: "Large" });
 const THEME_LABELS = Object.freeze({ auto: "Auto", light: "Light", dark: "Dark" });
+const TEAM_LABELS = Object.freeze({ valor: "Valor", mystic: "Mystic", instinct: "Instinct" });
+
+// Optional and skippable: every feature that reads this degrades to today's
+// ungated/badge-free behavior when the card is left blank.
+function trainerProfileSection(data) {
+  const profile = data.trainerProfile ?? { level: null, team: null, name: "" };
+  return `<section class="more-section" aria-labelledby="more-trainer-title">
+    <p class="status-kicker">Optional — used to gate advice to what you can reach</p><h2 id="more-trainer-title">Trainer profile</h2>
+    <p>The game doesn't share this — you tell us. Skip any of it; power-up advice and team badges just stay as they are today until you fill it in.</p>
+    <label class="defense-log-player-name">Trainer level
+      <input type="number" min="1" max="50" step="1" inputmode="numeric" data-trainer-level value="${escapeHtml(profile.level ?? "")}">
+    </label>
+    <h3>Team</h3>
+    <div class="app-actions" role="group" aria-label="Team">
+      ${Object.entries(TEAM_LABELS).map(([team, label]) => (
+        `<button type="button" data-trainer-team="${team}" aria-pressed="${team === profile.team}">${label}</button>`
+      )).join("")}
+    </div>
+    <label class="defense-log-player-name">Trainer name (optional)
+      <input type="text" maxlength="40" data-trainer-name value="${escapeHtml(profile.name ?? "")}">
+    </label>
+    <label class="defense-log-player-name">Your Stardust (optional — also editable on Raid Target)
+      <input inputmode="numeric" data-stardust-input data-stardust-route="more" value="${data.stardust === null || data.stardust === undefined ? "" : escapeHtml(data.stardust)}">
+    </label>
+  </section>`;
+}
 
 function displaySection(data) {
   const current = Object.hasOwn(TEXT_SIZE_LABELS, data.textSize) ? data.textSize : "M";
@@ -245,6 +286,132 @@ function displaySection(data) {
   </section>`;
 }
 
+
+function backupSection(data) {
+  const preview = data.backupImportPreview;
+  const nudge = data.backupNudge && !preview ? `
+    <div class="fallback-section whats-new-card" role="note">
+      <p><strong>Back up your data?</strong></p>
+      <p>You haven't backed up in a while (or ever). A backup is one JSON file with your roster, gym log, drill/feedback stats, and display prefs — nothing else, no secrets.</p>
+      <button type="button" data-action="backup-export">Back up my data</button>
+      <button type="button" data-action="dismiss-backup-nudge">Not now</button>
+    </div>` : "";
+  const previewCard = preview ? `
+    <div class="fallback-section" role="note" aria-live="polite">
+      <p><strong>Backup preview</strong></p>
+      <ul>
+        <li>Exported: ${escapeHtml(preview.summary.exportedAt)}</li>
+        <li>App version: ${escapeHtml(preview.summary.appShellRevision ?? "unknown")}</li>
+        <li>${preview.summary.ownedFormCount} owned form${preview.summary.ownedFormCount === 1 ? "" : "s"}, ${preview.summary.instanceCount} roster detail${preview.summary.instanceCount === 1 ? "" : "s"}</li>
+        <li>${preview.summary.defenseLogEntryCount} gym log entr${preview.summary.defenseLogEntryCount === 1 ? "y" : "ies"}</li>
+      </ul>
+      <p><strong>Merge</strong> adds this backup's data into what's already on this device (newest wins on matching entries; this device's last-opened tab and PvP filter settings are overwritten by the backup's). <strong>Replace</strong> overwrites this device's data with the backup.</p>
+      <button type="button" data-action="backup-restore-merge">Merge into this device</button>
+      <button type="button" data-action="backup-restore-replace">Replace this device's data</button>
+      <button type="button" data-action="backup-restore-cancel">Cancel</button>
+    </div>` : "";
+  return `<section class="more-section" aria-labelledby="more-backup-title">
+    <p class="status-kicker">One file, all your data</p><h2 id="more-backup-title">Backup and restore</h2>
+    <p>No secrets live in this app. A backup bundles your roster (instances, stars, counts), gym defense log, drill streaks, feedback thumbs, and display prefs into one JSON file that stays yours. (Cached gym map coordinates aren't included — they rebuild automatically as you use the gym log.)</p>
+    <p>Cross-device: export on your phone, AirDrop (or email) the file over, then restore it on your tablet.</p>
+    ${nudge}
+    <button type="button" data-action="backup-export">Back up my data</button>
+    <label class="file-action">Choose backup file<input type="file" accept="application/json,.json" data-action="backup-import"></label>
+    ${previewCard}
+  </section>`;
+}
+
+
+function formatBytes(bytes) {
+  if (!Number.isFinite(bytes)) return "unknown";
+  const units = ["B", "KB", "MB", "GB"];
+  let value = bytes;
+  let unit = 0;
+  while (value >= 1024 && unit < units.length - 1) {
+    value /= 1024;
+    unit += 1;
+  }
+  return `${value.toFixed(unit === 0 ? 0 : 1)} ${units[unit]}`;
+}
+
+function storageEstimateText(estimate) {
+  if (estimate === null || estimate === undefined) return "Checking storage usage…";
+  if (estimate === false) return "Not available in this browser.";
+  const usage = Number(estimate.usage);
+  const quota = Number(estimate.quota);
+  if (!Number.isFinite(usage) || !Number.isFinite(quota)) return "Not available in this browser.";
+  return `${formatBytes(usage)} used of ${formatBytes(quota)} available`;
+}
+
+function diagnosticsEntryCard({ entry, index }) {
+  const when = new Date(entry.ts).toLocaleString();
+  return `<li class="source-card">
+    <h3>${escapeHtml(entry.message)}</h3>
+    <p><strong>When:</strong> ${escapeHtml(when)} · <strong>Route:</strong> ${escapeHtml(entry.route)}</p>
+    <p><strong>Shell:</strong> ${escapeHtml(entry.shellRevision)} · <strong>Release:</strong> ${escapeHtml(entry.releaseId)}</p>
+    ${entry.stackHead ? `<pre class="roster-share-text">${escapeHtml(entry.stackHead)}</pre>` : ""}
+    <button type="button" data-action="copy-diagnostics-entry" data-diagnostics-index="${index}">Copy this entry</button>
+  </li>`;
+}
+
+// "Which build am I on" — local-only crash log for support conversations.
+// Nothing here leaves the device except via the explicit copy actions.
+function diagnosticsSection(data) {
+  const diagnostics = data.diagnostics ?? {};
+  const entries = diagnostics.entries ?? [];
+  // Newest first for display, but each card keeps the original storage index
+  // so copy/clear actions still address the right ring-buffer entry.
+  const indexed = entries.map((entry, index) => ({ entry, index })).reverse();
+  const selfRepairText = diagnostics.selfRepairAt
+    ? new Date(diagnostics.selfRepairAt).toLocaleString()
+    : "Never triggered on this device.";
+  const status = diagnostics.copyStatus === "success"
+    ? '<p class="triage-copy-status" role="status">Copied to the clipboard.</p>'
+    : diagnostics.copyStatus === "failure"
+      ? `<p class="triage-copy-status" role="status">Could not copy automatically — select and copy this text.</p><textarea data-diagnostics-copy-fallback readonly rows="6">${escapeHtml(diagnostics.copyPayload ?? "")}</textarea>`
+      : "";
+  return `<section class="more-section" aria-labelledby="more-diagnostics-title">
+    <p class="status-kicker">Which build am I on</p><h2 id="more-diagnostics-title">Diagnostics</h2>
+    <p>Local-only error log for support conversations. Nothing here is sent anywhere; copy or clear it yourself.</p>
+    <ul class="method-list">
+      <li><strong>Shell revision:</strong> ${escapeHtml(data.release?.shellRevision ?? "Unknown")}</li>
+      <li><strong>Release:</strong> ${escapeHtml(data.release?.releaseId ?? "Unknown")}</li>
+      <li><strong>Storage usage:</strong> ${escapeHtml(storageEstimateText(diagnostics.storageEstimate))}</li>
+      <li><strong>Service worker:</strong> ${escapeHtml(diagnostics.swControllerState ?? "unsupported")}</li>
+      <li><strong>Last self-repair:</strong> ${escapeHtml(selfRepairText)}</li>
+      <li><strong>Loaded data chunks:</strong> ${escapeHtml((diagnostics.loadedChunks ?? []).join(", ") || "none")}</li>
+    </ul>
+    <div class="app-actions">
+      <button type="button" data-action="copy-diagnostics-all">Copy all entries</button>
+      <button type="button" data-action="clear-diagnostics">Clear all</button>
+    </div>
+    ${status}
+    ${entries.length
+      ? `<ul class="source-list">${indexed.map(diagnosticsEntryCard).join("")}</ul>`
+      : `<p class="pvp-empty">No errors captured yet.</p>`}
+  </section>`;
+}
+
+
+const PUSH_STATE_LABELS = Object.freeze({
+  unsupported: "Not supported in this browser",
+  default: "Not requested yet",
+  denied: "Blocked — re-enable in browser site settings",
+  granted: "Enabled",
+});
+
+// Dev-flag-only stub: no relay exists (docs/push-notifications-spike.md),
+// so this never shows for a normal visitor. Enable via
+// localStorage.setItem('pogo-push-flag-dev', '1') and reload.
+function pushSection(data) {
+  if (!data.pushFlag) return "";
+  const state = data.pushPermission ?? "unsupported";
+  return `<section class="more-section" aria-labelledby="more-push-title">
+    <p class="status-kicker">Dev flag — no relay is live</p><h2 id="more-push-title">Push notifications</h2>
+    <p>${escapeHtml(PUSH_STATE_LABELS[state] ?? PUSH_STATE_LABELS.unsupported)}</p>
+    ${state === "default" ? `<button type="button" data-action="request-push-permission">Enable push</button>` : ""}
+  </section>`;
+}
 
 function shareSection() {
   return `<section class="more-section" aria-labelledby="more-share-title">
@@ -281,8 +448,20 @@ function ownedCounts(roster = {}) {
 }
 
 
+// A form's shiny/lucky flag is "forced" true when a detailed instance says
+// so — the dex-list quick-toggle can't turn that off (it would be a lie),
+// so it renders disabled in that state instead of a clickable off switch.
+function instanceForcedFormIds(instances, key) {
+  return new Set((instances ?? []).filter((instance) => instance[key]).map((instance) => instance.formId));
+}
+
+
 function rosterSection(data) {
   const counts = ownedCounts(data.roster);
+  const shinyOwned = shinyOwnedFormIdSet(data.roster ?? {});
+  const luckyOwned = luckyOwnedFormIdSet(data.roster ?? {});
+  const shinyForced = instanceForcedFormIds(data.roster?.instances, "isShiny");
+  const luckyForced = instanceForcedFormIds(data.roster?.instances, "isLucky");
   const query = String(data.rosterQuery ?? "").trim().toLocaleLowerCase();
   const rows = Object.values(data.forms ?? {}).filter((form) => {
     if (!query) return counts[form.form_id] > 0;
@@ -301,12 +480,20 @@ function rosterSection(data) {
     const count = counts[form.form_id] ?? 0;
     const types = [form.primary_type, form.secondary_type].filter(Boolean).join(" / ");
     const detailCount = instanceCounts[form.form_id] ?? 0;
+    const isShiny = shinyOwned.has(form.form_id);
+    const isLucky = luckyOwned.has(form.form_id);
+    const shinyDisabled = shinyForced.has(form.form_id) ? ' disabled title="Set by a shiny instance — edit that instance to change it"' : "";
+    const luckyDisabled = luckyForced.has(form.form_id) ? ' disabled title="Set by a lucky instance — edit that instance to change it"' : "";
     return `<li class="roster-row" data-form-id="${escapeHtml(form.form_id)}">
       <div><h3>${escapeHtml(form.name)}</h3><p>${escapeHtml(types)} · ${escapeHtml(form.form_id)}</p></div>
       <div class="roster-stepper" aria-label="Copy quantity for ${escapeHtml(form.name)}">
         <button type="button" data-roster-quantity-form-id="${escapeHtml(form.form_id)}" data-direction="decrease" aria-label="Remove one ${escapeHtml(form.name)} copy"${count === 0 ? " disabled" : ""}>−</button>
         <output aria-label="${count} copies of ${escapeHtml(form.name)}">${count}</output>
         <button type="button" data-roster-quantity-form-id="${escapeHtml(form.form_id)}" data-direction="increase" aria-label="Add one ${escapeHtml(form.name)} copy"${count >= 999 ? " disabled" : ""}>+</button>
+      </div>
+      <div class="roster-collection-flags" role="group" aria-label="Shiny and lucky for ${escapeHtml(form.name)}">
+        <button type="button" class="collection-flag-toggle" data-shiny-toggle-form-id="${escapeHtml(form.form_id)}" aria-pressed="${isShiny}"${shinyDisabled}>${isShiny ? "★ Shiny" : "☆ Shiny"}</button>
+        <button type="button" class="collection-flag-toggle" data-lucky-toggle-form-id="${escapeHtml(form.form_id)}" aria-pressed="${isLucky}"${luckyDisabled}>${isLucky ? "🍀 Lucky" : "Lucky"}</button>
       </div>
       <button type="button" class="roster-add-details" data-open-instance-sheet-form-id="${escapeHtml(form.form_id)}">${detailCount ? `Details (${detailCount})` : "Add details"}</button>
     </li>`;
@@ -336,7 +523,9 @@ export function renderMore(data = {}) {
       <a class="safe-escape" href="./#basics">Read the plain-language basics</a>
       <a class="safe-escape" href="./#glossary">See every term in the Glossary</a>
     </section>
+    ${trainerProfileSection(data)}
     ${displaySection(data)}
+    ${pushSection(data)}
     ${rosterSection(data)}
     <section class="more-section triage-route-callout" aria-labelledby="more-triage-title">
       <p class="status-kicker">Turn your roster into decisions</p><h2 id="more-triage-title">Triage My Box</h2>
@@ -350,10 +539,12 @@ export function renderMore(data = {}) {
     </section>
     <section class="more-section" aria-labelledby="more-collection-title">
       <p class="status-kicker">Build broad practical coverage</p><h2 id="more-collection-title">Collection</h2>
-      <div class="more-route-grid">${routeCard("megas")}${routeCard("coverage")}</div>
+      <div class="more-route-grid">${routeCard("megas")}${routeCard("coverage")}${routeCard("collection")}</div>
     </section>
     ${dataSection(data)}
     ${appSection(data)}
+    ${backupSection(data)}
+    ${diagnosticsSection(data)}
     ${shareSection()}
   </div>`;
 }

@@ -1,8 +1,76 @@
-export const ROSTER_SCHEMA = 2;
+// Schema 3 (round 9): adds shiny/lucky collection tracking. Additive only —
+// schema 1 and 2 rosters still load (normalizeRoster below), migrating
+// forward with empty shinyOwnedFormIds/luckyOwnedFormIds.
+export const ROSTER_SCHEMA = 3;
 const ROSTER_DB_VERSION = 1;
+
+// Trainer profile: level, team color, and an optional name, used to gate
+// power-up/invest advice to what the player can actually reach and to badge
+// team color on gym/leaderboard surfaces. Persisted in localStorage like
+// theme.js/text-size.js — a single flat record, not roster/IndexedDB state.
+// Unset (null/"") is the default and means "don't gate" — every caller that
+// reads this degrades to today's ungated behavior when the card is skipped.
+// ponytail: lives here (not its own module) so it stays inside the PWA shell
+// allowlist in build.py — see PWA_SHELL_FILES.
+const TRAINER_PROFILE_STORAGE_KEY = "pogo-trainer-profile";
+// Team (GO): Bulbapedia's "Team (GO)" article — the three gym-affiliation
+// factions, unrelated to this app's separate "My Team" PvP roster feature.
+export const TEAMS = Object.freeze(["valor", "mystic", "instinct"]);
+export const TEAM_SET = new Set(TEAMS);
+const MIN_TRAINER_LEVEL = 1;
+const MAX_TRAINER_LEVEL = 50; // Trainer level cap: Bulbapedia's "Trainer level" article.
+const MAX_TRAINER_NAME_LENGTH = 40;
+
+function validTrainerLevel(value) {
+  return Number.isInteger(value) && value >= MIN_TRAINER_LEVEL && value <= MAX_TRAINER_LEVEL
+    ? value
+    : null;
+}
+
+function validTrainerTeam(value) {
+  return TEAM_SET.has(value) ? value : null;
+}
+
+function validTrainerName(value) {
+  return typeof value === "string" ? value.trim().slice(0, MAX_TRAINER_NAME_LENGTH) : "";
+}
+
+function emptyTrainerProfile() {
+  return { level: null, team: null, name: "" };
+}
+
+export function loadTrainerProfile(storage) {
+  try {
+    const parsed = JSON.parse(storage?.getItem?.(TRAINER_PROFILE_STORAGE_KEY) ?? "null");
+    if (!parsed || typeof parsed !== "object") return emptyTrainerProfile();
+    return {
+      level: validTrainerLevel(parsed.level),
+      team: validTrainerTeam(parsed.team),
+      name: validTrainerName(parsed.name),
+    };
+  } catch {
+    return emptyTrainerProfile();
+  }
+}
+
+export function saveTrainerProfile(storage, profile) {
+  const safe = {
+    level: validTrainerLevel(profile?.level),
+    team: validTrainerTeam(profile?.team),
+    name: validTrainerName(profile?.name),
+  };
+  try {
+    storage?.setItem?.(TRAINER_PROFILE_STORAGE_KEY, JSON.stringify(safe));
+  } catch {
+    // Storage can legitimately be unavailable — the choice still applies for
+    // this session, it just won't persist to the next visit.
+  }
+  return safe;
+}
 
 const ROSTER_FIELDS = new Set([
   "schemaVersion", "ownedFormIds", "ownedFormCounts", "favorites", "preferences", "instances",
+  "shinyOwnedFormIds", "luckyOwnedFormIds",
 ]);
 const EMPTY_ROSTER = Object.freeze({
   schemaVersion: ROSTER_SCHEMA,
@@ -11,9 +79,12 @@ const EMPTY_ROSTER = Object.freeze({
   favorites: Object.freeze([]),
   preferences: Object.freeze({}),
   instances: Object.freeze([]),
+  shinyOwnedFormIds: Object.freeze([]),
+  luckyOwnedFormIds: Object.freeze([]),
 });
 const INSTANCE_FIELDS = new Set([
-  "id", "formId", "cp", "ivs", "fastMove", "chargedMoves", "nickname", "addedAt",
+  "id", "formId", "cp", "ivs", "fastMove", "chargedMoves", "nickname", "addedAt", "updatedAt",
+  "isShiny", "isLucky",
 ]);
 
 
@@ -27,7 +98,7 @@ export class RosterImportError extends Error {
 }
 
 
-function isPlainObject(value) {
+export function isPlainObject(value) {
   if (value === null || typeof value !== "object") return false;
   const prototype = Object.getPrototypeOf(value);
   return prototype === Object.prototype || prototype === null;
@@ -193,9 +264,30 @@ function normalizeInstance(value, index, validFormIds) {
       `instances[${index}].nickname must be a non-empty string if present.`, "invalid_instance", { field: "instances", index },
     );
   }
+  // isShiny/isLucky are additive (schema 3): per-copy honesty flags the user
+  // sets manually. Optional booleans, same shape rule as the rest of this
+  // record — present means true (buildInstance omits them entirely when false).
+  if (value.isShiny !== undefined && typeof value.isShiny !== "boolean") {
+    throw new RosterImportError(
+      `instances[${index}].isShiny must be a boolean if present.`, "invalid_instance", { field: "instances", index },
+    );
+  }
+  if (value.isLucky !== undefined && typeof value.isLucky !== "boolean") {
+    throw new RosterImportError(
+      `instances[${index}].isLucky must be a boolean if present.`, "invalid_instance", { field: "instances", index },
+    );
+  }
   if (typeof value.addedAt !== "string" || Number.isNaN(Date.parse(value.addedAt))) {
     throw new RosterImportError(
       `instances[${index}].addedAt must be an ISO date string.`, "invalid_instance", { field: "instances", index },
+    );
+  }
+  // updatedAt is optional: stamped by the "I changed this one" quick-CP touch
+  // (see reviseInstanceCp in instances.js). Absent on instances no one has
+  // hand-verified since import/creation.
+  if (value.updatedAt !== undefined && (typeof value.updatedAt !== "string" || Number.isNaN(Date.parse(value.updatedAt)))) {
+    throw new RosterImportError(
+      `instances[${index}].updatedAt must be an ISO date string if present.`, "invalid_instance", { field: "instances", index },
     );
   }
   return {
@@ -206,7 +298,10 @@ function normalizeInstance(value, index, validFormIds) {
     ...(value.fastMove !== undefined ? { fastMove: value.fastMove } : {}),
     ...(value.chargedMoves !== undefined ? { chargedMoves: [...value.chargedMoves] } : {}),
     ...(value.nickname !== undefined ? { nickname: value.nickname } : {}),
+    ...(value.isShiny ? { isShiny: true } : {}),
+    ...(value.isLucky ? { isLucky: true } : {}),
     addedAt: value.addedAt,
+    ...(value.updatedAt !== undefined ? { updatedAt: value.updatedAt } : {}),
   };
 }
 
@@ -250,7 +345,7 @@ function normalizeRoster(payload, validFormIds = null) {
       { fields: unknownFields },
     );
   }
-  if (payload.schemaVersion !== 1 && payload.schemaVersion !== ROSTER_SCHEMA) {
+  if (![1, 2, ROSTER_SCHEMA].includes(payload.schemaVersion)) {
     throw new RosterImportError(
       `Unsupported roster schema ${String(payload.schemaVersion)}; expected ${ROSTER_SCHEMA}.`,
       "unsupported_schema",
@@ -277,6 +372,8 @@ function normalizeRoster(payload, validFormIds = null) {
     favorites: normalizeFormIds(payload.favorites ?? [], "favorites", validFormIds),
     preferences: structuredClone(preferences),
     instances: normalizeInstances(payload.instances, validFormIds),
+    shinyOwnedFormIds: normalizeFormIds(payload.shinyOwnedFormIds ?? [], "shinyOwnedFormIds", validFormIds),
+    luckyOwnedFormIds: normalizeFormIds(payload.luckyOwnedFormIds ?? [], "luckyOwnedFormIds", validFormIds),
   };
 }
 
@@ -310,7 +407,10 @@ export function stableRosterJson(roster) {
       ...(instance.fastMove ? { fastMove: instance.fastMove } : {}),
       ...(instance.chargedMoves?.length ? { chargedMoves: [...instance.chargedMoves] } : {}),
       ...(instance.nickname ? { nickname: instance.nickname } : {}),
+      ...(instance.isShiny ? { isShiny: true } : {}),
+      ...(instance.isLucky ? { isLucky: true } : {}),
       addedAt: instance.addedAt,
+      ...(instance.updatedAt ? { updatedAt: instance.updatedAt } : {}),
     }))
     .sort((left, right) => left.id.localeCompare(right.id));
   return `${JSON.stringify({
@@ -320,6 +420,8 @@ export function stableRosterJson(roster) {
     favorites: [...(roster.favorites ?? [])].sort(),
     preferences: roster.preferences ?? {},
     instances,
+    shinyOwnedFormIds: [...(roster.shinyOwnedFormIds ?? [])].sort(),
+    luckyOwnedFormIds: [...(roster.luckyOwnedFormIds ?? [])].sort(),
   })}\n`;
 }
 

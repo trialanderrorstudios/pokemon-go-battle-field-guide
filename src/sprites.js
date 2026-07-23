@@ -91,7 +91,7 @@ export function spriteHtml(formId, forms, name, primaryType) {
   const path = spritePath(formId, forms);
   const type = TYPE_COLORS[primaryType] ? primaryType : "Normal";
   const alt = escapeHtml(name);
-  const fallback = `<span class="sprite-fallback" data-type="${escapeHtml(type)}">${escapeHtml(initial(name))}</span>`;
+  const fallback = `<span class="sprite-fallback" data-type="${escapeHtml(type)}" role="img" aria-label="${alt}" title="${alt}">${escapeHtml(initial(name))}</span>`;
   if (!path) return `<span class="sprite sprite-broken">${fallback}</span>`;
   return `<span class="sprite"><img src="${path}" alt="${alt}" loading="lazy" width="48" height="48">${fallback}</span>`;
 }

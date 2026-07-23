@@ -6,7 +6,7 @@ import {
   detailedEligibility,
   qualityHint,
 } from "./pvp-team.js";
-import { powerUpCost, xlPowerUpCost } from "./raid-target.js";
+import { levelCapNote, powerUpCost, xlPowerUpCost } from "./raid-target.js";
 import { powerUpNext } from "./coach.js";
 import { instanceLevel } from "./instances.js";
 import { raidSlots, shadowAdvisorVerdict } from "./views/raids.js";
@@ -26,6 +26,7 @@ const DEFAULT_ENGINES = Object.freeze({
   instanceLevel,
   powerUpCost,
   xlPowerUpCost,
+  levelCapNote,
 });
 
 
@@ -179,7 +180,7 @@ function keepSignal(entry, context) {
 }
 
 
-function powerUpFor(entry, engines) {
+function powerUpFor(entry, engines, trainerLevel) {
   if (!entry.instance) {
     return {
       status: "unrated",
@@ -198,6 +199,14 @@ function powerUpFor(entry, engines) {
   const toLevel = Math.max(fromLevel, 50);
   const regular = engines.powerUpCost(regularFromLevel, 40);
   const xl = engines.xlPowerUpCost(xlFromLevel, toLevel, entry.form.shadow === true);
+  // Reachable-cap gate: toLevel is always the Level 50 endgame ceiling
+  // (Math.max above), regardless of trainer level, so this plan can
+  // recommend a target the player can't actually reach yet. Keep the row
+  // (never hide/rewrite the numbers) and attach a plain "needs trainer level
+  // N" note instead — requiresXl covers both the level+10 cap and the
+  // Level-31 XL-spend unlock in one check, since this plan always crosses
+  // Level 40 into XL territory.
+  const capNote = engines.levelCapNote(toLevel, trainerLevel, { requiresXl: true });
   return {
     fromLevel,
     toLevel,
@@ -207,6 +216,7 @@ function powerUpFor(entry, engines) {
     candy: regular.candy,
     xlCandy: xl.candy,
     stardust: regular.stardust + xl.stardust,
+    capNote,
   };
 }
 
@@ -417,7 +427,9 @@ function result(bucket, entry, because, extra = {}) {
 }
 
 
-export function triageRoster({ data = {}, roster = {}, engines: injectedEngines = {} } = {}) {
+export function triageRoster({
+  data = {}, roster = {}, engines: injectedEngines = {}, trainerLevel = null,
+} = {}) {
   const engines = { ...DEFAULT_ENGINES, ...injectedEngines };
   const forms = formsOf(data);
   const rows = pvpRows(data);
@@ -484,7 +496,7 @@ export function triageRoster({ data = {}, roster = {}, engines: injectedEngines 
       return result("KEEP", entry, keep.because, investment ? {
         invest: true,
         investReason: investment.reason,
-        powerUp: powerUpFor(entry, engines),
+        powerUp: powerUpFor(entry, engines, trainerLevel),
       } : {});
     }
 

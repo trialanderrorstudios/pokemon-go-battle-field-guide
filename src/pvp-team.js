@@ -230,3 +230,36 @@ export function buildMyTeam({ league, pvp = {}, pvpTeams = [], roster = {}, form
 }
 
 
+// PvP instance conflicts: an exact roster copy (same instance.id) built into
+// My Team for two different leagues at once — a Great League build (low CP,
+// often a lower-Attack IV to stay under cap) and an Ultra League build are
+// different physical investments, so the same copy "optimized" for both is a
+// contradiction worth flagging. Same species with a *different* instance is
+// fine and never flagged — only the exact copy matters. Advisory only, never
+// blocking: teamsByLeague is keyed by league, each value a buildMyTeam() result.
+export function detectInstanceConflicts(teamsByLeague = {}) {
+  const placementsByInstanceId = new Map();
+  for (const [league, team] of Object.entries(teamsByLeague ?? {})) {
+    for (const member of team?.members ?? []) {
+      const instanceId = member?.instance?.id;
+      if (!instanceId) continue; // star-only (no detailed instance) members can't conflict
+      const placements = placementsByInstanceId.get(instanceId) ?? [];
+      placements.push({ league, formId: member.formId, pokemon: member.form?.name ?? member.formId });
+      placementsByInstanceId.set(instanceId, placements);
+    }
+  }
+  const conflicts = [];
+  for (const [instanceId, placements] of placementsByInstanceId) {
+    if (placements.length < 2) continue;
+    conflicts.push({
+      instanceId,
+      formId: placements[0].formId,
+      pokemon: placements[0].pokemon,
+      leagues: placements.map((placement) => placement.league),
+    });
+  }
+  return conflicts.sort((left, right) => left.pokemon.localeCompare(right.pokemon)
+    || left.instanceId.localeCompare(right.instanceId));
+}
+
+

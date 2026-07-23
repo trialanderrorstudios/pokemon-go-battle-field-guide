@@ -3,7 +3,7 @@
 // module that already owns it (raid-target's beatability, the Future-Proof
 // planner's priority order, the power-up cost table, pvp-team's My Team
 // builder); this module only filters, sorts, and links to the source screen.
-import { buildRaidPlan, powerUpCost } from "./raid-target.js";
+import { buildRaidPlan, levelCapNote, powerUpCost } from "./raid-target.js";
 import { bestInstanceForForm, instanceLevel } from "./instances.js";
 import { buildMyTeam, MY_TEAM_SLOTS, myTeamOverridesFor } from "./pvp-team.js";
 import { futureImpactRows } from "./views/more.js";
@@ -61,7 +61,7 @@ function worthRaidingThisWeek(data, roster, now = new Date()) {
 }
 
 
-export function powerUpNext(data, roster) {
+export function powerUpNext(data, roster, trainerLevel = null) {
   const forms = formsOf(data);
   const owned = new Set(roster?.ownedFormIds ?? []);
   const candidates = futureImpactRows(data?.futureProof ?? []).filter((row) => owned.has(row.formId));
@@ -82,6 +82,7 @@ export function powerUpNext(data, roster) {
       candy: cost.candy,
       stardust: cost.stardust,
       maxed: cost.candy === 0 && cost.stardust === 0,
+      capNote: levelCapNote(40, trainerLevel),
       href: "./?list=future#more",
     };
   });
@@ -143,10 +144,10 @@ function pvpTeamStatus(data, roster) {
 }
 
 
-export function buildCoachSummary({ data = {}, roster = {}, now = new Date() } = {}) {
+export function buildCoachSummary({ data = {}, roster = {}, now = new Date(), trainerLevel = null } = {}) {
   return {
     worthRaiding: worthRaidingThisWeek(data, roster, now),
-    powerUpNext: powerUpNext(data, roster),
+    powerUpNext: powerUpNext(data, roster, trainerLevel),
     buddyPick: walkThisBuddy(data, roster),
     pvpTeams: pvpTeamStatus(data, roster),
   };

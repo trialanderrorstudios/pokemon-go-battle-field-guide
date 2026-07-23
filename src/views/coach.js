@@ -40,6 +40,7 @@ function powerUpCard(row) {
     <h4>${escapeHtml(row.name)}</h4>
     <p>${escapeHtml(levelLine)}</p>
     ${row.assumption && !row.maxed ? `<p class="coach-card-meta">Add exact CP/IVs on My Roster for a precise number.</p>` : ""}
+    ${row.capNote ? `<p class="coach-card-meta">${escapeHtml(row.capNote)}</p>` : ""}
   </a>`;
 }
 
@@ -65,8 +66,8 @@ function pvpLeagueCard(row) {
 }
 
 
-export function renderCoach({ data = {}, roster = {}, now = new Date() } = {}) {
-  const summary = buildCoachSummary({ data, roster, now });
+export function renderCoach({ data = {}, roster = {}, now = new Date(), trainerLevel = null } = {}) {
+  const summary = buildCoachSummary({ data, roster, now, trainerLevel });
   return `<section class="coach-view" aria-labelledby="coach-view-title">
     <p class="status-kicker">Your week, planned</p>
     <h2 id="coach-view-title">Weekly Coach</h2>

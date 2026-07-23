@@ -13,6 +13,16 @@ export function escapeHtml(value) {
 }
 
 
+// Shared shiny/lucky badge markup for anything showing a roster instance
+// or living-dex row (collection grid, instance sheet).
+export function shinyLuckyBadges({ isShiny, isLucky } = {}) {
+  return [
+    isShiny ? '<span class="collection-badge collection-badge-shiny">Shiny</span>' : "",
+    isLucky ? '<span class="collection-badge collection-badge-lucky">Lucky</span>' : "",
+  ].filter(Boolean).join("");
+}
+
+
 export function ownedStarButton({ formId, name, owned, route = "raids" }) {
   return `<button type="button" class="owned-star${owned ? " is-owned" : ""}" data-owned-form-id="${escapeHtml(formId)}" data-owned-route="${escapeHtml(route)}" aria-pressed="${owned}" aria-label="I own ${escapeHtml(name)}"><span aria-hidden="true">${owned ? "★" : "☆"}</span></button>`;
 }
@@ -53,16 +63,49 @@ function weatherChip(conditions) {
 }
 
 
-export function currentBossCard({ formId, tier, endsAt } = {}, { target, forms, now = new Date() } = {}) {
+// Reuses the app's existing investment-tier vocabulary (see investment.py's
+// TIER_RULES) rather than inventing a new "worth it" scale: S+, S, and A
+// already mean "Build ASAP", "Strong Investment", and "Build for Coverage"
+// everywhere else raid rows show up.
+const PASS_WORTHY_TIERS = new Set(["S+", "S", "A"]);
+
+function bestInvestmentTier(formId, raids) {
+  const tierOrder = ["S+", "S", "A", "B", "C"];
+  let best = null;
+  for (const row of [...(raids?.regular ?? []), ...(raids?.shadow ?? [])]) {
+    if (row.formId !== formId || !row.investmentTier) continue;
+    if (best === null || tierOrder.indexOf(row.investmentTier) < tierOrder.indexOf(best)) best = row.investmentTier;
+  }
+  return best;
+}
+
+// "Worth your free daily pass" composes two signals this guide already
+// computes elsewhere, rather than a new ranking: the Legendary/Mega
+// headliner grouping below, and this form's own best raid investment tier
+// (a Legendary/Mega catch is often also a top attacker). Raids without
+// either signal get no hint — silence, not a "skip this" verdict, since
+// most Tier 1/3 bosses are simply undocumented here either way.
+function passWorthHint(tier, formId, raids) {
+  const headliner = tier === "Tier 5" || tier === "Mega";
+  const strongAttacker = PASS_WORTHY_TIERS.has(bestInvestmentTier(formId, raids));
+  return headliner || strongAttacker;
+}
+
+
+export function currentBossCard({ formId, tier, endsAt } = {}, {
+  target, forms, now = new Date(), raids = null,
+} = {}) {
   const name = target?.boss ?? formId;
   const bossTypes = target?.bossTypes ?? [];
   const weaknesses = bossTypes.length ? topWeaknesses(bossTypes) : [];
   const stale = typeof endsAt === "string" && !Number.isNaN(Date.parse(endsAt)) && new Date(endsAt) < now;
+  const worthPass = passWorthHint(tier, formId, raids);
   return `<a class="fallback-section home-boss-card" href="./?boss=${encodeURIComponent(formId)}#raids" data-form-id="${escapeHtml(formId)}">
     <div class="home-boss-heading">${spriteHtml(formId, forms, name, bossTypes[0])}<h3>${escapeHtml(name)}</h3></div>
     <p class="boss-tier">${escapeHtml(tier || "Raid boss")}</p>
     ${weaknesses.length ? `<p class="boss-weaknesses">Weak to ${weaknesses.map(escapeHtml).join(", ")}</p>` : ""}
     ${weatherChip(target?.weatherBoostConditions)}
+    ${worthPass ? `<p class="boss-pass-worth">Worth your free daily pass</p>` : ""}
     ${stale ? `<p class="boss-stale">May be outdated — check in-game.</p>` : ""}
   </a>`;
 }
@@ -80,17 +123,24 @@ function bossTierRow(label, bosses, cardFor) {
 }
 
 
-export function renderCurrentBosses({ currentBosses, raidTargetTool, forms, now = new Date() } = {}) {
+// Fact-checked (2026-07): one free Raid Pass per day from a Gym's Photo Disc;
+// a trainer can't hold more than one free pass until it's used. Verified
+// against Niantic's Help Center ("I have an issue with a Raid Pass"),
+// cross-checked with the Pokemon GO Hub and Fandom wiki "Raid Passes" pages.
+export function renderCurrentBosses({
+  currentBosses, raidTargetTool, forms, now = new Date(), raids = null,
+} = {}) {
   const bosses = currentBosses?.bosses ?? [];
   if (!bosses.length) return "";
   const targetsByFormId = new Map((raidTargetTool?.targets ?? []).map((target) => [target.bossFormId, target]));
-  const cardFor = (boss) => currentBossCard(boss, { target: targetsByFormId.get(boss.formId), forms, now });
+  const cardFor = (boss) => currentBossCard(boss, { target: targetsByFormId.get(boss.formId), forms, now, raids });
   const legendary = bosses.filter((boss) => boss.tier === "Tier 5");
   const mega = bosses.filter((boss) => boss.tier === "Mega");
   const minor = bosses.filter((boss) => boss.tier !== "Tier 5" && boss.tier !== "Mega");
   const headliners = legendary.length > 0 || mega.length > 0;
   return `<section class="home-boss-section" aria-labelledby="home-boss-title">
     <h3 id="home-boss-title">This week's raid bosses</h3>
+    <p class="raid-pass-teach-note">You get one free Raid Pass a day from spinning a Gym's Photo Disc (you can hold at most one unused free pass at a time).</p>
     ${headliners
       ? `${bossTierRow("Legendary raids", legendary, cardFor)}${bossTierRow("Mega raids", mega, cardFor)}${bossTierRow("Other tiers", minor, cardFor)}`
       : `<div class="home-boss-grid">${bosses.map(cardFor).join("")}</div>`}
@@ -267,6 +317,7 @@ export function renderHome({
   currentEvents = null,
   raidTargetTool = null,
   forms = {},
+  raids = null,
   whatsNew = null,
 } = {}) {
   const continueRoute = CONTINUE_ROUTES.has(continueTask?.route)
@@ -289,6 +340,7 @@ export function renderHome({
     ${raidHourBanner({ currentEvents, forms })}
     <h3 class="home-section-title">What are you fighting?</h3>
     <div class="home-task-grid">
+      ${taskCard({ href: "./#today", title: "Today", detail: "Raid/Spotlight Hour, gym status, and today's picks — one checklist." })}
       ${continued}
       ${taskCard({ href: "./#triage", title: "Triage My Box", detail: "Keep, invest, battle, or transfer — one safe decision per Pokémon." })}
       ${taskCard({ href: "./#coach", title: "Weekly Coach", detail: "This week's raid picks, power-ups, buddy, and PvP team in one place." })}
@@ -299,7 +351,7 @@ export function renderHome({
       ${taskCard({ href: "./#drill", title: "Type Drill", detail: "Flashcard practice on type matchups." })}
     </div>
     ${whatsNewCard(whatsNew)}
-    ${renderCurrentBosses({ currentBosses, raidTargetTool, forms })}
+    ${renderCurrentBosses({ currentBosses, raidTargetTool, forms, raids })}
     <div class="home-task-grid home-task-grid-secondary">
       ${taskCard({ href: "./#more", title: "My Roster", detail: "Use the Pokémon you already own." })}
       ${taskCard({ href: "./#basics", title: "Battle Basics", detail: "New here? Start with the plain-language basics." })}

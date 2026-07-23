@@ -19,6 +19,12 @@
   --dx-good: #45e07c;
   --dx-warn: #ffb84d;
   --dx-bad: #ff6b7a;
+  /* Team (GO) badge accents — dark-theme defaults; light theme darkens
+     below (same per-theme pattern as --dx-good/warn/bad) to clear AA
+     4.5:1 for the 0.65rem team-badge text on white/#f7f9ff. */
+  --dx-team-valor: #ff5c66;
+  --dx-team-mystic: #5599e6;
+  --dx-team-instinct: #e8c220;
   --dx-mono: ui-monospace, "SF Mono", Menlo, monospace;
   --dx-display: ui-rounded, "SF Pro Rounded", system-ui, sans-serif;
 
@@ -34,6 +40,13 @@
   --text: var(--dx-text);
   --muted: var(--dx-muted);
   --cyan: var(--dx-lens-blue);
+  /* Ink for text sitting on a solid var(--cyan) pressed-state background
+     (.pvp-controls/.app-actions button[aria-pressed]). --dx-lens-blue
+     darkens in light theme for its usual foreground-on-light-screen role,
+     which flips the right ink when it's the *background* instead — dark
+     ink on that darker blue misses AA (~3.4:1); light theme overrides this
+     to white below, where it clears >5.5:1. */
+  --cyan-ink: #071018;
   --green: var(--dx-good);
   --amber: var(--dx-warn);
   --danger: var(--dx-bad);
@@ -67,6 +80,10 @@
     --dx-warn: #946000;
     --dx-bad: #c81f35;
     --dx-lens-blue: #0a6f9c;
+    --dx-team-valor: #b8232a;
+    --dx-team-mystic: #1f5aa8;
+    --dx-team-instinct: #7a5f00;
+    --cyan-ink: #ffffff;
   }
 }
 
@@ -81,6 +98,10 @@
   --dx-warn: #946000;
   --dx-bad: #c81f35;
   --dx-lens-blue: #0a6f9c;
+  --dx-team-valor: #b8232a;
+  --dx-team-mystic: #1f5aa8;
+  --dx-team-instinct: #7a5f00;
+  --cyan-ink: #ffffff;
 }
 
 :root[data-theme="dark"] {
@@ -225,7 +246,9 @@ a {
 
 /* ══ Update-ready banner — dismissible, snoozed per release id (see
    updateBannerPhase/updateBanner in web/src/app.js). Sits in the persistent
-   chrome above the bezel so it survives route swaps of #app. ══ */
+   chrome above the bezel so it survives route swaps of #app. Also reused
+   as-is (same classes) by #staleness-banner — the Poke Genie import-age
+   nudge, see pokeGenieStalenessPhase/updateStalenessBanner. ══ */
 .update-banner {
   flex: none;
   display: flex;
@@ -259,6 +282,7 @@ a {
   font-size: 0.85rem;
   font-weight: 700;
   text-align: center;
+  text-decoration: none; /* also used as an <a> by #staleness-banner */
 }
 
 .update-banner-icon {
@@ -1062,6 +1086,69 @@ h1 {
   margin: 0.2rem 0;
 }
 
+.resource-inline-input {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  margin: 0.4rem 0 0.1rem;
+  font-size: 0.78rem;
+  color: var(--muted);
+}
+
+.resource-inline-input input {
+  max-width: 8rem;
+  min-height: 48px;
+  padding: 0.4rem 0.6rem;
+  border: 1px solid var(--line);
+  border-radius: 0.5rem;
+  background: var(--panel-raised);
+  color: var(--text);
+  font: inherit;
+}
+
+.resource-affordability {
+  font-weight: 600;
+}
+
+.resource-affordability[data-affordability="can-afford"] {
+  color: var(--green);
+}
+
+.resource-affordability[data-affordability="short"] {
+  color: var(--dx-bad);
+}
+
+.resource-affordability[data-affordability="unknown"],
+.resource-affordability[data-affordability="partial"] {
+  color: var(--muted);
+  font-weight: normal;
+}
+
+.mega-guidance-card {
+  margin: 0.5rem 0;
+  padding: 0.6rem;
+  border: 1px solid var(--line);
+  border-radius: 0.7rem;
+  background: var(--panel);
+}
+
+.mega-guidance-card p {
+  margin: 0.2rem 0;
+}
+
+.boss-pass-worth {
+  margin: 0;
+  font-size: 0.78rem;
+  color: var(--green);
+  font-weight: 600;
+}
+
+.raid-pass-teach-note {
+  margin: 0 0 0.5rem;
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+
 .search-result-card {
   padding: 0.4rem 0.2rem;
   border-radius: 0.6rem;
@@ -1364,12 +1451,86 @@ h1 {
 .more-section,
 .more-list-view,
 .coach-view,
-.coach-section {
+.coach-section,
+.today-view {
   display: grid;
   gap: 0.8rem;
   width: 100%;
   max-width: 44rem;
   margin-inline: auto;
+}
+
+.today-task-list {
+  display: grid;
+  gap: 0.5rem;
+  width: 100%;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.today-task-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.6rem;
+  padding: 0.7rem;
+  border: 1px solid var(--line);
+  border-radius: 0.7rem;
+  background: var(--panel);
+}
+
+.today-task-row.is-done {
+  opacity: 0.6;
+}
+
+.today-task-row.is-done .today-task-title {
+  text-decoration: line-through;
+}
+
+.today-check {
+  flex: none;
+  min-width: 48px;
+  min-height: 48px;
+  border: 1px solid var(--line);
+  border-radius: 0.5rem;
+  background: var(--panel-raised);
+  color: var(--muted);
+  font-size: 1.2rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.today-check[aria-pressed="true"] {
+  border-color: var(--cyan);
+  color: var(--cyan);
+}
+
+.today-check:focus-visible,
+.today-task-body:focus-visible {
+  outline: 3px solid var(--focus);
+  box-shadow: 0 0 0 5px rgba(24, 32, 56, 0.85);
+  outline-offset: 2px;
+}
+
+.today-task-body {
+  display: grid;
+  gap: 0.15rem;
+  min-width: 0;
+  text-decoration: none;
+}
+
+.today-task-title {
+  margin: 0;
+  color: var(--text);
+  font-weight: 750;
+  overflow-wrap: anywhere;
+}
+
+.today-task-detail {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.85rem;
+  overflow-wrap: anywhere;
 }
 
 .safe-escape {
@@ -1451,7 +1612,7 @@ h1 {
 }
 
 .pvp-controls button[aria-pressed="true"] {
-  color: #071018;
+  color: var(--cyan-ink);
   background: var(--cyan);
 }
 
@@ -1579,7 +1740,8 @@ h1 {
 .pvp-team-members {
   display: grid;
   gap: 0.5rem;
-  padding-left: 1.25rem;
+  padding: 0;
+  list-style: none;
 }
 
 .pvp-team-members li {
@@ -1589,7 +1751,15 @@ h1 {
   gap: 0.4rem;
 }
 
-.pvp-team-members span:not(.pvp-team-types) {
+/* Root cause of the "random circles" bug: this catch-all span rule's
+   (0,2,1) specificity beat .sprite/.sprite-fallback's own display rules,
+   forcing the type-colored fallback circle to render display:block INSIDE
+   every team card sprite regardless of whether the portrait loaded fine.
+   Excluding .sprite/.sprite-fallback here restores the sprite/fallback
+   toggle for team-card portraits. Also excluding .type-chip: same
+   specificity fight was forcing chip label text to var(--muted),
+   failing AA contrast against chip backgrounds (e.g. "Normal" chip). */
+.pvp-team-members span:not(.pvp-team-types):not(.sprite):not(.sprite-fallback):not(.type-chip) {
   display: block;
   color: var(--muted);
   font-size: 0.78rem;
@@ -1673,6 +1843,127 @@ h1 {
   font-weight: 850;
   line-height: 1.25;
   white-space: nowrap;
+}
+
+.pvp-myteam-slots {
+  display: grid;
+  gap: 0.6rem;
+  margin: 0.75rem 0;
+  padding: 0;
+  list-style: none;
+}
+
+/* Suggested-team + My Team member rows: portrait, name+role, type chips,
+   Quick/Charged, ideal IVs, one aligned row per member. Role accent (Lead
+   /Safe Switch/Closer) reuses existing semantic tokens, no new colors. */
+.pvp-team-members .pvp-team-member,
+.pvp-myteam-slot {
+  display: grid;
+  grid-template-columns: 48px 1fr;
+  gap: 0.2rem 0.7rem;
+  align-items: start;
+  padding: 0.6rem;
+  border-left: 3px solid var(--line);
+  border-radius: 0.6rem;
+  background: var(--screen-bg);
+}
+
+.pvp-myteam-slot {
+  border: 1px solid var(--line);
+  border-left-width: 3px;
+  background: linear-gradient(145deg, var(--panel-raised), var(--panel));
+}
+
+.pvp-myteam-empty {
+  grid-template-columns: 1fr;
+}
+
+.pvp-team-member[data-role="Lead"],
+.pvp-myteam-slot[data-role="Lead"] { border-left-color: var(--cyan); }
+.pvp-team-member[data-role="Safe Switch"],
+.pvp-myteam-slot[data-role="Safe Switch"] { border-left-color: var(--green); }
+.pvp-team-member[data-role="Closer"],
+.pvp-myteam-slot[data-role="Closer"] { border-left-color: var(--amber); }
+
+.pvp-team-member .sprite,
+.pvp-myteam-slot .sprite {
+  grid-row: 1 / -1;
+}
+
+.pvp-team-member-body,
+.pvp-myteam-body {
+  display: grid;
+  gap: 0.25rem;
+  min-width: 0;
+}
+
+.pvp-team-member-heading,
+.pvp-myteam-heading {
+  margin: 0;
+  font-size: 0.92rem;
+}
+
+.pvp-team-role {
+  color: var(--cyan);
+}
+.pvp-team-role[data-role="Safe Switch"] { color: var(--green); }
+.pvp-team-role[data-role="Closer"] { color: var(--amber); }
+
+.pvp-team-member .pvp-team-types,
+.pvp-myteam-body .pvp-team-types {
+  margin: 0;
+}
+
+.pvp-team-moves {
+  margin: 0;
+}
+
+.pvp-team-ideal,
+.pvp-myteam-eligibility,
+.pvp-myteam-compare,
+.pvp-myteam-quality {
+  margin: 0;
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+
+.pvp-myteam-assumption {
+  color: var(--amber);
+}
+
+.pvp-myteam-move-delta {
+  margin: 0;
+  padding-left: 1.1rem;
+  font-size: 0.8rem;
+}
+
+.pvp-myteam-override {
+  display: block;
+  margin-top: 0.15rem;
+  font-size: 0.78rem;
+  color: var(--muted);
+}
+
+.pvp-myteam-override select {
+  display: block;
+  min-height: 48px;
+  margin-top: 0.15rem;
+}
+
+/* Battle plan + weaknesses read as distinct blocks, not a wall of paragraphs. */
+.pvp-team-readout {
+  display: grid;
+  gap: 0.5rem;
+  margin: 0.7rem 0;
+}
+
+.pvp-team-plan,
+.pvp-team-weakness {
+  margin: 0;
+  padding: 0.55rem 0.6rem;
+  border-radius: 0.6rem;
+  background: var(--panel);
+  font-size: 0.85rem;
 }
 
 /* ponytail: inline text link, not a 44px block target — recognized a11y
@@ -1763,6 +2054,11 @@ h1 {
 .app-actions {
   display: grid;
   gap: 0.65rem;
+}
+
+.app-actions button[aria-pressed="true"] {
+  color: var(--cyan-ink);
+  background: var(--cyan);
 }
 
 .more-route-card {
@@ -1996,6 +2292,14 @@ h1 {
   display: flex;
   gap: 0.4rem;
   flex-shrink: 0;
+}
+
+/* "I changed this one" quick-CP touch (see reviseInstanceCp/quickCpRow):
+   replaces .instance-row-actions in place, so it needs to actually claim
+   width in the row's flex layout instead of getting squeezed to content size. */
+.instance-quick-cp {
+  flex: 1 1 auto;
+  min-width: 0;
 }
 
 .instance-row-actions button {
@@ -2618,6 +2922,55 @@ h1 {
   text-transform: none;
 }
 
+/* Team (GO) badge colors — well-known team associations, not an exact brand
+   hex spec: Bulbapedia's "Team (GO)" article. */
+.team-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.1rem 0.45rem;
+  border: 1px solid currentColor;
+  border-radius: 999px;
+  font-family: var(--dx-mono);
+  font-size: 0.65rem;
+  font-weight: 850;
+}
+.team-badge[data-team="valor"] { color: var(--dx-team-valor); }
+.team-badge[data-team="mystic"] { color: var(--dx-team-mystic); }
+.team-badge[data-team="instinct"] { color: var(--dx-team-instinct); }
+
+.weather-boosted-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.1rem 0.4rem;
+  border: 1px solid var(--amber);
+  border-radius: 999px;
+  color: var(--amber);
+  font-family: var(--dx-mono);
+  font-size: 0.68rem;
+  font-weight: 850;
+  letter-spacing: 0.03em;
+}
+
+.raid-weather-now {
+  color: var(--amber);
+}
+
+.defense-log-autopick-note {
+  color: var(--muted);
+  font-size: 0.85em;
+}
+
+.pvp-instance-conflicts {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.pvp-instance-conflict {
+  color: var(--danger);
+  font-size: 0.85em;
+}
+
 .triage-copy textarea {
   width: 100%;
   min-height: 8rem;
@@ -2779,4 +3132,114 @@ h1 {
 .defense-log-recents button.chip:focus-visible {
   outline: 2px solid var(--focus);
   outline-offset: 2px;
+}
+
+/* Round 9: shiny/lucky collection flags + Living Dex Collection view. */
+.roster-collection-flags {
+  display: flex;
+  gap: 0.4rem;
+}
+
+.collection-flag-toggle {
+  min-height: 48px;
+  padding: 0.35rem 0.7rem;
+  border: 1px solid var(--line);
+  border-radius: 0.75rem;
+  background: var(--panel-raised);
+  color: var(--muted);
+  font: inherit;
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.collection-flag-toggle[aria-pressed="true"] {
+  border-color: var(--amber);
+  color: var(--amber);
+}
+
+.collection-flag-toggle:disabled {
+  opacity: 0.7;
+  cursor: not-allowed;
+}
+
+.collection-badge {
+  display: inline-block;
+  padding: 0.1rem 0.5rem;
+  border-radius: 999px;
+  font-size: 0.7rem;
+  font-weight: 750;
+  border: 1px solid var(--amber);
+  color: var(--amber);
+}
+
+.collection-badge-lucky {
+  border-color: var(--cyan);
+  color: var(--cyan);
+}
+
+.collection-overall {
+  font-size: 0.95rem;
+}
+
+.collection-progress-list {
+  display: grid;
+  gap: 0.35rem;
+  margin: 0 0 0.75rem;
+  padding: 0;
+  list-style: none;
+}
+
+.collection-progress-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0.4rem 0.6rem;
+  border: 1px solid var(--line);
+  border-radius: 0.6rem;
+  background: var(--screen-bg);
+  font-size: 0.78rem;
+  color: var(--muted);
+}
+
+.collection-count {
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+.collection-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(6.5rem, 1fr));
+  gap: 0.5rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.collection-card {
+  display: grid;
+  justify-items: center;
+  gap: 0.2rem;
+  padding: 0.6rem 0.4rem;
+  border: 1px solid var(--line);
+  border-radius: 0.75rem;
+  background: var(--screen-bg);
+  text-align: center;
+}
+
+.collection-card.is-missing {
+  border-style: dashed;
+}
+
+.collection-card-dex {
+  color: var(--muted);
+  font-size: 0.68rem;
+}
+
+.collection-card-name {
+  font-size: 0.78rem;
+}
+
+.collection-card-status {
+  color: var(--muted);
+  font-size: 0.68rem;
 }

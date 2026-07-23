@@ -103,14 +103,31 @@ export function getRecentGymNames(log, maxRecent = 5) {
   return recent;
 }
 
+// Species (by exact display name) currently active-defending a specific gym,
+// per the round-7 defense log. Pokémon GO only allows one of each species
+// defending a given gym at a time (same rule already encoded for the lineup
+// builder in app.js's normalizeGymLineup) — falls back to an empty set
+// silently when there's no log data for this gym, same as no exclusion at all.
+export function speciesDefendingGym(log, gymName) {
+  const species = new Set();
+  if (!gymName) return species;
+  for (const entry of log?.entries ?? []) {
+    if (entry.endedAt || entry.gymName !== gymName) continue;
+    species.add(entry.pokemon);
+  }
+  return species;
+}
+
+
 // Smart default for defender: the roster's top-ranked defender that is
-// NOT currently deployed (not in the deploymentMap). Returns the formId
+// NOT currently deployed (not in the deploymentMap) and isn't a species
+// already defending the target gym (excludedSpecies). Returns the formId
 // or null.
-export function getTopAvailableDefender(suggestions = [], deploymentMap = new Map()) {
+export function getTopAvailableDefender(suggestions = [], deploymentMap = new Map(), excludedSpecies = new Set()) {
   for (const suggestion of suggestions) {
-    if (!deploymentMap.has(suggestion.instanceId ?? suggestion.formId)) {
-      return suggestion.formId ?? suggestion.instanceId;
-    }
+    if (deploymentMap.has(suggestion.instanceId ?? suggestion.formId)) continue;
+    if (excludedSpecies.has(suggestion.pokemon)) continue;
+    return suggestion.formId ?? suggestion.instanceId;
   }
   return null;
 }

@@ -3,6 +3,73 @@ import { ATTACK_TYPES, effectivenessOf } from "./type-chart.js";
 export { ATTACK_TYPES };
 
 
+// In-game weather → boosted attacking types, and the manual, session-scoped
+// (resets daily) weather picker state. Co-located here (not a separate
+// weather.js) because it's the same canonical mapping as this file's Python
+// counterpart, src/pogo_encyclopedia/raid_target.py's WEATHER dict (inverted)
+// — don't hand-author a second copy; if the mapping ever changes, change
+// both. Source: Niantic's official in-game weather boost chart (7 real
+// weather conditions covering all 18 attacking types exactly once).
+export const WEATHERS = Object.freeze([
+  "None", "Sunny/Clear", "Partly Cloudy", "Cloudy", "Rainy", "Snowy", "Foggy", "Windy",
+]);
+
+const WEATHER_BOOSTS = Object.freeze({
+  "Sunny/Clear": Object.freeze(["Fire", "Grass", "Ground"]),
+  "Partly Cloudy": Object.freeze(["Normal", "Rock"]),
+  Cloudy: Object.freeze(["Fairy", "Fighting", "Poison"]),
+  Rainy: Object.freeze(["Bug", "Electric", "Water"]),
+  Snowy: Object.freeze(["Ice", "Steel"]),
+  Foggy: Object.freeze(["Dark", "Ghost"]),
+  Windy: Object.freeze(["Dragon", "Flying", "Psychic"]),
+});
+
+export function boostedTypes(weather) {
+  return WEATHER_BOOSTS[weather] ?? [];
+}
+
+export function isTypeBoosted(weather, type) {
+  return boostedTypes(weather).includes(type);
+}
+
+// Boss teach-copy helper: is a boss with these 1-2 types boosted right now?
+export function isBossBoosted(weather, bossTypes = []) {
+  return (bossTypes ?? []).filter(Boolean).some((type) => isTypeBoosted(weather, type));
+}
+
+const WEATHER_STORAGE_KEY = "pogo-weather";
+
+function weatherDayKey(now) {
+  const date = new Date(now);
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+}
+
+// Session-scoped: stamped with the local day it was set, and ignored (falls
+// back to "None") once that day has passed — no need for a separate
+// sessionStorage lane, this app's other manual toggles (theme.js) already
+// use the same storage-with-fallback pattern.
+export function loadWeather(storage, now = Date.now()) {
+  try {
+    const parsed = JSON.parse(storage?.getItem?.(WEATHER_STORAGE_KEY) ?? "null");
+    if (!parsed || parsed.day !== weatherDayKey(now) || !WEATHERS.includes(parsed.weather)) return "None";
+    return parsed.weather;
+  } catch {
+    return "None";
+  }
+}
+
+export function saveWeather(storage, weather, now = Date.now()) {
+  const safe = WEATHERS.includes(weather) ? weather : "None";
+  try {
+    storage?.setItem?.(WEATHER_STORAGE_KEY, JSON.stringify({ weather: safe, day: weatherDayKey(now) }));
+  } catch {
+    // Storage can legitimately be unavailable — the choice still applies for
+    // this session, it just won't persist to the next visit.
+  }
+  return safe;
+}
+
+
 export function effectiveness(attackingType, primaryType, secondaryType = null) {
   return effectivenessOf(attackingType, [primaryType, secondaryType]);
 }
@@ -138,9 +205,19 @@ export function beatability({ ownedCounters, formId, currentBosses, forms }) {
 }
 
 
-function compareCounters(left, right) {
-  return (right.effectiveness - left.effectiveness)
-    || (Number(left.rank) - Number(right.rank))
+// Weather boost (+20% damage, same constant as the game) never overrides the
+// type-effectiveness tier a counter falls in — a double-weakness (2.56x) hit
+// still outdamages a merely-boosted neutral one — so it's a tiebreak within
+// an effectiveness tier, ranked just above Pokebattler's own per-type rank.
+function compareCounters(left, right, boostedTypeSet = null) {
+  const effectivenessDelta = right.effectiveness - left.effectiveness;
+  if (effectivenessDelta !== 0) return effectivenessDelta;
+  if (boostedTypeSet) {
+    const leftBoosted = boostedTypeSet.has(left.attackingType);
+    const rightBoosted = boostedTypeSet.has(right.attackingType);
+    if (leftBoosted !== rightBoosted) return leftBoosted ? -1 : 1;
+  }
+  return (Number(left.rank) - Number(right.rank))
     || (Number(right.points ?? 0) - Number(left.points ?? 0))
     || String(left.formId).localeCompare(String(right.formId));
 }
@@ -152,15 +229,22 @@ function compareCounters(left, right) {
 // by type first (dedupeAcrossTypes: false) — a form can legitimately be a top-3
 // counter under more than one of the boss's weakness types, and deduping
 // globally before grouping was dropping it from every type but its best one.
-function counterCandidates(rows, bossTypes, { owned = null, dedupeAcrossTypes = true } = {}) {
+function counterCandidates(rows, bossTypes, {
+  owned = null, dedupeAcrossTypes = true, boostedTypeSet = null,
+} = {}) {
   const candidates = [];
   for (const row of rows ?? []) {
     if (row?.status !== "ranked" || !row.formId || (owned && !owned.has(row.formId))) continue;
     const multiplier = effectiveness(row.attackingType, bossTypes[0], bossTypes[1]);
     if (multiplier <= 1) continue;
-    candidates.push({ ...row, typeRank: row.rank, effectiveness: Math.round(multiplier * 10000) / 10000 });
+    candidates.push({
+      ...row,
+      typeRank: row.rank,
+      effectiveness: Math.round(multiplier * 10000) / 10000,
+      weatherBoosted: Boolean(boostedTypeSet?.has(row.attackingType)),
+    });
   }
-  candidates.sort(compareCounters);
+  candidates.sort((left, right) => compareCounters(left, right, boostedTypeSet));
   if (!dedupeAcrossTypes) return candidates;
   const output = [];
   const seen = new Set();
@@ -173,8 +257,8 @@ function counterCandidates(rows, bossTypes, { owned = null, dedupeAcrossTypes = 
 }
 
 
-function counterLane(rows, bossTypes, { limit, owned = null }) {
-  return counterCandidates(rows, bossTypes, { owned }).slice(0, limit);
+function counterLane(rows, bossTypes, { limit, owned = null, boostedTypeSet = null }) {
+  return counterCandidates(rows, bossTypes, { owned, boostedTypeSet }).slice(0, limit);
 }
 
 
@@ -360,17 +444,62 @@ export function xlPowerUpCost(fromLevel = 40, toLevel = 50, shadow = false) {
 }
 
 
+// A Pokemon can only be powered up to (trainer level + 10), hard-capped at
+// the Level 50 endgame ceiling. Verified against Bulbapedia's "Power Up"
+// article and Niantic's own Level 50 "GO Beyond" announcement post
+// (pokemongo.com/post/gobeyond-level40, 2020-11-30).
+// An unset trainerLevel (not an integer) means "don't gate" — callers show
+// the full Level 50 ceiling, matching today's ungated behavior.
+export function reachableLevelCap(trainerLevel) {
+  if (!Number.isInteger(trainerLevel)) return 50;
+  return Math.min(50, trainerLevel + 10);
+}
+
+// XL Candy can only be *spent* (to push a Pokemon past Level 40) once the
+// trainer reaches Level 31 — below that it still accrues but is locked.
+// Source: Bulbapedia's "Trainer level" article ("Power Up" section).
+// Unset trainerLevel means "don't gate".
+export function xlCandyUnlocked(trainerLevel) {
+  return !Number.isInteger(trainerLevel) || trainerLevel >= 31;
+}
+
+// One shared root-cause check for every invest/planner surface that
+// recommends a target level: null when the plan is actually reachable (or no
+// trainer level is on file), otherwise a plain-language note naming the
+// trainer level actually required — never silently drops or rewrites the
+// recommendation itself.
+export function levelCapNote(toLevel, trainerLevel, { requiresXl = false } = {}) {
+  if (!Number.isInteger(trainerLevel)) return null;
+  if (requiresXl && !xlCandyUnlocked(trainerLevel)) {
+    return `Needs trainer level 31 to spend XL Candy — you're ${trainerLevel}.`;
+  }
+  // Levels above 50 come from Best Buddy status (+1 effective level for CP),
+  // not trainer level — reachableLevelCap hard-caps at 50, so toLevel > 50
+  // would always fail that check and misattribute a Best-Buddy target to a
+  // (sometimes fractional, always wrong) trainer-level requirement.
+  if (toLevel > 50) return null;
+  if (toLevel > reachableLevelCap(trainerLevel)) {
+    const neededTrainerLevel = Math.max(1, Math.min(50, toLevel - 10));
+    return `Needs trainer level ${neededTrainerLevel} for Level ${toLevel} — you're ${trainerLevel}.`;
+  }
+  return null;
+}
+
+
 export function buildRaidPlan({
   targetFormId,
   observedCp,
   encounterLevel = "normal",
   ownedFormIds = [],
+  weather = "None",
 } = {}, data = {}) {
   const { forms, raids, tool, currentBosses } = unwrap(data);
   const target = (tool.targets ?? []).find((row) => row.bossFormId === targetFormId);
   if (!target || !forms[targetFormId]) throw new RangeError(`Unknown raid target form: ${targetFormId}`);
 
   const bossTypes = target.bossTypes ?? [forms[targetFormId].primary_type, forms[targetFormId].secondary_type].filter(Boolean);
+  const boostedTypeSet = new Set(boostedTypes(weather));
+  const bossBoostedNow = weather !== "None" && bossTypes.some((type) => boostedTypeSet.has(type));
   const weaknesses = ATTACK_TYPES
     .map((attackingType) => ({
       attackingType,
@@ -385,7 +514,9 @@ export function buildRaidPlan({
   const owned = new Set((ownedFormIds ?? []).filter((formId) => typeof formId === "string"));
   const [bandName, band] = encounterBand(target, encounterLevel);
   const OWNED_TEAM_SIZE = 6; // a raid lobby only fits 6 Pokémon
-  const ownedCounters = counterLane([...regularRows, ...shadowRows], bossTypes, { limit: OWNED_TEAM_SIZE, owned });
+  const ownedCounters = counterLane(
+    [...regularRows, ...shadowRows], bossTypes, { limit: OWNED_TEAM_SIZE, owned, boostedTypeSet },
+  );
 
   return {
     target,
@@ -393,9 +524,11 @@ export function buildRaidPlan({
     encounterBand: band,
     hundoVerdict: hundoVerdict(observedCp, band, bandName === "normal" ? target.weatherBoosted : null),
     weatherBoostConditions: [...(target.weatherBoostConditions ?? [])],
+    weather,
+    bossBoostedNow,
     weaknesses,
-    regularCounters: counterLane(regularRows, bossTypes, { limit }),
-    shadowCounters: counterLane(shadowRows, bossTypes, { limit }),
+    regularCounters: counterLane(regularRows, bossTypes, { limit, boostedTypeSet }),
+    shadowCounters: counterLane(shadowRows, bossTypes, { limit, boostedTypeSet }),
     ownedCounters,
     beatability: beatability({ ownedCounters, formId: targetFormId, currentBosses, forms }),
     // Beginner mode: top 3 per relevant attacking type, drawn from every qualifying
@@ -403,13 +536,13 @@ export function buildRaidPlan({
     // dedupeAcrossTypes: false — a form ranked in multiple attacking-type lists
     // must survive under each type's own top-3, not just its single best type.
     beginnerRegularGroups: groupCountersByType(
-      counterCandidates(regularRows, bossTypes, { dedupeAcrossTypes: false }), 3,
+      counterCandidates(regularRows, bossTypes, { dedupeAcrossTypes: false, boostedTypeSet }), 3,
     ),
     beginnerShadowGroups: groupCountersByType(
-      counterCandidates(shadowRows, bossTypes, { dedupeAcrossTypes: false }), 3,
+      counterCandidates(shadowRows, bossTypes, { dedupeAcrossTypes: false, boostedTypeSet }), 3,
     ),
     beginnerOwnedGroups: groupCountersByType(
-      counterCandidates([...regularRows, ...shadowRows], bossTypes, { owned, dedupeAcrossTypes: false }), 3,
+      counterCandidates([...regularRows, ...shadowRows], bossTypes, { owned, dedupeAcrossTypes: false, boostedTypeSet }), 3,
     ),
     caveat: tool.caveat ?? "Counter order is a quick practical guide; live battle conditions can change results.",
   };

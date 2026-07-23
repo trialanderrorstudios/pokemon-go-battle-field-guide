@@ -11,6 +11,7 @@ export const GUIDE_COPY = Object.freeze({
     title: "New to battling? Start here",
     body: `New to battling? Read the plain-language Basics page first, then import or star the Pokémon you already own so recommendations use your roster, and check This Week for what's worth doing right now.`,
     links: Object.freeze([
+      Object.freeze({ href: "./#more", label: "Optional: set trainer level & team" }),
       Object.freeze({ href: "./#basics", label: "1. Battle Basics" }),
       Object.freeze({ href: "./#more", label: "2. Import or star Pokémon" }),
       Object.freeze({ href: "./#coach", label: "3. This Week" }),
@@ -31,7 +32,7 @@ export const GUIDE_COPY = Object.freeze({
   }),
   more: Object.freeze({
     title: "Your roster and settings",
-    body: `Import your Pokémon (a Poke Genie CSV export works) or add them one at a time, mark favorites with the star, and adjust text size, theme, and offline updates further down. Everything here stays on this device.`,
+    body: `Import your Pokémon (a Poke Genie CSV export works) or add them one at a time, mark favorites with the star, and adjust text size, theme, and offline updates further down. Everything here stays on this device — use "Back up my data" to save it as one file, and moving to a new phone or tablet is just export on one device, AirDrop the file over, then restore on the other.`,
   }),
   triage: Object.freeze({
     title: "Sorting your box",
@@ -66,6 +67,10 @@ export const GUIDE_COPY = Object.freeze({
   maxbasics: Object.freeze({
     title: "How Max Battles work",
     body: `Plain-language rules for Max Battles specifically — Max Particles to enter, the Max Meter filling mid-fight, and what Max Moves do. This is reference content, not live game state.`,
+  }),
+  today: Object.freeze({
+    title: "Your open-every-day checklist",
+    body: `A daily rundown pulled from what's already elsewhere in the app: today's Raid or Spotlight Hour, whether it's worth your free raid pass, your active gym defenders, and this week's top Coach picks. Check items off as you go — the list resets fresh tomorrow.`,
   }),
 });
 
