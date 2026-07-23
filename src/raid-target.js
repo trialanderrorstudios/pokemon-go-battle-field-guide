@@ -1,4 +1,5 @@
 import { ATTACK_TYPES, effectivenessOf } from "./type-chart.js";
+import { bestInstanceForForm, instanceLevel } from "./instances.js";
 
 export { ATTACK_TYPES };
 
@@ -166,9 +167,32 @@ const TIER_GUIDANCE = {
 const RANK_TIERS = { elite: 3, solid: 8 }; // position in Pokebattler's per-type top-15: 1-3 elite, 4-8 solid meta pick, 9-15 fringe
 const MIN_COUNTERS_FOR_VERDICT = 3; // fewer than half a lobby of identified counters isn't a reliable read
 
-const BEATABILITY_CAVEAT = "Estimates assume decent play; weather and friend bonuses help.";
+const BEATABILITY_CAVEAT = "Estimates assume decent play; weather and friend bonuses help. This is an estimate, not a guarantee — real raids vary with friendship level, weather, and dodging.";
 
-export function beatability({ ownedCounters, formId, currentBosses, forms }) {
+// Claiming "solo-able" is a much bigger promise than "duoable" — it needs proof, not just an
+// elite-ranked species on the roster. A logged, detailed instance (My Roster CP/IVs) at or above
+// this level is that proof; a starred-but-unlogged owned form isn't (own-and-star only means the
+// species is in the roster, not that it's actually been powered up).
+const SOLO_PROOF_LEVEL = 30;
+
+// The single logged owned instance (if any) that's strong enough to justify a solo-able verdict,
+// or null. Also respects the player's own trainer-level cap via levelCapNote — the same profile
+// gate powerUpNext() already uses — so a low trainer level never gets an over-confident "solo"
+// read even before checking individual instances.
+function provenSoloCounter(eliteRows, forms, roster, trainerLevel) {
+  if (levelCapNote(SOLO_PROOF_LEVEL, trainerLevel)) return null;
+  for (const row of eliteRows) {
+    const instance = bestInstanceForForm(roster?.instances, row.formId);
+    if (!instance) continue;
+    const level = instanceLevel(forms?.[row.formId], instance);
+    if (level !== null && level >= SOLO_PROOF_LEVEL) return { name: row.pokemon, level };
+  }
+  return null;
+}
+
+export function beatability({
+  ownedCounters, formId, currentBosses, forms, roster = null, trainerLevel = null,
+}) {
   const tierLabel = bossTierLabel(formId, currentBosses, forms);
   const difficulty = bossDifficulty(formId, tierLabel, forms);
   const owned = ownedCounters ?? [];
@@ -181,10 +205,23 @@ export function beatability({ ownedCounters, formId, currentBosses, forms }) {
       caveat: BEATABILITY_CAVEAT,
     };
   }
+  const eliteRows = owned.filter((row) => row.rank <= RANK_TIERS.elite);
   // Easy raids (Tier 1-3) are usually soloable/duoable even with a middling roster, so they never
   // escalate past "duoable" — sharing the hard tier's 3-band ladder let an easy boss misread as
-  // needing "a full lobby" once its mean crossed the same bar a hard boss uses.
+  // needing "a full lobby" once its mean crossed the same bar a hard boss uses. The rare exception
+  // is "solo-able": every identified counter is elite-ranked AND at least one is a proven,
+  // powered-up logged instance — an actual solo attempt, not just a roster of good species.
   if (difficulty === "easy") {
+    const proof = eliteRows.length === owned.length ? provenSoloCounter(eliteRows, forms, roster, trainerLevel) : null;
+    if (proof) {
+      return {
+        band: "solo-able",
+        headline: "Solo-able with your best counter (rare)",
+        detail: `${tierLabel} raid boss — your Level ${proof.level} ${proof.name} is proven strong enough to try alone.`,
+        tierLabel,
+        caveat: BEATABILITY_CAVEAT,
+      };
+    }
     return {
       band: "duoable",
       headline: "Likely duo-able with your team",
@@ -193,13 +230,13 @@ export function beatability({ ownedCounters, formId, currentBosses, forms }) {
       caveat: BEATABILITY_CAVEAT,
     };
   }
-  const eliteShare = owned.filter((row) => row.rank <= RANK_TIERS.elite).length / owned.length;
+  const eliteShare = eliteRows.length / owned.length;
   const solidShare = owned.filter((row) => row.rank <= RANK_TIERS.solid).length / owned.length;
   const band = eliteShare >= 0.5 ? "duoable" : solidShare >= 0.5 ? "bring-3-4" : "full-lobby";
   const headline = {
     duoable: "Likely duo-able with your team",
     "bring-3-4": "Bring 3-4 trainers",
-    "full-lobby": "Bring a full lobby",
+    "full-lobby": "Bring a full lobby (5+ recommended)",
   }[band];
   return { band, headline, detail: `${tierLabel} raid boss.`, tierLabel, caveat: BEATABILITY_CAVEAT };
 }
@@ -492,6 +529,8 @@ export function buildRaidPlan({
   encounterLevel = "normal",
   ownedFormIds = [],
   weather = "None",
+  roster = null,
+  trainerLevel = null,
 } = {}, data = {}) {
   const { forms, raids, tool, currentBosses } = unwrap(data);
   const target = (tool.targets ?? []).find((row) => row.bossFormId === targetFormId);
@@ -530,7 +569,9 @@ export function buildRaidPlan({
     regularCounters: counterLane(regularRows, bossTypes, { limit, boostedTypeSet }),
     shadowCounters: counterLane(shadowRows, bossTypes, { limit, boostedTypeSet }),
     ownedCounters,
-    beatability: beatability({ ownedCounters, formId: targetFormId, currentBosses, forms }),
+    beatability: beatability({
+      ownedCounters, formId: targetFormId, currentBosses, forms, roster, trainerLevel,
+    }),
     // Beginner mode: top 3 per relevant attacking type, drawn from every qualifying
     // counter (not the display-limited lanes above) so every boss weakness shows up.
     // dedupeAcrossTypes: false — a form ranked in multiple attacking-type lists

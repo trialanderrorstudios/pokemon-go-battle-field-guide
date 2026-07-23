@@ -2,6 +2,7 @@ import { escapeHtml } from "./home.js";
 import { buildCoachSummary } from "../coach.js";
 
 const BAND_LEAD = Object.freeze({
+  "solo-able": "Solo-able",
   duoable: "Ready",
   "bring-3-4": "Bring friends",
   "full-lobby": "Full lobby",

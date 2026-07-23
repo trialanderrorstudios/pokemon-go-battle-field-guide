@@ -17,6 +17,7 @@ const HOUR_EVENT_LABEL = Object.freeze({ "raid-hour": "Raid Hour", "pokemon-spot
 const HOUR_EVENT_SUFFIX = Object.freeze({ "raid-hour": / Raid Hour$/, "pokemon-spotlight-hour": / Spotlight Hour$/ });
 
 const VERDICT_BY_BAND = Object.freeze({
+  "solo-able": "Yes — solo-able",
   duoable: "Yes",
   "bring-3-4": "Bring friends",
   "full-lobby": "Only with a full lobby",
@@ -138,7 +139,7 @@ function applyProfileGate(items, profile) {
 export function buildTodayItems({
   data = {}, roster = {}, defenseLog = null, staleness = null, profile = null, now = new Date(),
 } = {}) {
-  const summary = buildCoachSummary({ data, roster, now });
+  const summary = buildCoachSummary({ data, roster, now, trainerLevel: profile?.trainerLevel });
   const forms = data?.core?.forms ?? data?.forms ?? {};
   const pass = dailyPassItem(summary);
   const cdToday = communityDayTodayItem(data?.currentEvents?.events, forms, now);

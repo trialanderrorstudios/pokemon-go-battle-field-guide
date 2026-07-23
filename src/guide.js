@@ -84,6 +84,17 @@ export const GUIDE_COPY = Object.freeze({
     title: "Community-known tips and shortcuts",
     body: `Curated mechanics and shortcuts grouped by category — Trading, Raids, Candy &amp; XP, Gyms, PvP, Quality of Life, and Community. Each tip cites its source and shows a "verified" date so you know how current it is; tap a category to expand it.`,
   }),
+  candyplan: Object.freeze({
+    title: "Planning your Candy",
+    body: `Lists species you own with Candy recorded and, once this app's data includes evolution chains, what evolving them is worth. Record Candy for a species in My Roster to see it here.`,
+  }),
+  trades: Object.freeze({
+    title: "Comparing dex with a friend",
+    body: `Share your dex summary (just which species you own, plus shiny/lucky flags — never exact roster detail) and paste a friend's back to see a mirror-gap: what you have that they lack, and what they have that you lack. That's your trade-night candidate list. This app doesn't know catch dates, so it can't tell you which trade would turn out guaranteed Lucky — see the Trading tips on the Tips &amp; Tricks page for that rule.`,
+    links: Object.freeze([
+      Object.freeze({ href: "./#tricks", label: "Lucky-trade rules refresher" }),
+    ]),
+  }),
 });
 
 

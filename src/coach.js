@@ -10,7 +10,9 @@ import { futureImpactRows } from "./views/more.js";
 import { myTeamMoveDeltaLines } from "./views/pvp.js";
 import { formatRaidHourWhen, nextRaidHour } from "./views/home.js";
 
-const BAND_ORDER = { duoable: 0, "bring-3-4": 1, "full-lobby": 2, "not-enough-data": 3 };
+const BAND_ORDER = {
+  "solo-able": 0, duoable: 1, "bring-3-4": 2, "full-lobby": 3, "not-enough-data": 4,
+};
 export const PVP_LEAGUES = Object.freeze(["great", "ultra", "master"]);
 // Matches app.js's raidReadyPanel: a fresh raid catch is Level 20 until a
 // saved roster instance says otherwise.
@@ -32,14 +34,14 @@ function upcomingRaidHour(events, formId, now) {
 }
 
 
-function worthRaidingThisWeek(data, roster, now = new Date()) {
+function worthRaidingThisWeek(data, roster, now = new Date(), trainerLevel = null) {
   const bosses = data?.currentBosses?.bosses ?? [];
   const events = data?.currentEvents?.events ?? [];
   const rows = [];
   for (const boss of bosses) {
     let plan;
     try {
-      plan = buildRaidPlan({ targetFormId: boss.formId, ownedFormIds: roster?.ownedFormIds }, data);
+      plan = buildRaidPlan({ targetFormId: boss.formId, ownedFormIds: roster?.ownedFormIds, roster, trainerLevel }, data);
     } catch {
       continue; // not in this release's raid target tool — nothing to summarize
     }
@@ -146,7 +148,7 @@ function pvpTeamStatus(data, roster) {
 
 export function buildCoachSummary({ data = {}, roster = {}, now = new Date(), trainerLevel = null } = {}) {
   return {
-    worthRaiding: worthRaidingThisWeek(data, roster, now),
+    worthRaiding: worthRaidingThisWeek(data, roster, now, trainerLevel),
     powerUpNext: powerUpNext(data, roster, trainerLevel),
     buddyPick: walkThisBuddy(data, roster),
     pvpTeams: pvpTeamStatus(data, roster),

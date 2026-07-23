@@ -492,6 +492,7 @@ function friendCodesSection(data) {
     ${friends.length
       ? `<ul class="instance-list">${friends.map(friendRow).join("")}</ul>`
       : `<p class="pvp-empty">No friends saved yet.</p>`}
+    <p><a class="safe-escape" href="./#trades" data-route="trades">See a dex gap with a friend &rarr;</a></p>
     <h3>${draft.editingId ? "Edit" : "Add"} a friend</h3>
     <label class="defense-log-player-name">Name
       <input type="text" maxlength="40" data-friend-draft-name value="${escapeHtml(draft.name ?? "")}">
@@ -601,6 +602,11 @@ export function renderMore(data = {}) {
       <p class="status-kicker">Turn your roster into decisions</p><h2 id="more-triage-title">Triage My Box</h2>
       <p>See what to keep, power up, use in leagues, or review for transfer.</p>
       <a class="safe-escape" href="./#triage" data-route="triage">Open Triage My Box</a>
+    </section>
+    <section class="more-section candyplan-route-callout" aria-labelledby="more-candyplan-title">
+      <p class="status-kicker">Spend Candy on the right evolution</p><h2 id="more-candyplan-title">Candy Planner</h2>
+      <p>See which owned species are worth evolving next, and which just need Candy recorded.</p>
+      <a class="safe-escape" href="./#candyplan" data-route="candyplan">Open Candy Planner</a>
     </section>
     ${rosterShareSection(data)}
     ${friendCodesSection(data)}

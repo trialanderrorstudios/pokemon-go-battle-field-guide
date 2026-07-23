@@ -55,6 +55,14 @@ import {
 } from "./gym-defense-log.js";
 import { gymDefenseCardData, instanceCardData, shareOrDownloadCard, triageSummaryCardData } from "./share-card.js";
 import {
+  exportDexSummary,
+  importFriendSummary,
+  loadTradeFriends,
+  removeTradeFriend,
+  tradeComparison,
+} from "./trade-share.js";
+import { renderTrades } from "./views/trades.js";
+import {
   buildDeploymentMap,
   findNearestCachedGym,
   getCachedGymCoords,
@@ -122,6 +130,7 @@ import { renderEggs } from "./views/eggs.js";
 import { renderDelta } from "./views/delta.js";
 import { loadCachedReleaseDiff, refreshReleaseDiff, releaseDiffDismissedKey } from "./release-diff.js";
 import { renderTricks } from "./views/tricks.js";
+import { renderCandyPlan } from "./views/candyplan.js";
 import { triageRoster } from "./triage.js";
 import {
   advanceTriageView,
@@ -163,6 +172,9 @@ export const ROUTE_CHUNKS = Object.freeze({
   // gyms.json: ranked defenders are a KEEP signal — without it triage marks
   // Blissey-class walls as transfer candy (operator-reported 2026-07-23).
   triage: ["raids.json", "pvp.json", "extras.json", "gyms.json"],
+  // Same relevance signals triage.js reads (raid/PvP/gym rank) — waiting on
+  // them keeps the "worth evolving toward" call honest, not partial.
+  candyplan: ["raids.json", "pvp.json", "gyms.json"],
   more: ["extras.json"],
   eggs: ["current-eggs.json"],
 });
@@ -890,6 +902,14 @@ export function createInteractionState({
     friendCodesMessage: "",
     friends: loadFriendList(storage),
     friendDraft: { editingId: null, name: "", code: "", error: "" },
+    tradeFriends: loadTradeFriends(storage),
+    trade: {
+      name: loadTrainerProfile(storage)?.name || "You",
+      exportOpen: false,
+      importText: "",
+      message: "",
+      selectedFriendId: null,
+    },
     weather: loadWeather(storage),
     backupNudge: shouldShowBackupNudge(storage),
     backupImportPreview: null,
@@ -1262,6 +1282,18 @@ export function createInteractionController({
       if (defenseLogImportText) {
         ui.defenseLogDraft.importText = defenseLogImportText.value;
         rerender("gyms");
+        return;
+      }
+      const tradeNameControl = target?.closest?.("[data-trade-name]");
+      if (tradeNameControl) {
+        ui.trade = { ...ui.trade, name: tradeNameControl.value };
+        rerender("trades");
+        return;
+      }
+      const tradeImportTextControl = target?.closest?.("[data-trade-import-text]");
+      if (tradeImportTextControl) {
+        ui.trade = { ...ui.trade, importText: tradeImportTextControl.value };
+        rerender("trades");
         return;
       }
       const instanceCp = target?.closest?.("[data-instance-cp]");
@@ -2174,6 +2206,42 @@ export function createInteractionController({
           ui.defenseLogDraft.message = error?.message ?? String(error);
         }
         rerender("gyms");
+      } else if (action === "trade-toggle-export") {
+        ui.trade = { ...ui.trade, exportOpen: !ui.trade.exportOpen };
+        rerender("trades");
+      } else if (action === "trade-copy-export") {
+        let payload = "";
+        try {
+          payload = exportDexSummary(ui.trade.name, state.core.forms, roster);
+        } catch (error) {
+          ui.trade = { ...ui.trade, message: error?.message ?? String(error) };
+          rerender("trades");
+          return;
+        }
+        const copied = await (api.onRosterShareCopy ?? onRosterShareCopy)?.(payload);
+        ui.trade = {
+          ...ui.trade,
+          message: copied ? "Copied your dex summary to clipboard." : "Could not copy automatically — select and copy the text above.",
+        };
+        rerender("trades");
+      } else if (action === "trade-import") {
+        try {
+          const { friends, friend } = importFriendSummary(storage, ui.trade.importText);
+          ui.tradeFriends = friends;
+          ui.trade = { ...ui.trade, importText: "", message: `Imported ${friend.name}'s dex summary.`, selectedFriendId: friend.id };
+        } catch (error) {
+          ui.trade = { ...ui.trade, message: error?.message ?? String(error) };
+        }
+        rerender("trades");
+      } else if (action === "trade-remove-friend") {
+        const friendId = target?.closest?.("[data-trade-friend-id]")?.dataset.tradeFriendId;
+        ui.tradeFriends = removeTradeFriend(storage, friendId);
+        if (ui.trade.selectedFriendId === friendId) ui.trade = { ...ui.trade, selectedFriendId: null };
+        rerender("trades");
+      } else if (action === "trade-select-friend") {
+        const friendId = target?.closest?.("[data-trade-friend-id]")?.dataset.tradeFriendId;
+        ui.trade = { ...ui.trade, selectedFriendId: ui.trade.selectedFriendId === friendId ? null : friendId };
+        rerender("trades");
       } else if (action === "defense-log-use-location") {
         // Geolocation gym picker: request coords, find nearest cached gym within 150m
         if (!navigator.geolocation) {
@@ -2453,6 +2521,8 @@ function raidTargetSurface(state, ui, roster) {
     encounterLevel: ui.raid.encounterLevel,
     ownedFormIds: roster.ownedFormIds,
     weather: ui.weather,
+    roster,
+    trainerLevel: ui.trainerProfile.level,
   }, state);
   const lanes = {
     regular: ["Regular, Mega & Primal", plan.regularCounters, plan.beginnerRegularGroups],
@@ -2752,6 +2822,21 @@ export function bootstrap({
     tricks() {
       app.innerHTML = renderTricks();
     },
+    trades() {
+      const selectedFriend = ui.tradeFriends.find((friend) => friend.id === ui.trade.selectedFriendId) ?? null;
+      app.innerHTML = interactionNotice(ui) + renderTrades({
+        trade: ui.trade,
+        friends: ui.tradeFriends,
+        exportText: (() => {
+          try {
+            return exportDexSummary(ui.trade.name, state.core.forms, roster);
+          } catch {
+            return "";
+          }
+        })(),
+        comparison: selectedFriend ? tradeComparison(state.core.forms, roster, selectedFriend) : null,
+      });
+    },
     drill() {
       app.innerHTML = renderDrill(ui.drill);
     },
@@ -2870,6 +2955,28 @@ export function bootstrap({
           showGuide: showTriageGuide(storage),
         })
         : chunkLoadingNotice("Triage"));
+    },
+    candyplan() {
+      // Trade seam: dex numbers any saved trade friend lacks (from the same
+      // tradeComparison the Trades view renders) — flags "keep for trading"
+      // rows against "evolve to fill YOUR dex" ones.
+      const friendGapDex = new Set();
+      for (const friend of ui.tradeFriends) {
+        for (const row of tradeComparison(state.core.forms, roster, friend).youHaveTheyLack) {
+          friendGapDex.add(row.dex);
+        }
+      }
+      app.innerHTML = interactionNotice(ui) + (routeChunksReady("candyplan", loadedChunkPaths)
+        ? renderCandyPlan({
+          forms: state.core.forms,
+          roster,
+          candyInventory: ui.candyInventory,
+          raids: state.raids,
+          pvp: state.pvp,
+          gym: state.gym,
+          friendGapDex,
+        })
+        : chunkLoadingNotice("Candy Planner"));
     },
     more() {
       // Storage estimate is async and only needs fetching once per session;
