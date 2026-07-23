@@ -97,7 +97,7 @@ function toIso(value, fallbackNow, fieldLabel) {
 }
 
 
-export function startDefense(log, { pokemon, gymName, startedAt } = {}) {
+export function startDefense(log, { pokemon, gymName, startedAt, instanceId } = {}) {
   const cleanPokemon = String(pokemon ?? "").trim();
   const cleanGym = String(gymName ?? "").trim();
   if (!cleanPokemon || hasSeparator(cleanPokemon)) {
@@ -116,6 +116,9 @@ export function startDefense(log, { pokemon, gymName, startedAt } = {}) {
     coins: null,
     isLocal: true,
   };
+  // ponytail: instanceId is optional and only used for exact roster matching.
+  // Free-text entries (no instanceId) won't badge in raid counters.
+  if (instanceId) entry.instanceId = String(instanceId).trim();
   return { ...log, entries: [...log.entries, entry] };
 }
 

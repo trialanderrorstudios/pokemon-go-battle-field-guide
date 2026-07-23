@@ -36,6 +36,7 @@ export const SHELL_FILES = Object.freeze([
   "./src/drill.js",
   "./src/feedback.js",
   "./src/gym-defense-log.js",
+  "./src/gym-availability.js",
   "./src/instances.js",
   "./src/moves.js",
   "./src/poke-genie-import.js",

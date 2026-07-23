@@ -3,6 +3,8 @@ import { spriteHtml } from "../sprites.js";
 import { moveLink } from "./move-sheet.js";
 import { jargonTerm } from "../glossary.js";
 import { buildLeaderboard, exportPlayerLog } from "../gym-defense-log.js";
+import { buildDeploymentMap } from "../gym-availability.js";
+import { bestInstanceForForm } from "../instances.js";
 
 
 function sectionHeading(kicker, title, id) {
@@ -117,13 +119,24 @@ function atIndex(rows, index) {
 }
 
 
+// Exact roster instance for this owned candidate is actively holding a gym
+// right now — badge it instead of pretending it's freely available. Honest
+// per gym-availability.js's instance-matching contract: only a candidate
+// resolved to a real roster instanceId can ever be flagged here.
+function deployedBadge(candidate) {
+  if (!candidate?.deployment) return "";
+  return `<p class="budget-verdict">Already defending ${escapeHtml(candidate.deployment.gym)} — ${escapeHtml(formatDefenseDuration(candidate.deployment.elapsedMs))}</p>`;
+}
+
+
 function recommendationCard(candidate, label, lane, index, count) {
   const recommendation = candidate
     ? `<h3>${escapeHtml(candidate.pokemon)}</h3>
       <p class="placement-score">Score ${escapeHtml(candidate.score)} · option ${index + 1} of ${count}</p>
       <p>${escapeHtml(candidate.rationale)}</p>
       <p><strong>Weak to:</strong> ${escapeHtml((candidate.weaknesses ?? []).join(", ") || "None listed")}</p>
-      <p><strong>Resists repeated:</strong> ${escapeHtml((candidate.resistsCommon ?? []).join(", ") || "None")}</p>`
+      <p><strong>Resists repeated:</strong> ${escapeHtml((candidate.resistsCommon ?? []).join(", ") || "None")}</p>
+      ${deployedBadge(candidate)}`
     : `<p class="gym-empty">${lane === "owned" ? "Mark an eligible defender as owned to fill this lane." : "No eligible defender remains."}</p>`;
   return `<article class="placement-lane" aria-labelledby="placement-${lane}-title">
     <p class="status-kicker">Independent recommendation lane</p>
@@ -153,9 +166,25 @@ function ownedDefenderEditor(defenders, ownedFormIds) {
 }
 
 
-export function renderPlacementCoach({ placementResult, ownedIndex = 0, overallIndex = 0 } = {}) {
+// Owned candidates are ranked by formId only; badging needs the exact roster
+// instance behind that formId (deployment is tracked per instanceId, not per
+// form) — bestInstanceForForm resolves the same way the rest of the app
+// already does (raid counter cards, coach.js) rather than forking a new lookup.
+function withDeploymentBadges(rows, rosterInstances, deploymentMap) {
+  if (!deploymentMap?.size) return rows;
+  return rows.map((row) => {
+    const instance = bestInstanceForForm(rosterInstances, row.formId);
+    const deployment = instance ? deploymentMap.get(instance.id) : null;
+    return deployment ? { ...row, deployment } : row;
+  });
+}
+
+
+export function renderPlacementCoach({
+  placementResult, ownedIndex = 0, overallIndex = 0, rosterInstances = [], deploymentMap = new Map(),
+} = {}) {
   const result = placementResult ?? {};
-  const ownedRows = result.ownedAlternatives ?? [];
+  const ownedRows = withDeploymentBadges(result.ownedAlternatives ?? [], rosterInstances, deploymentMap);
   const overallRows = result.overallAlternatives ?? [];
   const safeOwnedIndex = ownedRows.length ? ((Number(ownedIndex) || 0) % ownedRows.length + ownedRows.length) % ownedRows.length : 0;
   const safeOverallIndex = overallRows.length ? ((Number(overallIndex) || 0) % overallRows.length + overallRows.length) % overallRows.length : 0;
@@ -247,9 +276,11 @@ export function renderDefenseLog({ log, now = Date.now(), draft = {} } = {}) {
     <h3>Active defenders</h3>
     ${activeDefendersSection(rows, draft)}
     <h3>Drop a defender</h3>
+    ${(draft.recentGyms ?? []).length > 0 ? `<p class="defense-log-recents">Quick pick: ${(draft.recentGyms ?? []).map((gym) => `<button type="button" class="chip" data-action="defense-log-quick-gym" data-gym="${escapeHtml(gym)}">${escapeHtml(gym)}</button>`).join(" ")}</p>` : ""}
     <div class="defense-log-form">
       <label>Pokémon<input type="text" maxlength="60" data-defense-log-pokemon value="${escapeHtml(draft.pokemon ?? "")}"></label>
       <label>Gym name<input type="text" maxlength="80" data-defense-log-gym value="${escapeHtml(draft.gymName ?? "")}"></label>
+      <button type="button" data-action="defense-log-use-location" title="Use your location to find nearby gyms"${draft.geoLoading ? ' disabled' : ''}>Use my location${draft.geoLoading ? '...' : ''}</button>
       <label>Start time<input type="datetime-local" data-defense-log-start value="${escapeHtml(draft.startedAt ?? "")}"></label>
       <button type="button" data-action="defense-log-start">I dropped a defender</button>
     </div>
@@ -276,10 +307,12 @@ export function renderGyms({
   overallIndex = 0,
   defenseLog,
   defenseLogDraft = {},
+  rosterInstances = [],
   now = Date.now(),
 } = {}) {
+  const deploymentMap = buildDeploymentMap(defenseLog, now);
   return `<div class="gyms-view">
-    ${renderPlacementCoach({ placementResult, ownedIndex, overallIndex })}
+    ${renderPlacementCoach({ placementResult, ownedIndex, overallIndex, rosterInstances, deploymentMap })}
     ${offenseSection(gym, forms)}
     ${staggerSection(gym)}
     ${defenseSection(gym, forms, ownedFormIds)}

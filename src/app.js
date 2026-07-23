@@ -34,6 +34,14 @@ import {
   setLocalPlayerName,
   startDefense,
 } from "./gym-defense-log.js";
+import {
+  buildDeploymentMap,
+  findNearestCachedGym,
+  getCachedGymCoords,
+  getRecentGymNames,
+  getTopAvailableDefender,
+  setCachedGymCoords,
+} from "./gym-availability.js";
 import { exportFeedback, recordFeedback } from "./feedback.js";
 import { applyTextSize, loadTextSize, saveTextSize } from "./text-size.js";
 import { applyTheme, loadTheme, saveTheme } from "./theme.js";
@@ -412,16 +420,27 @@ function blankInstanceDraft() {
 }
 
 
-function blankDefenseLogDraft() {
+function blankDefenseLogDraft(now = Date.now()) {
+  const date = new Date(now);
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  const hours = String(date.getHours()).padStart(2, '0');
+  const minutes = String(date.getMinutes()).padStart(2, '0');
+  const defaultStartedAt = `${year}-${month}-${day}T${hours}:${minutes}`;
   return {
     pokemon: "",
     gymName: "",
-    startedAt: "",
+    startedAt: defaultStartedAt,
+    instanceId: null,
+    recentGyms: [],
     completingId: null,
     completeDraft: { endedAt: "", coins: "" },
     importText: "",
     message: "",
     shareOpen: false,
+    geoLoading: false,
+    lastGeoCoords: null,
   };
 }
 
@@ -477,7 +496,12 @@ export function createInteractionState({
     textSize: loadTextSize(storage),
     theme: loadTheme(storage),
     defenseLog: loadDefenseLog(storage),
-    defenseLogDraft: blankDefenseLogDraft(),
+    defenseLogDraft: (() => {
+      const draft = blankDefenseLogDraft(Date.now());
+      const log = loadDefenseLog(storage);
+      draft.recentGyms = getRecentGymNames(log);
+      return draft;
+    })(),
   };
 }
 
@@ -512,6 +536,7 @@ export function createInteractionController({
   searchRefresh = () => {},
   storage = null,
   rerenderCurrent = () => {},
+  isCurrentRoute = () => true,
   rootElement = null,
   scrollToTop = () => {},
 } = {}) {
@@ -664,6 +689,9 @@ export function createInteractionController({
       const defenseLogPokemon = target?.closest?.("[data-defense-log-pokemon]");
       if (defenseLogPokemon) {
         ui.defenseLogDraft.pokemon = defenseLogPokemon.value;
+        // A hand-edited name may no longer be the suggested instance; drop
+        // the id rather than badge the wrong Pokémon (honest-matching rule).
+        ui.defenseLogDraft.instanceId = null;
         rerender("gyms");
         return;
       }
@@ -1251,7 +1279,14 @@ export function createInteractionController({
         try {
           ui.defenseLog = startDefense(ui.defenseLog, ui.defenseLogDraft);
           saveDefenseLog(storage, ui.defenseLog);
-          ui.defenseLogDraft = blankDefenseLogDraft();
+          // If the user has a cached location from geolocation and typed a gym name,
+          // cache the gym location for future geolocation lookups
+          if (ui.defenseLogDraft.gymName && ui.defenseLogDraft.lastGeoCoords) {
+            setCachedGymCoords(storage, ui.defenseLogDraft.gymName, ui.defenseLogDraft.lastGeoCoords.latitude, ui.defenseLogDraft.lastGeoCoords.longitude);
+          }
+          const draft = blankDefenseLogDraft();
+          draft.recentGyms = getRecentGymNames(ui.defenseLog);
+          ui.defenseLogDraft = draft;
         } catch (error) {
           ui.defenseLogDraft.message = error?.message ?? String(error);
         }
@@ -1300,6 +1335,58 @@ export function createInteractionController({
           ui.defenseLogDraft.message = `Imported ${importedCount} ${importedCount === 1 ? "entry" : "entries"} for ${playerName}.`;
         } catch (error) {
           ui.defenseLogDraft.message = error?.message ?? String(error);
+        }
+        rerender("gyms");
+      } else if (action === "defense-log-use-location") {
+        // Geolocation gym picker: request coords, find nearest cached gym within 150m
+        if (!navigator.geolocation) {
+          ui.defenseLogDraft.message = "Geolocation not available on this device.";
+          rerender("gyms");
+          return;
+        }
+        ui.defenseLogDraft.geoLoading = true;
+        rerender("gyms");
+        navigator.geolocation.getCurrentPosition(
+          (position) => {
+            const { latitude, longitude } = position.coords;
+            // Store coords for potential caching when dropping the defender
+            ui.defenseLogDraft.lastGeoCoords = { latitude, longitude };
+            // Cache current location for the gym being defended (if a name is entered)
+            if (ui.defenseLogDraft.gymName) {
+              setCachedGymCoords(storage, ui.defenseLogDraft.gymName, latitude, longitude);
+            }
+            const nearest = findNearestCachedGym(storage, latitude, longitude);
+            if (nearest) {
+              ui.defenseLogDraft.gymName = nearest;
+              ui.defenseLogDraft.message = `Preselected nearest gym: ${nearest}`;
+            } else {
+              // Check if we have any cached gyms (not just nearby)
+              const hasAnyCachedGyms = typeof storage?.length === 'number' && storage.length > 0
+                && [...Array(storage.length)].some((_, i) => storage.key(i)?.startsWith('gym-geo:'));
+              if (hasAnyCachedGyms) {
+                ui.defenseLogDraft.message = "No cached gyms within 150m. Type a gym name to start a new cache.";
+              } else {
+                ui.defenseLogDraft.message = "No cached gym locations yet. Type a gym name and drop a defender to cache it.";
+              }
+            }
+            ui.defenseLogDraft.geoLoading = false;
+            // Geolocation is async — only pull the user back to gyms if they're
+            // still there; otherwise just update the draft for next time they visit.
+            if (isCurrentRoute("gyms")) rerender("gyms");
+          },
+          (error) => {
+            ui.defenseLogDraft.message = `Geolocation denied or unavailable — please type a gym name.`;
+            ui.defenseLogDraft.geoLoading = false;
+            if (isCurrentRoute("gyms")) rerender("gyms");
+          },
+          { timeout: 10000 },
+        );
+      } else if (action === "defense-log-quick-gym") {
+        // Recent gyms chip tap: prefill gym name
+        const gym = actionEl.dataset.gym;
+        if (gym) {
+          ui.defenseLogDraft.gymName = gym;
+          ui.defenseLogDraft.message = "";
         }
         rerender("gyms");
       } else if (action === "swap-continue-team") {
@@ -1380,7 +1467,7 @@ function feedbackThumbs(surface, formId) {
 }
 
 
-function raidCounterCard(row, roster, forms, { fromLevel, budgetPickIds } = {}, bossTypes = []) {
+function raidCounterCard(row, roster, forms, { fromLevel, budgetPickIds, deploymentMap } = {}, bossTypes = []) {
   const owned = (roster.ownedFormIds ?? []).includes(row.formId);
   const ownedCount = owned
     ? (Number.isInteger(roster.ownedFormCounts?.[row.formId]) ? roster.ownedFormCounts[row.formId] : 1)
@@ -1397,6 +1484,10 @@ function raidCounterCard(row, roster, forms, { fromLevel, budgetPickIds } = {}, 
   const because = becauseLine(row.attackingType, bossTypes);
   const isBudgetPick = budgetPickIds?.has(row.formId);
   const bestInstance = bestInstanceForForm(roster.instances ?? [], row.formId);
+  // Detailed owned instances are never excluded from raid counter cards —
+  // this is a ranking list, not a suggestion queue — so a deployed instance
+  // only gets a badge, same instance-matching contract as gym-availability.js.
+  const deployment = bestInstance ? deploymentMap?.get(bestInstance.id) : null;
   return `<li class="raid-card${owned ? " is-owned" : ""}" data-form-id="${escapeHtml(row.formId)}">
     <p class="raid-rank">Type rank #${escapeHtml(row.typeRank ?? row.rank)} · ${escapeHtml(multiplier)}×</p>
     <h4>${escapeHtml(row.pokemon)}</h4>
@@ -1406,6 +1497,7 @@ function raidCounterCard(row, roster, forms, { fromLevel, budgetPickIds } = {}, 
     <p>${Number.isFinite(Number(dps)) ? `${Number(dps).toFixed(2)} standardized DPS` : "DPS unavailable"} · ${escapeHtml(row.investmentTier)}</p>
     <p><strong>Availability:</strong> ${escapeHtml(row.availability ?? "Availability not documented")}</p>
     ${isBudgetPick ? `<p class="budget-verdict">Community pick: strong value</p>` : ""}
+    ${deployment ? `<p class="budget-verdict">Defending a gym right now</p>` : ""}
     ${raidReadyPanel(row.formId, forms, fromLevel, bestInstance)}
     ${ownedStarButton({ formId: row.formId, name: row.pokemon, owned, route: "raids" })}
     <span class="owned-count">${owned ? `Owned ×${ownedCount}` : "Not owned"}</span>
@@ -1468,7 +1560,8 @@ function raidTargetSurface(state, ui, roster) {
   const budgetPickIds = new Set((state.budgets?.raid ?? []).map((row) => row.formId));
   // Fresh raid catch (Level 20), independent of the boss's own encounter/weather CP above —
   // that widget verifies the BOSS's catch, not the level of the player's counter Pokemon.
-  const cardOptions = { fromLevel: 20, budgetPickIds };
+  const deploymentMap = buildDeploymentMap(ui.defenseLog, Date.now());
+  const cardOptions = { fromLevel: 20, budgetPickIds, deploymentMap };
   return `<section class="raid-target-view" aria-labelledby="raid-target-title">
     <h2 id="raid-target-title">Raid Target</h2>
     <div class="pvp-controls">
@@ -1729,16 +1822,36 @@ export function bootstrap({
     },
     gyms() {
       const placementState = { ...state, lineupFormIds: ui.gym.lineupFormIds };
+      const placementResult = placementFor(placementState, roster);
+      // Smart default: prefill a blank drop-form Pokémon field with the top
+      // owned suggestion (same Placement Coach ranking) that isn't already
+      // deployed elsewhere. Only applies while the field is genuinely blank,
+      // so it never clobbers what the user is actively typing.
+      if (!ui.defenseLogDraft.pokemon && placementResult) {
+        const deploymentMap = buildDeploymentMap(ui.defenseLog, Date.now());
+        const suggestions = (placementResult.ownedAlternatives ?? []).map((row) => ({
+          ...row,
+          instanceId: bestInstanceForForm(roster.instances ?? [], row.formId)?.id ?? null,
+        }));
+        const topFormId = getTopAvailableDefender(suggestions, deploymentMap);
+        if (topFormId) {
+          ui.defenseLogDraft.pokemon = state.core.forms[topFormId]?.name ?? topFormId;
+          // Carry the exact roster instance so the logged entry can be
+          // matched for availability badging; hand-typed names never get one.
+          ui.defenseLogDraft.instanceId = suggestions.find((row) => row.formId === topFormId)?.instanceId ?? null;
+        }
+      }
       app.innerHTML = interactionNotice(ui) + (state.gym
         ? `${gymLineupControls(state, ui)}${renderGyms({
           gym: state.gym,
           forms: state.core.forms,
-          placementResult: placementFor(placementState, roster),
+          placementResult,
           ownedFormIds: roster.ownedFormIds,
           ownedIndex: ui.gym.ownedIndex,
           overallIndex: ui.gym.overallIndex,
           defenseLog: ui.defenseLog,
           defenseLogDraft: ui.defenseLogDraft,
+          rosterInstances: roster.instances,
         })}`
         : fallbackSections.gyms);
     },
@@ -1792,6 +1905,25 @@ export function bootstrap({
     const base = renderers[route];
     renderers[route] = () => {
       currentRoute = route;
+      // Handle URL quick-log params for gyms: ?log=1&gym=<name>&mon=<formId>#gyms
+      // searchParams.get() returns already-decoded values, so don't decodeURIComponent again
+      if (route === "gyms") {
+        const url = new URL(windowObject.location.href);
+        if (url.searchParams.get("log") === "1") {
+          const gymName = url.searchParams.get("gym");
+          const monFormId = url.searchParams.get("mon");
+          if (gymName) ui.defenseLogDraft.gymName = gymName;
+          if (monFormId) {
+            ui.defenseLogDraft.pokemon = monFormId;
+            // URL text is untrusted and not a roster pick — never badge-match it.
+            ui.defenseLogDraft.instanceId = null;
+          }
+          // Clear the log param so it doesn't re-clobber on rerenders
+          url.searchParams.delete("log");
+          windowObject.history.replaceState({}, "", url.href);
+          // Don't auto-submit; let user review and click submit
+        }
+      }
       base();
       // Prepend into #app so the guide scrolls with the view instead of
       // sitting in fixed chrome above the bezel. insertAdjacentHTML (not a
@@ -1837,7 +1969,9 @@ export function bootstrap({
     gymDefenderSpeciesByFormId,
     releaseManager,
     installPrompt,
-    renderRoute(route) { renderers[route]?.(); },
+    renderRoute(route) {
+      renderers[route]?.();
+    },
     navigateMore(listId) {
       const url = new URL(windowObject.location.href);
       if (listId) url.searchParams.set("list", listId);
@@ -1865,6 +1999,7 @@ export function bootstrap({
     onRosterChanged() { triageResult = null; },
     searchRefresh: () => searchRefresh(),
     rerenderCurrent: () => renderers[currentRoute]?.(),
+    isCurrentRoute: (route) => currentRoute === route,
     rootElement: documentObject.documentElement,
     scrollToTop: () => app.scrollTo?.(0, 0),
     storage,

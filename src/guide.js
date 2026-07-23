@@ -22,7 +22,7 @@ export const GUIDE_COPY = Object.freeze({
   }),
   gyms: Object.freeze({
     title: "Gyms teach as you scroll",
-    body: `This page is its own gym guide — attacker builds, the two-player stagger plan, defender placement, and ${jargonTerm("motivation")}/${jargonTerm("cp-decay", "CP decay")} are explained inline below. Tap ? again to jump back to the top.`,
+    body: `This page is its own gym guide — attacker builds, the two-player stagger plan, defender placement, and ${jargonTerm("motivation")}/${jargonTerm("cp-decay", "CP decay")} are explained inline below. Tap ? again to jump back to the top. You can also use a Siri Shortcut or iOS automation to quick-log a defender via URL: <code>?log=1&amp;gym=&lt;gym-name&gt;&amp;mon=&lt;form-id&gt;#gyms</code> — opens the drop form prefilled.`,
     inline: true,
   }),
   pvp: Object.freeze({

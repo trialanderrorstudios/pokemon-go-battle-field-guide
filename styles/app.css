@@ -2749,3 +2749,34 @@ h1 {
   box-shadow: 0 0 0 5px rgba(24, 32, 56, 0.85);
   outline-offset: 2px;
 }
+
+.defense-log-recents {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-top: 0.5rem;
+}
+
+.defense-log-recents button.chip {
+  min-width: auto;
+  min-height: 48px;
+  padding: 0.5rem 0.8rem;
+  border: 1px solid var(--line);
+  border-radius: 0.9rem;
+  background: var(--panel-raised);
+  color: var(--text);
+  font: inherit;
+  font-size: 0.9rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.defense-log-recents button.chip:hover {
+  border-color: var(--cyan);
+  background: var(--panel-raised);
+}
+
+.defense-log-recents button.chip:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
