@@ -141,7 +141,9 @@ export const ROUTE_CHUNKS = Object.freeze({
   // so it waits on the same chunk set — a checklist built from partial data
   // would confidently tell the user "nothing on today".
   today: ["raid-targets.json", "current-bosses.json", "current-events.json", "extras.json", "pvp.json"],
-  triage: ["raids.json", "pvp.json", "extras.json"],
+  // gyms.json: ranked defenders are a KEEP signal — without it triage marks
+  // Blissey-class walls as transfer candy (operator-reported 2026-07-23).
+  triage: ["raids.json", "pvp.json", "extras.json", "gyms.json"],
   more: ["extras.json"],
 });
 

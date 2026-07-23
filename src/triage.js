@@ -99,6 +99,13 @@ function displayedRaidRelevance(data, slotsForType) {
 }
 
 
+function gymDefenderByForm(data) {
+  return new Map((data?.gym?.defenders ?? [])
+    .filter((row) => row?.formId)
+    .map((row) => [row.formId, row]));
+}
+
+
 function sentimental(form) {
   const tags = (form?.tags ?? []).map((tag) => String(tag).toLowerCase());
   return tags.some((tag) => SENTIMENTAL_TAGS.has(tag))
@@ -167,6 +174,13 @@ function keepSignal(entry, context) {
     return {
       kind: "raid",
       because: `Top ${raid.attackingType} raid attacker at #${raid.rank} in the displayed guide.`,
+    };
+  }
+  const defender = context.defenderByForm.get(entry.formId);
+  if (defender) {
+    return {
+      kind: "gym-defender",
+      because: `Ranked gym defender${defender.defenseTier ? ` (${defender.defenseTier} tier)` : ""} in the gyms guide — keep for holding gyms.`,
     };
   }
   if (relevantSpecies.has(entry.form?.dex)
@@ -434,6 +448,7 @@ export function triageRoster({
   const forms = formsOf(data);
   const rows = pvpRows(data);
   const raidByForm = displayedRaidRelevance(data, engines.raidSlots);
+  const defenderByForm = gymDefenderByForm(data);
   const entries = ownedEntries(roster).map((entry) => {
     const form = forms[entry.formId] ?? null;
     const evaluated = {
@@ -456,13 +471,14 @@ export function triageRoster({
 
   const relevantFormIds = new Set([
     ...raidByForm.keys(),
+    ...defenderByForm.keys(),
     ...PVP_LEAGUES.flatMap((league) => (data?.pvp?.[league] ?? []).map((row) => row.formId)),
   ]);
   const relevantSpecies = new Set([...relevantFormIds]
     .map((formId) => forms[formId]?.dex)
     .filter(Number.isInteger));
   const bestBySpecies = bestOwnedBySpecies(entries);
-  const keepContext = { raidByForm, relevantSpecies, bestBySpecies, data, engines };
+  const keepContext = { raidByForm, defenderByForm, relevantSpecies, bestBySpecies, data, engines };
   const keepByKey = new Map(entries.map((entry) => [
     entry.internalKey,
     entry.form ? keepSignal(entry, keepContext) : null,
