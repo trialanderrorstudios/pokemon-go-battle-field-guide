@@ -80,6 +80,12 @@
       </main>
     </div>
 
+    <!-- Overlay root lives OUTSIDE .bezelwrap: the bezel's chamfer clip-path
+         clips fixed-position descendants (move/instance sheets), so a sheet
+         mounted inside #app has its lower-left corner cut off on real WebKit
+         (2026-07-23 device QA; headless renders clip-path differently). -->
+    <div id="overlay-root"></div>
+
     <nav class="tab-bar" aria-label="Primary">
       <a class="tab-link" href="./#home" data-route="home"><span class="tab-glyph" aria-hidden="true">⌂</span><span>Home</span></a>
       <a class="tab-link" href="./#raids" data-route="raids"><span class="tab-glyph" aria-hidden="true">⚡</span><span>Raids</span></a>

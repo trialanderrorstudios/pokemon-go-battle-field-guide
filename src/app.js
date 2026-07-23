@@ -2812,7 +2812,8 @@ const DIALOG_FOCUSABLE_SELECTOR = 'button:not([disabled]), [href], input:not([di
 // is trapped inside it so keyboard focus can't silently wander into the
 // route content sitting underneath the overlay.
 export function onDialogKeydown(event, app) {
-  const dialog = app.querySelector?.('.move-sheet[role="dialog"]');
+  const dialog = app.querySelector?.('.move-sheet[role="dialog"]')
+    ?? app.ownerDocument?.getElementById?.("overlay-root")?.querySelector?.('.move-sheet[role="dialog"]');
   if (!dialog) return;
   if (event.key === "Escape") {
     dialog.querySelector('[data-action^="close-"]')?.click();
@@ -2833,7 +2834,7 @@ export function onDialogKeydown(event, app) {
   }
 }
 
-function bindInteractions(app, controller, extraClickTargets = []) {
+function bindInteractions(app, controller, extraClickTargets = [], fullTargets = []) {
   if (typeof app?.addEventListener !== "function") return () => {};
   const delegate = (operation) => {
     void Promise.resolve().then(operation).catch((error) => controller.handleFailure(error));
@@ -2842,23 +2843,32 @@ function bindInteractions(app, controller, extraClickTargets = []) {
   const onChange = (event) => delegate(() => controller.handleChange(event));
   const onInput = (event) => controller.handleInput(event);
   const onKeydown = (event) => onDialogKeydown(event, app);
-  app.addEventListener("click", onClick);
-  app.addEventListener("change", onChange);
-  app.addEventListener("input", onInput);
-  app.addEventListener("keydown", onKeydown);
-  // "error" does not bubble, so this must be a capturing listener; it swaps
-  // any broken sprite <img> for its fallback circle without inline JS.
-  app.addEventListener("error", handleSpriteError, true);
+  // #app plus any full-delegation roots (the body-level overlay root that
+  // hosts the move/instance sheets outside the clipped bezel) get the whole
+  // event set, so sheet inputs, sprite-error fallbacks, and dialog keydown
+  // work identically wherever the markup is mounted.
+  const fullRoots = [app, ...fullTargets.filter(Boolean)];
+  for (const root of fullRoots) {
+    root.addEventListener("click", onClick);
+    root.addEventListener("change", onChange);
+    root.addEventListener("input", onInput);
+    root.addEventListener("keydown", onKeydown);
+    // "error" does not bubble, so this must be a capturing listener; it swaps
+    // any broken sprite <img> for its fallback circle without inline JS.
+    root.addEventListener("error", handleSpriteError, true);
+  }
   // The update banner lives in the persistent chrome outside #app (it must
   // survive route innerHTML swaps), so it needs its own click hookup into
   // the same [data-action] dispatch.
   for (const target of extraClickTargets) target?.addEventListener?.("click", onClick);
   return () => {
-    app.removeEventListener?.("click", onClick);
-    app.removeEventListener?.("change", onChange);
-    app.removeEventListener?.("input", onInput);
-    app.removeEventListener?.("keydown", onKeydown);
-    app.removeEventListener?.("error", handleSpriteError, true);
+    for (const root of fullRoots) {
+      root.removeEventListener?.("click", onClick);
+      root.removeEventListener?.("change", onChange);
+      root.removeEventListener?.("input", onInput);
+      root.removeEventListener?.("keydown", onKeydown);
+      root.removeEventListener?.("error", handleSpriteError, true);
+    }
     for (const target of extraClickTargets) target?.removeEventListener?.("click", onClick);
   };
 }
@@ -2882,6 +2892,7 @@ export function bootstrap({
   onRouteVisit = null,
 } = {}) {
   const app = documentObject?.getElementById?.("app");
+  const overlayRoot = documentObject?.getElementById?.("overlay-root") ?? null;
   if (!app || !windowObject || !usableState(state)) {
     return { status: "fallback", router: null };
   }
@@ -3240,8 +3251,14 @@ export function bootstrap({
       // doesn't tear down nodes base() already bound live listeners to
       // (e.g. home's search input via bindSearch).
       app.insertAdjacentHTML("afterbegin", renderGuide(route, storage));
+      // Sheets render into the body-level overlay root, NOT #app: #app sits
+      // inside .bezelwrap whose chamfer clip-path clips fixed descendants, so
+      // a sheet mounted in #app has its lower-left corner cut on real WebKit
+      // (2026-07-23 device QA; headless renders clip-path differently). One
+      // assignment per render also clears a just-closed sheet.
+      let overlayHtml = "";
       if (ui.moveSheet) {
-        app.innerHTML += renderMoveSheet({
+        overlayHtml += renderMoveSheet({
           moveId: ui.moveSheet,
           catalog: moveCatalog,
           moveIndex,
@@ -3253,7 +3270,7 @@ export function bootstrap({
         const renameByInstanceId = new Map(getTriageResult().entries
           .filter((entry) => entry.instance)
           .map((entry) => [entry.instance.id, renameStringForEntry(entry)]));
-        app.innerHTML += renderInstanceSheet({
+        overlayHtml += renderInstanceSheet({
           form: state.core.forms[ui.instanceSheet.formId],
           forms: state.core.forms,
           instances: roster.instances ?? [],
@@ -3268,13 +3285,14 @@ export function bootstrap({
           starTier: ui.instanceSheet.starTier ?? null,
         });
       }
+      if (overlayRoot) overlayRoot.innerHTML = overlayHtml;
       updateLeds(documentObject, releaseState, roster);
       updateBanner(documentObject, releaseState, storage);
       updateStalenessBanner(documentObject, roster, storage, currentRoute);
       const sheetOpenNow = Boolean(ui.moveSheet || ui.instanceSheet);
       if (sheetOpenNow && !sheetWasOpen) {
         sheetReturnFocus = documentObject.activeElement ?? null;
-        app.querySelector?.('.move-sheet [data-action^="close-"]')?.focus();
+        (overlayRoot ?? app).querySelector?.('.move-sheet [data-action^="close-"]')?.focus();
       } else if (!sheetOpenNow && sheetWasOpen) {
         sheetReturnFocus?.focus?.();
         sheetReturnFocus = null;
@@ -3344,7 +3362,7 @@ export function bootstrap({
   const stopInteractions = bindInteractions(app, controller, [
     documentObject.getElementById?.("update-banner"),
     documentObject.getElementById?.("staleness-banner"),
-  ]);
+  ], [overlayRoot]);
   return { status: "ready", router, searchIndex: index, controller, ui, stopInteractions };
 }
 
