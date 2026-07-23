@@ -148,18 +148,56 @@ export function renderCurrentBosses({
 }
 
 
-function formatEventWhen(startsAt, endsAt) {
+function startOfDay(date) {
+  return new Date(date.getFullYear(), date.getMonth(), date.getDate());
+}
+
+// Relative-first date label shared by every event/raid-hour render (Home's
+// week strip, event cards, and the raid-hour banner/Coach/Today fold-ins that
+// compose formatRaidHourWhen/formatEventWhen): TODAY and TOMORROW keep the
+// closest days scannable at a glance; anything further out spells out
+// weekday + month + day (plus year, only when it crosses a year boundary from
+// `now`) so "Kyurem next Wednesday" always resolves to one unambiguous date
+// instead of a bare weekday that could mean this week or next.
+function relativeDayLabel(date, now) {
+  const diffDays = Math.round((startOfDay(date) - startOfDay(now)) / 86400000);
+  if (diffDays === 0) return "TODAY";
+  if (diffDays === 1) return "TOMORROW";
+  const weekday = date.toLocaleDateString("en-US", { weekday: "short" }).toUpperCase();
+  const month = date.toLocaleDateString("en-US", { month: "short" }).toUpperCase();
+  const year = date.getFullYear() !== now.getFullYear() ? ` ${date.getFullYear()}` : "";
+  return `${weekday} ${month} ${date.getDate()}${year}`;
+}
+
+// "6-7 PM" / "11 PM-12 AM" — collapses a shared AM/PM, split on the shared
+// helper so formatRaidHourWhen and formatEventWhen's same-day branch render
+// identical clock text.
+function timeRange(start, end) {
+  // Split on any whitespace, not a literal space: ICU-72+ browser engines
+  // (Chrome 110+, Safari 16.4+, Firefox 106+) emit U+202F (narrow no-break
+  // space) between hour and AM/PM, which a plain " " split misses — Node's
+  // ICU still uses a plain space, so the test suite can't catch that split.
+  const [startNum, startPeriod] = start.toLocaleTimeString("en-US", { hour: "numeric" }).split(/\s/);
+  if (Number.isNaN(end.valueOf())) return `${startNum} ${startPeriod}`;
+  const [endNum, endPeriod] = end.toLocaleTimeString("en-US", { hour: "numeric" }).split(/\s/);
+  return startPeriod === endPeriod
+    ? `${startNum}-${endNum} ${endPeriod}`
+    : `${startNum} ${startPeriod}-${endNum} ${endPeriod}`;
+}
+
+function formatEventWhen(startsAt, endsAt, now = new Date()) {
   // typeof guard first: new Date(null) is the 1970 epoch (a valid date, not
   // NaN), so a missing startsAt would otherwise render "Dec 31"/"Jan 1" 1970
   // instead of the blank line the sort guard already tolerates elsewhere.
   if (typeof startsAt !== "string") return "";
   const start = new Date(startsAt);
   if (Number.isNaN(start.valueOf())) return "";
-  const options = { month: "short", day: "numeric" };
-  const startLabel = start.toLocaleDateString("en-US", options);
+  const dayLabel = relativeDayLabel(start, now);
   const end = new Date(endsAt);
-  if (Number.isNaN(end.valueOf()) || end.toDateString() === start.toDateString()) return startLabel;
-  return `${startLabel} – ${end.toLocaleDateString("en-US", options)}`;
+  if (Number.isNaN(end.valueOf())) return dayLabel;
+  if (end.toDateString() === start.toDateString()) return `${dayLabel} · ${timeRange(start, end)}`;
+  const options = { month: "short", day: "numeric" };
+  return `${dayLabel} – ${end.toLocaleDateString("en-US", options)}`;
 }
 
 
@@ -214,7 +252,7 @@ export function eventCard({ eventId, name, formId, startsAt, endsAt, action, has
   const safeLink = safeEventLink(link);
   return `<div class="fallback-section home-event-card" data-event-id="${escapeHtml(eventId)}">
     <div class="home-event-heading">${formId ? spriteHtml(formId, forms, name, forms?.[formId]?.primary_type) : ""}<h4>${escapeHtml(name)}</h4></div>
-    <p class="event-when">${escapeHtml(formatEventWhen(startsAt, endsAt))}</p>
+    <p class="event-when">${escapeHtml(formatEventWhen(startsAt, endsAt, now))}</p>
     ${action ? `<p class="event-action">${escapeHtml(action)}</p>` : ""}
     ${!action && safeLink ? `<p class="event-action"><a class="event-external-link" href="${escapeHtml(safeLink)}" target="_blank" rel="noopener">Full details ↗ (leaves the app)</a></p>` : ""}
     ${spawnsChip(hasSpawns)}
@@ -236,6 +274,12 @@ function eventTypeGroup(kind, events, { forms, now }) {
 }
 
 
+// Collapsed by default: the week strip above already surfaces every one of
+// these within the next ~7 days, dated — this full listing (every event in
+// the release's feed, weeks out) is reference detail beginners open on
+// purpose, not a wall they scroll past by accident (the "football field"
+// the week strip exists to fix). Native <details>/<summary>, same pattern as
+// the app's other accordions (pvp-full-rankings, source-details).
 export function renderCurrentEvents({ currentEvents, forms, now = new Date() } = {}) {
   const events = currentEvents?.events ?? [];
   if (!events.length) return "";
@@ -246,29 +290,93 @@ export function renderCurrentEvents({ currentEvents, forms, now = new Date() } =
     groups.get(key).push(event);
   }
   return `<section class="home-event-section" aria-labelledby="home-event-title">
-    <h3 id="home-event-title">Upcoming events</h3>
-    ${[...groups.entries()].map(([kind, group]) => eventTypeGroup(kind, group, { forms, now })).join("")}
+    <details id="home-event-details" class="home-event-details">
+      <summary id="home-event-title">Upcoming events</summary>
+      ${[...groups.entries()].map(([kind, group]) => eventTypeGroup(kind, group, { forms, now })).join("")}
+    </details>
   </section>`;
 }
 
 
-// "WED 6-7 PM" — shared by the Home Raid Hour banner and Weekly Coach's
-// "worth raiding" fold-in, so both read the same clock the same way.
-export function formatRaidHourWhen(startsAt, endsAt) {
+// ── At-a-glance week strip ──────────────────────────────────────────────
+// Same currentEvents data renderCurrentEvents groups below — this just
+// re-sorts it soonest-first and caps it, so the raid hour/spotlight
+// hour/Community Day the operator actually needs today doesn't require
+// scrolling past every multi-week backdrop event first.
+const WEEK_STRIP_WINDOW_DAYS = 7;
+const WEEK_STRIP_CAP = 6;
+
+// Always-on rotations/passes/seasons/multi-day themed backdrops aren't single
+// dated occurrences — the same distinction EVENT_TYPE_INFO already draws for
+// raid-battles ("not a special event, just when it's active") applies to
+// these other backdrop kinds too, so they'd otherwise crowd out the week's
+// actual occurrences (a Raid Hour, Community Day, or Spotlight Hour).
+const WEEK_STRIP_EXCLUDED_KINDS = new Set([
+  "season", "go-pass", "go-battle-league", "raid-battles", "choose-your-path",
+]);
+
+function daysUntil(date, now) {
+  return Math.round((startOfDay(date) - startOfDay(now)) / 86400000);
+}
+
+function weekStripEvents(events, now) {
+  return (events ?? [])
+    .filter((event) => {
+      if (WEEK_STRIP_EXCLUDED_KINDS.has(event.kind)) return false;
+      const start = new Date(event.startsAt);
+      if (Number.isNaN(start.valueOf())) return false;
+      const diff = daysUntil(start, now);
+      return diff >= 0 && diff <= WEEK_STRIP_WINDOW_DAYS;
+    })
+    .sort((left, right) => new Date(left.startsAt) - new Date(right.startsAt))
+    .slice(0, WEEK_STRIP_CAP);
+}
+
+// Boss target when the feed names one (raid hour, spotlight hour, most
+// Community Days) — same deep link currentBossCard/eventCard already use.
+// Otherwise the feed's own vetted leekduck link, same allowlist eventCard
+// validates against. Neither present -> no href; the row instead reveals
+// the full "Upcoming events" detail below (still this same data, just
+// ungrouped and undated further out).
+function weekStripHref(event) {
+  if (event.formId) return `./?boss=${encodeURIComponent(event.formId)}#raids`;
+  return safeEventLink(event.link);
+}
+
+function weekStripRow(event, { forms, now }) {
+  const info = eventTypeInfo(event.kind, event.typeLabel);
+  const name = forms?.[event.formId]?.name ?? event.name;
+  const when = formatEventWhen(event.startsAt, event.endsAt, now);
+  const href = weekStripHref(event);
+  const body = `<span class="week-strip-badge">${escapeHtml(info.badge)}</span>
+    <span class="week-strip-when">${escapeHtml(when)}</span>
+    <span class="week-strip-name">${escapeHtml(name)}</span>`;
+  return href
+    ? `<a class="week-strip-row" href="${escapeHtml(href)}"${href.startsWith("http") ? ' target="_blank" rel="noopener"' : ""} data-event-id="${escapeHtml(event.eventId)}">${body}</a>`
+    : `<button type="button" class="week-strip-row" data-action="reveal-events" data-event-id="${escapeHtml(event.eventId)}">${body}</button>`;
+}
+
+export function renderWeekStrip({ currentEvents, forms, now = new Date() } = {}) {
+  const rows = weekStripEvents(currentEvents?.events, now);
+  if (!rows.length) return "";
+  return `<section class="home-week-strip fallback-section" aria-labelledby="home-week-strip-title">
+    <h3 id="home-week-strip-title" class="home-section-title">This week at a glance</h3>
+    <div class="week-strip-list">${rows.map((event) => weekStripRow(event, { forms, now })).join("")}</div>
+    <button type="button" class="week-strip-all-link" data-action="reveal-events">All events →</button>
+  </section>`;
+}
+
+
+// "TODAY · 6-7 PM" / "WED JUL 29 · 6-7 PM" — shared by the Home Raid Hour
+// banner, the week strip, and Weekly Coach's/Today's fold-ins, so every
+// surface reads the same clock the same way and dates a Raid Hour instead of
+// leaving its weekday ambiguous between this week and next.
+export function formatRaidHourWhen(startsAt, endsAt, now = new Date()) {
   const start = new Date(startsAt);
   if (Number.isNaN(start.valueOf())) return "";
-  const day = start.toLocaleDateString("en-US", { weekday: "short" }).toUpperCase();
-  // Split on any whitespace, not a literal space: ICU-72+ browser engines
-  // (Chrome 110+, Safari 16.4+, Firefox 106+) emit U+202F (narrow no-break
-  // space) between hour and AM/PM, which a plain " " split misses — Node's
-  // ICU still uses a plain space, so the test suite can't catch that split.
-  const [startNum, startPeriod] = start.toLocaleTimeString("en-US", { hour: "numeric" }).split(/\s/);
+  const day = relativeDayLabel(start, now);
   const end = new Date(endsAt);
-  if (Number.isNaN(end.valueOf())) return `${day} ${startNum} ${startPeriod}`;
-  const [endNum, endPeriod] = end.toLocaleTimeString("en-US", { hour: "numeric" }).split(/\s/);
-  return startPeriod === endPeriod
-    ? `${day} ${startNum}-${endNum} ${endPeriod}`
-    : `${day} ${startNum} ${startPeriod}-${endNum} ${endPeriod}`;
+  return `${day} · ${timeRange(start, end)}`;
 }
 
 
@@ -288,7 +396,7 @@ export function raidHourBanner({ currentEvents, forms, now = new Date() } = {}) 
   const event = nextRaidHour(currentEvents?.events, now);
   if (!event) return "";
   const bossName = forms?.[event.formId]?.name ?? event.name.replace(/ Raid Hour$/, "");
-  const when = formatRaidHourWhen(event.startsAt, event.endsAt);
+  const when = formatRaidHourWhen(event.startsAt, event.endsAt, now);
   const stale = new Date(event.endsAt) < now;
   return `<a class="fallback-section raid-hour-banner" href="./?boss=${encodeURIComponent(event.formId)}#raids" data-event-id="${escapeHtml(event.eventId)}">
     <p class="raid-hour-kicker">⏰ RAID HOUR${when ? ` · ${escapeHtml(when)}` : ""}</p>
@@ -337,7 +445,7 @@ export function renderHome({
       <input id="global-search" name="q" type="search" autocomplete="off">
       <div data-search-results aria-live="polite"></div>
     </form>
-    ${raidHourBanner({ currentEvents, forms })}
+    ${renderWeekStrip({ currentEvents, forms })}
     <h3 class="home-section-title">What are you fighting?</h3>
     <div class="home-task-grid">
       ${taskCard({ href: "./#today", title: "Today", detail: "Raid/Spotlight Hour, gym status, and today's picks — one checklist." })}

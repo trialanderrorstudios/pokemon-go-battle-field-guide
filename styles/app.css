@@ -813,12 +813,6 @@ h1 {
   margin-top: 0.5rem;
 }
 
-.home-event-section h3 {
-  color: var(--text);
-  font-size: 1rem;
-  margin: 0 0 0.5rem;
-}
-
 .home-event-grid {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
@@ -889,6 +883,93 @@ h1 {
   margin: 0;
   font-size: 0.72rem;
   color: var(--muted);
+}
+
+/* ── At-a-glance week strip ── */
+.home-week-strip {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.week-strip-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.week-strip-row {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  column-gap: 0.5rem;
+  row-gap: 0.05rem;
+  align-items: baseline;
+  min-height: 48px;
+  padding: 0.5rem 0.6rem;
+  border: 1px solid var(--line);
+  border-radius: 0.6rem;
+  background: var(--panel-raised);
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.week-strip-row:focus-visible {
+  outline: 3px solid var(--focus);
+  box-shadow: 0 0 0 5px rgba(24, 32, 56, 0.85);
+  outline-offset: 2px;
+}
+
+.week-strip-badge {
+  grid-column: 1;
+  font-size: 0.68rem;
+  font-weight: 800;
+  letter-spacing: 0.03em;
+  color: var(--cyan);
+  text-transform: uppercase;
+}
+
+.week-strip-when {
+  grid-column: 2;
+  font-size: 0.7rem;
+  color: var(--muted);
+}
+
+.week-strip-name {
+  grid-column: 1 / -1;
+  font-size: 0.9rem;
+  color: var(--text);
+  font-weight: 650;
+}
+
+.week-strip-all-link {
+  align-self: flex-start;
+  min-height: 48px;
+  padding: 0 0.2rem;
+  border: none;
+  background: none;
+  color: var(--cyan);
+  font: inherit;
+  font-weight: 700;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.home-event-details summary {
+  min-height: 48px;
+  padding-block: 0.65rem;
+  color: var(--text);
+  font-size: 1rem;
+  font-weight: 750;
+  cursor: pointer;
+}
+
+.home-event-details summary:focus-visible {
+  outline: 3px solid var(--focus);
+  box-shadow: 0 0 0 5px rgba(24, 32, 56, 0.85);
+  outline-offset: 2px;
 }
 
 /* ══ Controls — round physical-button tabs ══ */

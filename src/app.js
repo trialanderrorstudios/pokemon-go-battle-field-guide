@@ -1735,6 +1735,18 @@ export function createInteractionController({
         rerenderCurrent();
       } else if (action === "scroll-app-top") {
         scrollToTop();
+      } else if (action === "reveal-events") {
+        // Home's week-strip rows without a boss/external link (and its
+        // "All events" link) open the collapsed "Upcoming events" accordion
+        // and jump to it — a plain #hash anchor would instead round-trip
+        // through the router's hashchange handler, which re-renders Home
+        // and resets scroll to the top before the browser's own anchor
+        // jump ever gets seen.
+        const details = rootElement?.querySelector?.("#home-event-details");
+        if (details) {
+          details.open = true;
+          details.scrollIntoView?.({ block: "start" });
+        }
       } else if (action === "dismiss-update-banner") {
         const releaseId = releaseManager?.state?.candidate?.releaseId;
         if (releaseId) storage?.setItem?.(updateBannerDismissedKey(releaseId), "1");

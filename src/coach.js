@@ -53,7 +53,7 @@ function worthRaidingThisWeek(data, roster, now = new Date()) {
       ownedCounterCount: plan.ownedCounters.length,
       topCounterNames: plan.ownedCounters.slice(0, 2).map((row) => row.pokemon),
       href: `./?boss=${encodeURIComponent(boss.formId)}#raids`,
-      raidHourWhen: raidHour ? formatRaidHourWhen(raidHour.startsAt, raidHour.endsAt) : null,
+      raidHourWhen: raidHour ? formatRaidHourWhen(raidHour.startsAt, raidHour.endsAt, now) : null,
     });
   }
   return rows.sort((left, right) => (BAND_ORDER[left.band] - BAND_ORDER[right.band])

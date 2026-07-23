@@ -30,13 +30,15 @@ function localDateKey(now) {
   return `${now.getFullYear()}-${month}-${day}`;
 }
 
-// "WED 6-7 PM" -> "6-7 PM tonight" (evening) / "6-7 PM today" (morning) —
-// reuses home.js's shared hour formatter rather than reparsing the clock,
-// just swaps the weekday prefix for a same-day countdown word.
-function todayWhen(startsAt, endsAt) {
-  const full = formatRaidHourWhen(startsAt, endsAt);
+// "TODAY · 6-7 PM" -> "6-7 PM tonight" (evening) / "6-7 PM today" (morning) —
+// reuses home.js's shared hour formatter rather than reparsing the clock.
+// Every event reaching this helper is already same-day (todaysHourEvents
+// filtered on it), so formatRaidHourWhen's relative-day token is always
+// "TODAY" — swap it for a same-day countdown word instead.
+function todayWhen(startsAt, endsAt, now) {
+  const full = formatRaidHourWhen(startsAt, endsAt, now);
   if (!full) return "";
-  const rest = full.replace(/^\S+ /, "");
+  const rest = full.replace(/^\S+ · /, "");
   return `${rest} ${/PM$/.test(rest) ? "tonight" : "today"}`;
 }
 
@@ -46,12 +48,12 @@ function todaysHourEvents(events, now) {
     .sort((left, right) => new Date(left.startsAt) - new Date(right.startsAt));
 }
 
-function hourEventItem(event, forms) {
+function hourEventItem(event, forms, now) {
   const name = forms?.[event.formId]?.name ?? event.name.replace(HOUR_EVENT_SUFFIX[event.kind] ?? "", "");
   return {
     id: `event-${event.eventId}`,
     title: `${HOUR_EVENT_LABEL[event.kind] ?? "Event"}: ${name}`,
-    detail: `${todayWhen(event.startsAt, event.endsAt)}${event.action ? ` — ${event.action}` : ""}`,
+    detail: `${todayWhen(event.startsAt, event.endsAt, now)}${event.action ? ` — ${event.action}` : ""}`,
     href: `./?boss=${encodeURIComponent(event.formId)}#raids`,
   };
 }
@@ -137,7 +139,7 @@ export function buildTodayItems({
   const forms = data?.core?.forms ?? data?.forms ?? {};
   const pass = dailyPassItem(summary);
   const items = [
-    ...todaysHourEvents(data?.currentEvents?.events, now).map((event) => hourEventItem(event, forms)),
+    ...todaysHourEvents(data?.currentEvents?.events, now).map((event) => hourEventItem(event, forms, now)),
     ...(pass ? [pass] : []),
     ...gymStatusItems(defenseLog, now),
     ...coachPickItems(summary),
