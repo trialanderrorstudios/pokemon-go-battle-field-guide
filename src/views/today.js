@@ -2,12 +2,15 @@
 // new math lives here. Signal -> source:
 //   raid/spotlight hour today -> data.currentEvents (same feed Home reads),
 //     window text via home.js's formatRaidHourWhen
+//   Community Day today -> cd-brief.js's communityDayTodayItem, same
+//     data.currentEvents feed, guarded to only fire the actual CD day
 //   daily-pass verdict + coach picks -> coach.js buildCoachSummary (worthRaiding)
 //   gym status -> gym-defense-log.js buildLeaderboard/durationMs (local active entries)
 //   staleness / profile -> optional round-8 modules, no-op when absent
 import { escapeHtml, formatRaidHourWhen } from "./home.js";
 import { buildCoachSummary } from "../coach.js";
 import { durationMs } from "../gym-defense-log.js";
+import { communityDayTodayItem } from "../cd-brief.js";
 
 const HOUR_EVENT_KINDS = new Set(["raid-hour", "pokemon-spotlight-hour"]);
 const HOUR_EVENT_LABEL = Object.freeze({ "raid-hour": "Raid Hour", "pokemon-spotlight-hour": "Spotlight Hour" });
@@ -138,8 +141,10 @@ export function buildTodayItems({
   const summary = buildCoachSummary({ data, roster, now });
   const forms = data?.core?.forms ?? data?.forms ?? {};
   const pass = dailyPassItem(summary);
+  const cdToday = communityDayTodayItem(data?.currentEvents?.events, forms, now);
   const items = [
     ...todaysHourEvents(data?.currentEvents?.events, now).map((event) => hourEventItem(event, forms, now)),
+    ...(cdToday ? [cdToday] : []),
     ...(pass ? [pass] : []),
     ...gymStatusItems(defenseLog, now),
     ...coachPickItems(summary),

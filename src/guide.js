@@ -76,6 +76,14 @@ export const GUIDE_COPY = Object.freeze({
     title: "What can hatch",
     body: `Grouped by egg distance (1 km through 12 km), with shiny eligibility and hatch CP for each Pokémon in the pool. This is this app's bundled egg chart at its data cutoff, not live from the game.`,
   }),
+  delta: Object.freeze({
+    title: "What changed since last time",
+    body: `Compares this release's PvP rankings, moveset picks, raid boss rotation, and species list against the previous one — Pokémon you own are called out first, then everything else that moved.`,
+  }),
+  tricks: Object.freeze({
+    title: "Community-known tips and shortcuts",
+    body: `Curated mechanics and shortcuts grouped by category — Trading, Raids, Candy &amp; XP, Gyms, PvP, Quality of Life, and Community. Each tip cites its source and shows a "verified" date so you know how current it is; tap a category to expand it.`,
+  }),
 });
 
 

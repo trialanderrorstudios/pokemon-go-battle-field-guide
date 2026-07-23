@@ -1,3 +1,5 @@
+import { TIPS } from "./tricks.js";
+
 function normalizedParts(values) {
   return values
     .flat(Infinity)
@@ -74,6 +76,24 @@ function bossEntries(core) {
 }
 
 
+// Tips are static (not part of the release-data `core`), so they're always
+// included rather than derived from the `core` argument like forms/bosses.
+// Body text is stripped of the jargon-term markup (see glossary.js's
+// jargonTerm) before indexing so search fields hold plain words, not HTML.
+function tipEntries() {
+  return TIPS.map((tip) => ({
+    formId: tip.id,
+    name: tip.title,
+    resultCategory: "tip",
+    types: [],
+    moves: [],
+    _name: normalizeSearchText(tip.title),
+    _formId: normalizeSearchText(tip.id),
+    _fields: normalizedParts([tip.title, tip.category, tip.body.replace(/<[^>]+>/g, " ")]),
+  }));
+}
+
+
 function fuzzyTokens(entry) {
   const tokens = new Set([entry._name, entry._formId, ...entry._fields]);
   for (const field of [entry._name, ...entry._fields]) {
@@ -87,6 +107,7 @@ export function buildSearchIndex(core) {
   const candidates = [
     ...formRows(core?.forms).map(formEntry).filter(Boolean),
     ...bossEntries(core),
+    ...tipEntries(),
   ];
   const unique = new Map();
   for (const entry of candidates) {

@@ -4,6 +4,7 @@ import { moveLink } from "./move-sheet.js";
 import { stableRosterJson } from "../storage.js";
 import { renderCollectionView } from "./collection.js";
 import { luckyOwnedFormIdSet, shinyOwnedFormIdSet } from "../collection.js";
+import { formatFriendCode, friendCodeQrMatrix, isValidFriendCode } from "../friend-codes.js";
 
 
 export const MORE_LISTS = Object.freeze({
@@ -439,6 +440,74 @@ function rosterShareSection(data) {
 }
 
 
+// Inline <svg> built straight from the QR module grid — no data: URI, no
+// <img>, so it needs nothing from the CSP's img-src beyond what markup
+// already gets. Margin of 2 modules matches the quiet zone the build-time
+// share-qr.svg (scripts/generate-share-qr.py) already uses.
+function friendCodeQrSvg(matrix, label) {
+  const size = matrix.length;
+  const margin = 2;
+  const total = size + margin * 2;
+  const rects = matrix.flatMap((row, r) => row.map((dark, c) => (
+    dark ? `<rect x="${c + margin}" y="${r + margin}" width="1" height="1"/>` : ""
+  ))).filter(Boolean).join("");
+  return `<svg class="share-qr" viewBox="0 0 ${total} ${total}" role="img" aria-label="${escapeHtml(label)}">
+    <g fill="#000">${rects}</g>
+  </svg>`;
+}
+
+
+function friendRow(friend) {
+  return `<li class="instance-row" data-friend-id="${escapeHtml(friend.id)}">
+    <div><h4>${escapeHtml(friend.name)}</h4><p>${escapeHtml(formatFriendCode(friend.code))}</p></div>
+    <div class="instance-row-actions">
+      <button type="button" data-copy-friend-code-id="${escapeHtml(friend.id)}">Copy</button>
+      <button type="button" data-edit-friend-id="${escapeHtml(friend.id)}">Edit</button>
+      <button type="button" data-delete-friend-id="${escapeHtml(friend.id)}">Delete</button>
+    </div>
+  </li>`;
+}
+
+
+// Manual entry only: the game doesn't expose friend codes to third-party
+// apps. Everything here (your code, the friend list) stays on this device.
+function friendCodesSection(data) {
+  const myCode = data.friendCodeInput ?? "";
+  const draft = data.friendDraft ?? { editingId: null, name: "", code: "" };
+  const friends = data.friends ?? [];
+  const matrix = isValidFriendCode(myCode) ? friendCodeQrMatrix(myCode) : null;
+  return `<section class="more-section" aria-labelledby="more-friend-codes-title">
+    <p class="status-kicker">Trade, gift, and battle together</p><h2 id="more-friend-codes-title">Friend Codes</h2>
+    <p>In-game: Menu &gt; Friends &gt; Add Friend, then enter or scan a 12-digit code.</p>
+    <h3>My code</h3>
+    <label class="defense-log-player-name">Your 12-digit friend code
+      <input type="text" inputmode="numeric" autocomplete="off" maxlength="14" data-my-friend-code value="${escapeHtml(formatFriendCode(myCode))}" placeholder="0000 0000 0000">
+    </label>
+    ${data.friendCodeError ? `<p class="instance-sheet-error" role="alert">${escapeHtml(data.friendCodeError)}</p>` : ""}
+    ${matrix ? `
+    <button type="button" data-action="copy-my-friend-code">Copy my code</button>
+    ${friendCodeQrSvg(matrix, `QR code for friend code ${formatFriendCode(myCode)}`)}` : ""}
+    ${data.friendCodesMessage ? `<p class="triage-copy-status" role="status">${escapeHtml(data.friendCodesMessage)}</p>` : ""}
+    <h3>Friends (${friends.length})</h3>
+    ${friends.length
+      ? `<ul class="instance-list">${friends.map(friendRow).join("")}</ul>`
+      : `<p class="pvp-empty">No friends saved yet.</p>`}
+    <h3>${draft.editingId ? "Edit" : "Add"} a friend</h3>
+    <label class="defense-log-player-name">Name
+      <input type="text" maxlength="40" data-friend-draft-name value="${escapeHtml(draft.name ?? "")}">
+    </label>
+    <label class="defense-log-player-name">12-digit code
+      <input type="text" inputmode="numeric" autocomplete="off" maxlength="14" data-friend-draft-code value="${escapeHtml(formatFriendCode(draft.code ?? ""))}" placeholder="0000 0000 0000">
+    </label>
+    ${draft.error ? `<p class="instance-sheet-error" role="alert">${escapeHtml(draft.error)}</p>` : ""}
+    <div class="app-actions">
+      ${draft.editingId ? `<button type="button" data-action="cancel-friend-draft">Cancel</button>` : ""}
+      <button type="button" data-action="save-friend-draft">${draft.editingId ? "Save changes" : "Add friend"}</button>
+    </div>
+  </section>`;
+}
+
+
 function ownedCounts(roster = {}) {
   const provided = roster.ownedFormCounts ?? {};
   return Object.fromEntries((roster.ownedFormIds ?? []).map((formId) => [
@@ -522,6 +591,7 @@ export function renderMore(data = {}) {
       <p class="status-kicker">New to Pokémon GO battles?</p><h2 id="more-basics-title">Battle Basics</h2>
       <a class="safe-escape" href="./#basics">Read the plain-language basics</a>
       <a class="safe-escape" href="./#glossary">See every term in the Glossary</a>
+      <a class="safe-escape" href="./#tricks">Tips &amp; Tricks</a>
     </section>
     ${trainerProfileSection(data)}
     ${displaySection(data)}
@@ -533,6 +603,7 @@ export function renderMore(data = {}) {
       <a class="safe-escape" href="./#triage" data-route="triage">Open Triage My Box</a>
     </section>
     ${rosterShareSection(data)}
+    ${friendCodesSection(data)}
     <section class="more-section" aria-labelledby="more-investment-title">
       <p class="status-kicker">Spend ${jargonTerm("stardust", "Stardust")} and ${jargonTerm("candy", "Candy")} deliberately</p><h2 id="more-investment-title">Investment</h2>
       <div class="more-route-grid">${routeCard("budget")}${routeCard("future")}</div>

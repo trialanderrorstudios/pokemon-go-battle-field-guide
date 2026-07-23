@@ -1,5 +1,7 @@
 import { ATTACK_TYPES, effectiveness } from "../raid-target.js";
 import { spriteHtml } from "../sprites.js";
+import { intersectRosterChanges, releaseDiffDismissedKey } from "../release-diff.js";
+import { renderCommunityDayBriefCard } from "../cd-brief.js";
 
 
 export function escapeHtml(value) {
@@ -185,7 +187,7 @@ function timeRange(start, end) {
     : `${startNum} ${startPeriod}-${endNum} ${endPeriod}`;
 }
 
-function formatEventWhen(startsAt, endsAt, now = new Date()) {
+export function formatEventWhen(startsAt, endsAt, now = new Date()) {
   // typeof guard first: new Date(null) is the 1970 epoch (a valid date, not
   // NaN), so a missing startsAt would otherwise render "Dec 31"/"Jan 1" 1970
   // instead of the blank line the sort guard already tolerates elsewhere.
@@ -293,6 +295,7 @@ export function renderCurrentEvents({ currentEvents, forms, now = new Date() } =
     <details id="home-event-details" class="home-event-details">
       <summary id="home-event-title">Upcoming events</summary>
       ${[...groups.entries()].map(([kind, group]) => eventTypeGroup(kind, group, { forms, now })).join("")}
+      <p class="home-event-tricks-seed"><a class="safe-escape" href="./#tricks">See community tricks →</a></p>
     </details>
   </section>`;
 }
@@ -416,6 +419,40 @@ function whatsNewCard(whatsNew) {
 }
 
 
+const LEAGUE_LABELS = Object.freeze({ great: "Great", ultra: "Ultra", master: "Master" });
+
+function describeRosterChange(entry) {
+  const league = LEAGUE_LABELS[entry.league] ?? entry.league;
+  const parts = [];
+  if (entry.isNew) parts.push(`Your ${entry.pokemon} is a new ${league} League pick (rank #${entry.rank.current}).`);
+  else if (entry.rank) parts.push(`Your ${entry.pokemon}'s ${league} League pick moved #${entry.rank.previous}→#${entry.rank.current}.`);
+  if (entry.moveset) parts.push(`${entry.isNew || entry.rank ? "Its" : `Your ${entry.pokemon}'s`} optimal moveset changed.`);
+  return parts.join(" ");
+}
+
+// "What changed" — same dismissible fallback-section + per-release-id
+// dismissal pattern as whatsNewCard above, for the computed structural diff
+// (release-diff.js) instead of the release's own release-notes prose.
+function releaseDiffCard(diff, roster, storage) {
+  if (!diff?.available) return "";
+  const { bossRotation, newSpecies } = diff;
+  const yours = intersectRosterChanges(diff, roster).slice(0, 3);
+  const hasNews = yours.length || bossRotation.added.length || bossRotation.removed.length || newSpecies.length;
+  if (!hasNews) return "";
+  if (storage?.getItem?.(releaseDiffDismissedKey(diff.currentReleaseId)) === "1") return "";
+  const headline = [];
+  if (bossRotation.added.length) headline.push(`${bossRotation.added.length} raid boss${bossRotation.added.length === 1 ? "" : "es"} rotated in`);
+  if (newSpecies.length) headline.push(`${newSpecies.length} new Pokémon added`);
+  return `<div class="fallback-section release-diff-card" role="note">
+    <p><strong>What changed since your last visit</strong></p>
+    ${yours.length ? `<ul>${yours.map((entry) => `<li>${escapeHtml(describeRosterChange(entry))}</li>`).join("")}</ul>` : ""}
+    ${headline.length ? `<p>${escapeHtml(headline.join(" · "))}</p>` : ""}
+    <p><a href="./#delta">See everything that changed →</a></p>
+    <button type="button" data-action="dismiss-release-diff" data-release-id="${escapeHtml(diff.currentReleaseId)}">Dismiss</button>
+  </div>`;
+}
+
+
 export function renderHome({
   cutoff,
   offlineStatus = "Offline setup incomplete",
@@ -427,6 +464,9 @@ export function renderHome({
   forms = {},
   raids = null,
   whatsNew = null,
+  releaseDiff = null,
+  roster = null,
+  storage = null,
 } = {}) {
   const continueRoute = CONTINUE_ROUTES.has(continueTask?.route)
     ? continueTask.route
@@ -447,6 +487,8 @@ export function renderHome({
       <div data-search-results aria-live="polite"></div>
     </form>
     ${renderWeekStrip({ currentEvents, forms })}
+    ${releaseDiffCard(releaseDiff, roster, storage)}
+    ${renderCommunityDayBriefCard({ currentEvents, forms })}
     <h3 class="home-section-title">What are you fighting?</h3>
     <div class="home-task-grid">
       ${taskCard({ href: "./#today", title: "Today", detail: "Raid/Spotlight Hour, gym status, and today's picks — one checklist." })}

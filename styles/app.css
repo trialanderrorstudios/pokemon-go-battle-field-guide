@@ -602,12 +602,14 @@ h1 {
   padding: 0 0.1rem;
 }
 
-.whats-new-card {
+.whats-new-card,
+.release-diff-card {
   display: grid;
   gap: 0.5rem;
 }
 
-.whats-new-card button {
+.whats-new-card button,
+.release-diff-card button {
   justify-self: start;
   min-width: 48px;
   min-height: 48px;
@@ -620,10 +622,17 @@ h1 {
   font-weight: 750;
 }
 
-.whats-new-card button:focus-visible {
+.whats-new-card button:focus-visible,
+.release-diff-card button:focus-visible {
   outline: 3px solid var(--focus);
   box-shadow: 0 0 0 5px rgba(24, 32, 56, 0.85);
   outline-offset: 2px;
+}
+
+.delta-list {
+  display: grid;
+  gap: 0.35rem;
+  padding-left: 1.25rem;
 }
 
 .guide-links {
@@ -718,6 +727,43 @@ h1 {
 .glossary-entry dd {
   margin: 0.25rem 0 0;
   color: var(--muted);
+}
+
+.tricks-category {
+  margin: 0 0 1rem;
+}
+
+.tricks-category summary {
+  cursor: pointer;
+  color: var(--cyan);
+  font-weight: 800;
+  padding-block: 0.5rem;
+}
+
+.tricks-list {
+  display: grid;
+  gap: 0.75rem;
+  margin: 0.5rem 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.trick-card {
+  padding: 0.85rem;
+  border: 1px solid var(--line);
+  border-radius: 0.65rem;
+  background: var(--panel);
+}
+
+.trick-card h4 {
+  margin: 0 0 0.35rem;
+}
+
+.trick-verified {
+  margin: 0.5rem 0 0;
+  color: var(--muted);
+  font-size: 0.73rem;
+  font-weight: 800;
 }
 
 .share-qr {
@@ -958,6 +1004,19 @@ h1 {
   margin: 0;
   font-size: 0.72rem;
   color: var(--muted);
+}
+
+/* Community Day prep brief checklist — reuses .event-action's type scale for
+   its own paragraphs, this is only the <ul> reset those don't need. */
+.cd-brief-checklist {
+  margin: 0.2rem 0 0;
+  padding-left: 1.1rem;
+  font-size: 0.78rem;
+  color: var(--muted);
+}
+
+.cd-brief-checklist li {
+  margin: 0.2rem 0;
 }
 
 /* ── At-a-glance week strip ── */

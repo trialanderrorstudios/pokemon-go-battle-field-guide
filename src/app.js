@@ -13,6 +13,16 @@ import {
   saveTrainerProfile,
   stableRosterJson,
 } from "./storage.js";
+import {
+  addFriend,
+  isValidFriendCode,
+  loadFriendList,
+  loadMyFriendCode,
+  normalizeFriendCode,
+  removeFriend,
+  saveMyFriendCode,
+  updateFriend,
+} from "./friend-codes.js";
 import { scorePlacement } from "./placement.js";
 import { jargonTerm } from "./glossary.js";
 import { dismissGuide, renderGuide, showGuide } from "./guide.js";
@@ -109,6 +119,9 @@ import { renderSwap } from "./views/swap.js";
 import { renderCoach } from "./views/coach.js";
 import { renderToday, toggleTodayTask } from "./views/today.js";
 import { renderEggs } from "./views/eggs.js";
+import { renderDelta } from "./views/delta.js";
+import { loadCachedReleaseDiff, refreshReleaseDiff, releaseDiffDismissedKey } from "./release-diff.js";
+import { renderTricks } from "./views/tricks.js";
 import { triageRoster } from "./triage.js";
 import {
   advanceTriageView,
@@ -283,11 +296,18 @@ function highlightMatch(name, rawQuery) {
 }
 
 
+// Tips have no sprite/owned-star affordance (they're not Pokémon forms) —
+// just a link into the Tricks page instead of the sprite+star card shape.
+function tipSearchResultCard(result, rawQuery) {
+  return `<li class="search-result-card search-result-tip"><a class="safe-escape" href="./#tricks"><strong>${highlightMatch(result.name, rawQuery)}</strong> <span>Tip</span></a></li>`;
+}
+
 function renderSearchResults(results, forms, roster, rawQuery = "") {
   if (!results.length) return "<p>No local matches.</p>";
   const owned = new Set(roster?.ownedFormIds ?? []);
   return `<ul>${results.slice(0, 10).map((result) => (
-    `<li class="search-result-card${owned.has(result.formId) ? " is-owned" : ""}">${spriteHtml(result.formId, forms, result.name, forms?.[result.formId]?.primary_type)}<strong>${highlightMatch(result.name, rawQuery)}</strong> <span>${escapeHtml(result.resultCategory)}</span>${ownedStarButton({ formId: result.formId, name: result.name, owned: owned.has(result.formId), route: "search" })}</li>`
+    result.resultCategory === "tip" ? tipSearchResultCard(result, rawQuery)
+      : `<li class="search-result-card${owned.has(result.formId) ? " is-owned" : ""}">${spriteHtml(result.formId, forms, result.name, forms?.[result.formId]?.primary_type)}<strong>${highlightMatch(result.name, rawQuery)}</strong> <span>${escapeHtml(result.resultCategory)}</span>${ownedStarButton({ formId: result.formId, name: result.name, owned: owned.has(result.formId), route: "search" })}</li>`
   )).join("")}</ul>`;
 }
 
@@ -865,6 +885,11 @@ export function createInteractionState({
     textSize: loadTextSize(storage),
     theme: loadTheme(storage),
     trainerProfile: loadTrainerProfile(storage),
+    friendCodeInput: loadMyFriendCode(storage),
+    friendCodeError: "",
+    friendCodesMessage: "",
+    friends: loadFriendList(storage),
+    friendDraft: { editingId: null, name: "", code: "", error: "" },
     weather: loadWeather(storage),
     backupNudge: shouldShowBackupNudge(storage),
     backupImportPreview: null,
@@ -923,7 +948,11 @@ export function createInteractionController({
   if (!ui || !roster) throw new TypeError("Interaction state and roster are required.");
 
   const clearTriageCopyStatus = (state = ui) => {
-    if (state.triage) state.triage.copyStatus = "";
+    if (state.triage) {
+      state.triage.copyStatus = "";
+      state.triage.searchCopyId = "";
+      state.triage.searchCopyStatus = "";
+    }
   };
   let rosterWriteQueue = Promise.resolve();
   const enqueueRosterWrite = (buildNext) => {
@@ -1175,6 +1204,33 @@ export function createInteractionController({
       const trainerNameControl = target?.closest?.("[data-trainer-name]");
       if (trainerNameControl) {
         ui.trainerProfile = saveTrainerProfile(storage, { ...ui.trainerProfile, name: trainerNameControl.value });
+        rerender("more");
+        return;
+      }
+      const myFriendCodeControl = target?.closest?.("[data-my-friend-code]");
+      if (myFriendCodeControl) {
+        const digits = normalizeFriendCode(myFriendCodeControl.value);
+        if (digits !== "" && !isValidFriendCode(digits)) {
+          // Keep showing what the trainer typed next to the error instead of
+          // snapping back to the last saved code — nothing to save yet.
+          ui.friendCodeInput = digits;
+          ui.friendCodeError = "Friend code must be exactly 12 digits.";
+        } else {
+          ui.friendCodeInput = saveMyFriendCode(storage, digits);
+          ui.friendCodeError = "";
+        }
+        rerender("more");
+        return;
+      }
+      const friendDraftNameControl = target?.closest?.("[data-friend-draft-name]");
+      if (friendDraftNameControl) {
+        ui.friendDraft = { ...ui.friendDraft, name: friendDraftNameControl.value };
+        rerender("more");
+        return;
+      }
+      const friendDraftCodeControl = target?.closest?.("[data-friend-draft-code]");
+      if (friendDraftCodeControl) {
+        ui.friendDraft = { ...ui.friendDraft, code: normalizeFriendCode(friendDraftCodeControl.value) };
         rerender("more");
         return;
       }
@@ -1777,11 +1833,40 @@ export function createInteractionController({
         rerender("drill");
         return;
       }
+      const editFriend = target?.closest?.("[data-edit-friend-id]");
+      if (editFriend) {
+        const friend = ui.friends.find((entry) => entry.id === editFriend.dataset.editFriendId);
+        if (friend) ui.friendDraft = { editingId: friend.id, name: friend.name, code: friend.code, error: "" };
+        rerender("more");
+        return;
+      }
+      const deleteFriend = target?.closest?.("[data-delete-friend-id]");
+      if (deleteFriend) {
+        const friendId = deleteFriend.dataset.deleteFriendId;
+        ui.friends = removeFriend(storage, friendId);
+        if (ui.friendDraft.editingId === friendId) ui.friendDraft = { editingId: null, name: "", code: "", error: "" };
+        rerender("more");
+        return;
+      }
+      const copyFriendCode = target?.closest?.("[data-copy-friend-code-id]");
+      if (copyFriendCode) {
+        const friend = ui.friends.find((entry) => entry.id === copyFriendCode.dataset.copyFriendCodeId);
+        const copied = friend && await (api.onRosterShareCopy ?? onRosterShareCopy)?.(friend.code);
+        ui.friendCodesMessage = copied
+          ? `Copied ${friend.name}'s code to the clipboard.`
+          : "Could not copy automatically — select and copy the code above.";
+        rerender("more");
+        return;
+      }
       const actionEl = target?.closest?.("[data-action]");
       const action = actionEl?.dataset?.action;
       if (action === "dismiss-whats-new") {
         const releaseId = actionEl.dataset.releaseId;
         if (releaseId) storage?.setItem?.(whatsNewDismissedKey(releaseId), "1");
+        rerender("home");
+      } else if (action === "dismiss-release-diff") {
+        const releaseId = actionEl.dataset.releaseId;
+        if (releaseId) storage?.setItem?.(releaseDiffDismissedKey(releaseId), "1");
         rerender("home");
       } else if (action === "dismiss-triage-guide") {
         storage?.setItem?.(TRIAGE_GUIDE_DISMISSED_KEY, "1");
@@ -1793,6 +1878,12 @@ export function createInteractionController({
         const payload = candyTransferText(api.getTriageResult?.());
         const copied = Boolean(payload) && await api.onTriageCopy?.(payload);
         ui.triage.copyStatus = copied ? "success" : "failure";
+        rerender("triage");
+      } else if (action === "copy-triage-search-chunk") {
+        const payload = actionEl.dataset.searchChunkPayload;
+        const copied = Boolean(payload) && await api.onTriageCopy?.(payload);
+        ui.triage.searchCopyId = actionEl.dataset.searchChunkId ?? "";
+        ui.triage.searchCopyStatus = copied ? "success" : "failure";
         rerender("triage");
       } else if (action === "share-triage-summary-card") {
         const cardData = triageSummaryCardData(api.getTriageResult?.()?.counts);
@@ -1867,6 +1958,31 @@ export function createInteractionController({
         ui.rosterMessage = copied
           ? "Copied roster to clipboard."
           : "Could not copy automatically — select and copy the text above.";
+        rerender("more");
+      } else if (action === "copy-my-friend-code") {
+        const copied = isValidFriendCode(ui.friendCodeInput)
+          && await (api.onRosterShareCopy ?? onRosterShareCopy)?.(ui.friendCodeInput);
+        ui.friendCodesMessage = copied
+          ? "Copied your code to the clipboard."
+          : "Could not copy automatically — select and copy the code above.";
+        rerender("more");
+      } else if (action === "save-friend-draft") {
+        const digits = normalizeFriendCode(ui.friendDraft.code);
+        if (!isValidFriendCode(digits)) {
+          ui.friendDraft = { ...ui.friendDraft, error: "Friend code must be exactly 12 digits." };
+        } else {
+          try {
+            ui.friends = ui.friendDraft.editingId
+              ? updateFriend(storage, ui.friendDraft.editingId, { name: ui.friendDraft.name, code: digits })
+              : addFriend(storage, { name: ui.friendDraft.name, code: digits });
+            ui.friendDraft = { editingId: null, name: "", code: "", error: "" };
+          } catch (error) {
+            ui.friendDraft = { ...ui.friendDraft, error: error?.message ?? String(error) };
+          }
+        }
+        rerender("more");
+      } else if (action === "cancel-friend-draft") {
+        ui.friendDraft = { editingId: null, name: "", code: "", error: "" };
         rerender("more");
       } else if (action === "feedback-export") {
         const payload = exportFeedback(storage);
@@ -2604,8 +2720,17 @@ export function bootstrap({
         forms: state.core.forms,
         raids: state.raids,
         whatsNew: whatsNewCard(releaseState, storage),
+        releaseDiff: loadCachedReleaseDiff(storage, releaseState.manifest?.releaseId ?? null),
+        roster,
+        storage,
       });
       searchRefresh = bindSearch(documentObject, index, state.core.forms, roster, storage);
+    },
+    delta() {
+      app.innerHTML = renderDelta({
+        diff: loadCachedReleaseDiff(storage, releaseState.manifest?.releaseId ?? null),
+        roster,
+      });
     },
     basics() {
       app.innerHTML = renderBasics();
@@ -2623,6 +2748,9 @@ export function bootstrap({
     },
     glossary() {
       app.innerHTML = renderGlossary();
+    },
+    tricks() {
+      app.innerHTML = renderTricks();
     },
     drill() {
       app.innerHTML = renderDrill(ui.drill);
@@ -2771,6 +2899,11 @@ export function bootstrap({
           textSize: ui.textSize,
           theme: ui.theme,
           trainerProfile: ui.trainerProfile,
+          friendCodeInput: ui.friendCodeInput,
+          friendCodeError: ui.friendCodeError,
+          friendCodesMessage: ui.friendCodesMessage,
+          friends: ui.friends,
+          friendDraft: ui.friendDraft,
           stardust: ui.stardust,
           backupNudge: ui.backupNudge,
           backupImportPreview: ui.backupImportPreview,
@@ -3012,6 +3145,20 @@ export async function startFieldGuide({
     if (!releaseState.data) return;
     chunkLoader.reset();
     rebootstrap();
+    // "What changed" diff: computed once per landed release (cached, keyed
+    // to that release id — see release-diff.js), not held in memory here.
+    // Fire-and-forget; a second rebootstrap once it lands is what lets the
+    // Home card and #delta view pick it up without the operator navigating.
+    // Skip that second rebootstrap on a cache hit — the rebootstrap just
+    // above already rendered with this same cached diff via
+    // loadCachedReleaseDiff, so re-running it would be a wasted full re-render.
+    const storage = windowObject?.localStorage ?? null;
+    const alreadyCached = Boolean(loadCachedReleaseDiff(storage, releaseState.manifest?.releaseId ?? null));
+    void refreshReleaseDiff({ releaseManager, storage })
+      .then(() => {
+        if (!alreadyCached) rebootstrap();
+      })
+      .catch(() => {});
   });
   try {
     releaseState = await releaseManager.initialize();

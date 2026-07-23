@@ -291,6 +291,7 @@ export function renderDefenseLog({ log, now = Date.now(), draft = {}, trainerTea
   return `<section class="gym-section" aria-labelledby="gym-defense-log-title">
     ${sectionHeading("Manual, honest tracking", "Gym Defense Leaderboard", "gym-defense-log-title")}
     <p class="gym-intro">Pokémon GO doesn't expose gym-hold data to apps — this board is only as accurate as what you and your friends type in.</p>
+    <p class="gym-intro">Tip: type <code>defender</code> into your in-game Pokémon search (the magnifying glass) to see every Pokémon of yours currently guarding a gym, straight from the game.</p>
     ${message ? `<aside class="gym-warning" role="alert"><p>${escapeHtml(message)}</p></aside>` : ""}
     <label class="defense-log-player-name">Your name on the board
       <input type="text" maxlength="40" data-defense-log-player-name value="${escapeHtml(safeLog.localPlayerName)}">
@@ -338,6 +339,7 @@ export function renderGyms({
 } = {}) {
   const deploymentMap = buildDeploymentMap(defenseLog, now);
   return `<div class="gyms-view">
+    <p class="gym-tricks-seed"><a class="safe-escape" href="./#tricks">See gym tricks →</a></p>
     ${renderPlacementCoach({ placementResult, ownedIndex, overallIndex, rosterInstances, deploymentMap })}
     ${offenseSection(gym, forms)}
     ${staggerSection(gym)}

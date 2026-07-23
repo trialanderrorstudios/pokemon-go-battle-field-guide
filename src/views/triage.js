@@ -2,6 +2,7 @@ import { GLOSSARY, jargonTerm } from "../glossary.js";
 import { triageSummaryCardData } from "../share-card.js";
 import { spriteHtml } from "../sprites.js";
 import { TRIAGE_BUCKETS } from "../triage.js";
+import { buildSearchQuery } from "../game-search.js";
 import { escapeHtml } from "./home.js";
 
 
@@ -30,6 +31,10 @@ export function createTriageViewState(filters = {}) {
       : "",
     explainerOpen: Boolean(filters.explainerOpen),
     shareStatus: typeof filters.shareStatus === "string" ? filters.shareStatus : "",
+    searchCopyId: typeof filters.searchCopyId === "string" ? filters.searchCopyId : "",
+    searchCopyStatus: filters.searchCopyStatus === "success" || filters.searchCopyStatus === "failure"
+      ? filters.searchCopyStatus
+      : "",
   };
 }
 
@@ -135,6 +140,19 @@ export function candyTransferText(result) {
 }
 
 
+function entryName(entry) {
+  return entry.name ?? entry.form?.name ?? entry.formId;
+}
+
+export function candySearchNames(result) {
+  return matchingEntries(result, "CANDY").map(entryName);
+}
+
+export function keepPvpSearchNames(result) {
+  return [...matchingEntries(result, "KEEP"), ...matchingEntries(result, "PVP")].map(entryName);
+}
+
+
 function guideCard(showGuide) {
   if (!showGuide) return "";
   return `<aside class="triage-guide card" role="note">
@@ -178,6 +196,52 @@ function candyTools(result, state) {
 }
 
 
+// Shared by the CANDY and KEEP/PVP search-string sections below: one
+// "Copy Part N" button per chunk, with the same clipboard-then-textarea
+// fallback as the transfer checklist above (data-triage-copy-fallback is
+// the same selector app.js already wires a fallback-select behavior to).
+function searchChunkButtons(chunks, groupId, state) {
+  return chunks.map((chunk, index) => {
+    const chunkId = `${groupId}:${index}`;
+    const label = chunks.length > 1 ? `Copy part ${index + 1} of ${chunks.length}` : "Copy this list";
+    if (state.searchCopyId !== chunkId) {
+      return `<div><button type="button" data-action="copy-triage-search-chunk" data-search-chunk-id="${chunkId}" data-search-chunk-payload="${escapeHtml(chunk)}">${label}</button></div>`;
+    }
+    const status = state.searchCopyStatus === "success"
+      ? '<p class="triage-copy-status" role="status">Copied to the clipboard.</p>'
+      : `<p class="triage-copy-status" role="status">Could not copy automatically — select and copy this list.</p><textarea data-triage-copy-fallback readonly rows="3">${escapeHtml(chunk)}</textarea>`;
+    return `<div><button type="button" data-action="copy-triage-search-chunk" data-search-chunk-id="${chunkId}" data-search-chunk-payload="${escapeHtml(chunk)}">${label}</button>${status}</div>`;
+  }).join("");
+}
+
+function searchExcludedNote(excludedCount) {
+  if (!excludedCount) return "";
+  return `<p class="triage-invest-cost">${excludedCount} ${excludedCount === 1 ? "Pokémon isn't" : "Pokémon aren't"} included — their names (regional forms, other special forms, or Nidoran's ♀/♂ symbol) aren't verified to paste and match correctly in-game. Find those by hand.</p>`;
+}
+
+function candySearchSection(result, state) {
+  const { chunks, excludedCount } = buildSearchQuery(candySearchNames(result));
+  if (!chunks.length) return "";
+  return `<section class="triage-copy card" aria-labelledby="triage-candy-search-title">
+    <h3 id="triage-candy-search-title">Select these in-game for transfer</h3>
+    <p>Paste into the search field in your in-game Pokémon list (the magnifying glass), review what comes up, then transfer by hand — nothing here transfers automatically.</p>
+    ${searchExcludedNote(excludedCount)}
+    ${searchChunkButtons(chunks, "candy", state)}
+  </section>`;
+}
+
+function keepPvpSearchSection(result, state) {
+  const { chunks, excludedCount } = buildSearchQuery(keepPvpSearchNames(result));
+  if (!chunks.length) return "";
+  return `<section class="triage-copy card" aria-labelledby="triage-keep-search-title">
+    <h3 id="triage-keep-search-title">Tag these as keepers</h3>
+    <p>Paste into the in-game search field to bring up your Keep and PvP picks together, then long-press one to enter multi-select, tap the rest of the list, and apply a tag to all of them at once — search can filter by that tag afterward.</p>
+    ${searchExcludedNote(excludedCount)}
+    ${searchChunkButtons(chunks, "keeppvp", state)}
+  </section>`;
+}
+
+
 export function renderTriage({ result = {}, forms = {}, state: rawState, showGuide = false } = {}) {
   const state = createTriageViewState(rawState);
   const allEntries = result.entries ?? [];
@@ -212,6 +276,8 @@ export function renderTriage({ result = {}, forms = {}, state: rawState, showGui
     </div>
     ${shareCard ? `<button type="button" class="triage-share-card" data-action="share-triage-summary-card">Share my triage card</button>${shareStatus}` : ""}
     ${state.filter === "CANDY" ? candyTools(result, state) : ""}
+    ${state.filter === "CANDY" ? candySearchSection(result, state) : ""}
+    ${state.filter === "KEEP" || state.filter === "PVP" ? keepPvpSearchSection(result, state) : ""}
     <p class="triage-window-status">Showing ${visible.length ? `${rangeStart}–${rangeEnd}` : "0"} of ${matches.length}</p>
     <ul class="triage-list">${visible.map((entry) => entryRow(entry, forms)).join("")}</ul>
     ${hasPrevious ? '<button type="button" class="triage-show-more" data-triage-previous>Previous 60</button>' : ""}
