@@ -132,10 +132,12 @@ import { loadCachedReleaseDiff, refreshReleaseDiff, releaseDiffDismissedKey } fr
 import { renderTricks } from "./views/tricks.js";
 import { renderCandyPlan } from "./views/candyplan.js";
 import { triageRoster } from "./triage.js";
+import { renameStringForEntry } from "./rename-string.js";
 import {
   advanceTriageView,
   candyTransferText,
   createTriageViewState,
+  renamePlanText,
   renderTriage,
   retreatTriageView,
   setTriageFilter,
@@ -795,7 +797,7 @@ function gymState(
 function blankInstanceDraft() {
   return {
     editingId: null, cp: "", ivs: { atk: "", def: "", sta: "" }, fastMove: "", chargedMoves: [],
-    nickname: "", isShiny: false, isLucky: false,
+    nickname: "", isShiny: false, isLucky: false, caughtYear: "",
   };
 }
 
@@ -851,6 +853,7 @@ function draftFromInstance(instance) {
     nickname: instance.nickname ?? "",
     isShiny: Boolean(instance.isShiny),
     isLucky: Boolean(instance.isLucky),
+    caughtYear: "", // not part of the persisted instance — re-entered per lucky-advice check, see instance-sheet.js
   };
 }
 
@@ -972,6 +975,7 @@ export function createInteractionController({
       state.triage.copyStatus = "";
       state.triage.searchCopyId = "";
       state.triage.searchCopyStatus = "";
+      state.triage.renameCopyStatus = "";
     }
   };
   let rosterWriteQueue = Promise.resolve();
@@ -1317,6 +1321,12 @@ export function createInteractionController({
         rerender(ui.instanceSheet.returnRoute ?? "more");
         return;
       }
+      const instanceCaughtYear = target?.closest?.("[data-instance-caught-year]");
+      if (instanceCaughtYear && ui.instanceSheet) {
+        ui.instanceSheet.draft.caughtYear = instanceCaughtYear.value;
+        rerender(ui.instanceSheet.returnRoute ?? "more");
+        return;
+      }
       const quickCpInput = target?.closest?.("[data-quick-cp-input]");
       if (quickCpInput && ui.instanceSheet?.quickCp) {
         ui.instanceSheet.quickCp.value = quickCpInput.value;
@@ -1466,6 +1476,8 @@ export function createInteractionController({
             focusInstanceId: instance?.id ?? null,
             returnRoute,
             shareMessage: "",
+            renameCopy: null,
+            starTier: null,
           };
         }
         rerenderCurrent();
@@ -1490,6 +1502,7 @@ export function createInteractionController({
             focusInstanceId: ui.instanceSheet.returnRoute === "triage" ? instance.id : null,
             quickCp: null,
             shareMessage: "",
+            starTier: null,
           };
         }
         rerenderCurrent();
@@ -1517,6 +1530,17 @@ export function createInteractionController({
         rerenderCurrent();
         return;
       }
+      const copyInstanceRename = target?.closest?.("[data-copy-instance-rename-id]");
+      if (copyInstanceRename && ui.instanceSheet) {
+        const payload = copyInstanceRename.dataset.copyInstanceRenamePayload;
+        const copied = Boolean(payload) && await (api.onRosterShareCopy ?? onRosterShareCopy)?.(payload);
+        ui.instanceSheet.renameCopy = {
+          instanceId: copyInstanceRename.dataset.copyInstanceRenameId,
+          status: copied ? "success" : "failure",
+        };
+        rerenderCurrent();
+        return;
+      }
       const deleteInstance = target?.closest?.("[data-delete-instance-id]");
       if (deleteInstance) {
         const instanceId = deleteInstance.dataset.deleteInstanceId;
@@ -1531,6 +1555,28 @@ export function createInteractionController({
           else ui.instanceSheet.draft = blankInstanceDraft();
         }
         rerender(returnRoute);
+        return;
+      }
+      const ivBarPip = target?.closest?.("[data-instance-iv-bar-stat]");
+      if (ivBarPip && ui.instanceSheet) {
+        ui.instanceSheet.draft.ivs[ivBarPip.dataset.instanceIvBarStat] = Number(ivBarPip.dataset.instanceIvBarValue);
+        ui.instanceSheet.error = "";
+        rerenderCurrent();
+        return;
+      }
+      const starTierChip = target?.closest?.("[data-instance-star-tier]");
+      if (starTierChip && ui.instanceSheet) {
+        const tier = Number(starTierChip.dataset.instanceStarTier);
+        ui.instanceSheet.starTier = ui.instanceSheet.starTier === tier ? null : tier;
+        rerenderCurrent();
+        return;
+      }
+      const candidateIvsChip = target?.closest?.("[data-instance-candidate-ivs]");
+      if (candidateIvsChip && ui.instanceSheet) {
+        const [atk, def, sta] = candidateIvsChip.dataset.instanceCandidateIvs.split(",").map(Number);
+        ui.instanceSheet.draft.ivs = { atk, def, sta };
+        ui.instanceSheet.error = "";
+        rerenderCurrent();
         return;
       }
       const fastMoveChip = target?.closest?.("[data-instance-fast-move]");
@@ -1916,6 +1962,11 @@ export function createInteractionController({
         const copied = Boolean(payload) && await api.onTriageCopy?.(payload);
         ui.triage.searchCopyId = actionEl.dataset.searchChunkId ?? "";
         ui.triage.searchCopyStatus = copied ? "success" : "failure";
+        rerender("triage");
+      } else if (action === "copy-triage-rename-plan") {
+        const payload = renamePlanText(api.getTriageResult?.(), ui.triage.filter);
+        const copied = Boolean(payload) && await api.onTriageCopy?.(payload);
+        ui.triage.renameCopyStatus = copied ? "success" : "failure";
         rerender("triage");
       } else if (action === "share-triage-summary-card") {
         const cardData = triageSummaryCardData(api.getTriageResult?.()?.counts);
@@ -3086,14 +3137,22 @@ export function bootstrap({
         });
       }
       if (ui.instanceSheet) {
+        const renameByInstanceId = new Map(getTriageResult().entries
+          .filter((entry) => entry.instance)
+          .map((entry) => [entry.instance.id, renameStringForEntry(entry)]));
         app.innerHTML += renderInstanceSheet({
           form: state.core.forms[ui.instanceSheet.formId],
+          forms: state.core.forms,
           instances: roster.instances ?? [],
           draft: ui.instanceSheet.draft,
           error: ui.instanceSheet.error,
           focusInstanceId: ui.instanceSheet.focusInstanceId,
           quickCp: ui.instanceSheet.quickCp,
           shareMessage: ui.instanceSheet.shareMessage,
+          pvp: state.pvp,
+          renameByInstanceId,
+          renameCopy: ui.instanceSheet.renameCopy,
+          starTier: ui.instanceSheet.starTier ?? null,
         });
       }
       updateLeds(documentObject, releaseState, roster);

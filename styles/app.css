@@ -2136,7 +2136,9 @@ h1 {
 .pvp-team-ideal,
 .pvp-myteam-eligibility,
 .pvp-myteam-compare,
-.pvp-myteam-quality {
+.pvp-myteam-quality,
+.pvp-myteam-rank,
+.swap-rank-line {
   margin: 0;
   font-size: 0.8rem;
   color: var(--muted);
@@ -2478,6 +2480,24 @@ h1 {
   font-size: 0.85rem;
 }
 
+.lucky-advisor {
+  margin: 0.4rem 0;
+  padding: 0.5rem 0.7rem;
+  border: 1px solid var(--line);
+  border-radius: 0.6rem;
+  background: var(--panel-raised);
+  font-size: 0.8rem;
+}
+
+.lucky-advisor p {
+  margin: 0;
+  color: var(--muted);
+}
+
+.lucky-advisor[data-lucky-advisor-status="benefits"] p {
+  color: var(--text);
+}
+
 .instance-list {
   margin: 0 0 0.4rem;
   padding: 0;
@@ -2532,6 +2552,23 @@ h1 {
   cursor: pointer;
 }
 
+.instance-rename-string code {
+  font-size: 0.75rem;
+  overflow-wrap: anywhere;
+}
+
+.instance-rename-string button {
+  min-height: 48px;
+  padding: 0 0.6rem;
+  margin-left: 0.4rem;
+  border: 1px solid var(--line);
+  border-radius: 0.5rem;
+  background: var(--panel-raised);
+  color: var(--text);
+  font: inherit;
+  cursor: pointer;
+}
+
 .instance-iv-row {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -2565,6 +2602,60 @@ h1 {
   margin: 0.2rem 0;
   color: var(--muted);
   font-size: 0.75rem;
+}
+
+.instance-predicted-cp-badge {
+  display: inline-flex;
+  padding: 0.1rem 0.4rem;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  font-size: 0.72rem;
+  font-weight: 750;
+}
+
+.instance-iv-bar-group {
+  margin: 0.3rem 0 0.6rem;
+}
+
+.instance-iv-bar-label {
+  margin: 0 0 0.2rem;
+  color: var(--muted);
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.instance-iv-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+}
+
+.instance-iv-pip {
+  min-width: 2.4rem;
+  min-height: 48px;
+  padding: 0 0.3rem;
+  border: 1px solid var(--line);
+  border-radius: 0.4rem;
+  background: var(--panel-raised);
+  color: var(--text);
+  font: inherit;
+  font-size: 0.78rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.instance-iv-pip.is-selected {
+  border-color: var(--cyan);
+  color: var(--cyan);
+  font-weight: 800;
+}
+
+/* Visual break after pips 7/12/14 — the same 0-7/8-12/13-14/15 band
+   boundaries the team leader's own stat bar uses (see instance-sheet.js
+   ivBarPip citation). */
+.instance-iv-pip-band-end {
+  margin-right: 0.5rem;
 }
 
 .move-chip-row {

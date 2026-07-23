@@ -3,6 +3,7 @@ import { triageSummaryCardData } from "../share-card.js";
 import { spriteHtml } from "../sprites.js";
 import { TRIAGE_BUCKETS } from "../triage.js";
 import { buildSearchQuery } from "../game-search.js";
+import { RENAME_MAX_LENGTH, batchRenameStrings } from "../rename-string.js";
 import { escapeHtml } from "./home.js";
 
 
@@ -28,6 +29,9 @@ export function createTriageViewState(filters = {}) {
       : TRIAGE_PAGE_SIZE,
     copyStatus: filters.copyStatus === "success" || filters.copyStatus === "failure"
       ? filters.copyStatus
+      : "",
+    renameCopyStatus: filters.renameCopyStatus === "success" || filters.renameCopyStatus === "failure"
+      ? filters.renameCopyStatus
       : "",
     explainerOpen: Boolean(filters.explainerOpen),
     shareStatus: typeof filters.shareStatus === "string" ? filters.shareStatus : "",
@@ -196,6 +200,35 @@ function candyTools(result, state) {
 }
 
 
+// Batch rename plan for KEEP/PVP: one line per entry with an encodable
+// instance, "Name — RENAMESTRING (CP nnn)", so the operator has a written
+// checklist while typing each rename into Pokémon GO's pencil-icon field by
+// hand — nothing here renames anything automatically.
+export function renamePlanText(result, filter) {
+  return batchRenameStrings(matchingEntries(result, filter)).map(({ entry, name, value }) => {
+    const cp = Number.isFinite(entry.instance?.cp) ? entry.instance.cp : "not recorded";
+    return `${name} — ${value} (CP ${cp})`;
+  }).join("\n");
+}
+
+function renameTools(result, state) {
+  const rows = batchRenameStrings(matchingEntries(result, state.filter));
+  if (!rows.length) return "";
+  const payload = renamePlanText(result, state.filter);
+  const status = state.renameCopyStatus === "success"
+    ? '<p class="triage-copy-status" role="status">Copied rename plan to the clipboard.</p>'
+    : state.renameCopyStatus === "failure"
+      ? `<p class="triage-copy-status" role="status">Could not copy automatically — select and copy this list.</p><textarea data-triage-copy-fallback readonly rows="6">${escapeHtml(payload)}</textarea>`
+      : "";
+  return `<section class="triage-copy card" aria-labelledby="triage-rename-title">
+    <h3 id="triage-rename-title">Rename plan (${rows.length})</h3>
+    <p>Each string encodes the league (G/U/M), exact IVs (Attack/Defense/Stamina as hex), and — when ranked — this copy's PVP quality % and species meta rank, in ${RENAME_MAX_LENGTH} characters or fewer. Rename in-game (tap the Pokémon → pencil icon) so the search bridge above finds these keepers again later.</p>
+    <button type="button" data-action="copy-triage-rename-plan">Copy rename plan</button>
+    ${status}
+  </section>`;
+}
+
+
 // Shared by the CANDY and KEEP/PVP search-string sections below: one
 // "Copy Part N" button per chunk, with the same clipboard-then-textarea
 // fallback as the transfer checklist above (data-triage-copy-fallback is
@@ -278,6 +311,7 @@ export function renderTriage({ result = {}, forms = {}, state: rawState, showGui
     ${state.filter === "CANDY" ? candyTools(result, state) : ""}
     ${state.filter === "CANDY" ? candySearchSection(result, state) : ""}
     ${state.filter === "KEEP" || state.filter === "PVP" ? keepPvpSearchSection(result, state) : ""}
+    ${state.filter === "KEEP" || state.filter === "PVP" ? renameTools(result, state) : ""}
     <p class="triage-window-status">Showing ${visible.length ? `${rangeStart}–${rangeEnd}` : "0"} of ${matches.length}</p>
     <ul class="triage-list">${visible.map((entry) => entryRow(entry, forms)).join("")}</ul>
     ${hasPrevious ? '<button type="button" class="triage-show-more" data-triage-previous>Previous 60</button>' : ""}

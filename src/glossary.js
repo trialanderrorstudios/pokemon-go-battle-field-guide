@@ -12,6 +12,11 @@ export const GLOSSARY = Object.freeze([
     definition: "Individual Values — small hidden bonuses (0–15 each for Attack, Defense, and Stamina) that make two Pokémon of the same species and level slightly different in strength.",
   },
   {
+    id: "stat-product",
+    term: "stat product",
+    definition: "Attack × Defense × HP for one specific IV spread, built up to a league's CP cap. It's the standard way to compare two IV spreads for PvP — a rank of \"#247 of 4096\" means 246 other IV spreads produce a higher stat product than this one at that cap.",
+  },
+  {
     id: "hundo",
     term: "hundo",
     definition: "A Pokémon with perfect 15/15/15 IVs — the best possible stats for its encounter level. Short for \"100%.\"",

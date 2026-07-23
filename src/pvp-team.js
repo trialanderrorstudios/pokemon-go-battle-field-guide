@@ -16,7 +16,7 @@ export const PVP_GOOD_QUALITY_THRESHOLD = 0.95;
 const STAR_ELIGIBILITY_HEADROOM = 1.15;
 
 
-function statProduct(form, ivs, level) {
+export function statProduct(form, ivs, level) {
   const cpm = cpMultiplier(level);
   const attack = (form.base_attack + ivs.atk) * cpm;
   const defense = (form.base_defense + ivs.def) * cpm;
@@ -25,16 +25,118 @@ function statProduct(form, ivs, level) {
 }
 
 
-export function qualityHint(form, instance, row) {
-  if (!row?.rankOne?.statProduct) return null;
-  const level = solveLevel(form, instance.ivs, instance.cp);
-  if (level === null) return null;
-  const ratio = statProduct(form, instance.ivs, level) / row.rankOne.statProduct;
+// Shared "how close is this stat product to rank-1's" bucketing, used by both
+// qualityHint (actual-build quality) and instanceLeagueRank's rank-1-vs-yours
+// delta (full-IV-space standing) — one tier scale, never two.
+function ratioTier(ratio) {
   let tier = "weak";
   if (ratio >= 0.99) tier = "excellent";
   else if (ratio >= PVP_GOOD_QUALITY_THRESHOLD) tier = "good";
   else if (ratio >= 0.90) tier = "usable";
   return { ratio, percent: Math.round(ratio * 1000) / 10, tier };
+}
+
+
+export function qualityHint(form, instance, row) {
+  if (!row?.rankOne?.statProduct) return null;
+  const level = solveLevel(form, instance.ivs, instance.cp);
+  if (level === null) return null;
+  return ratioTier(statProduct(form, instance.ivs, level) / row.rankOne.statProduct);
+}
+
+
+// --- Full-IV-space rank (Poke Genie's signature feature): where does THIS
+// exact owned IV spread stand among all 4096 possible spreads for a league,
+// not just against the single published rank-1 build? ---
+
+export const TOTAL_IV_SPREADS = 4096;
+
+// Mirrors src/pogo_encyclopedia/iv.py's find_rank_one_iv max_level choice per
+// league: capped leagues allow a temporary Best Buddy level 51 build, Master
+// (no CP cap, so no benefit from a cap-driven underlevel) stays at the normal
+// power-up ceiling of 50.
+const RANK_MAX_LEVEL = Object.freeze({ great: 51, ultra: 51, master: 50 });
+
+// Best (highest) level under a league's CP cap for one FIXED IV spread — the
+// per-spread half of find_rank_one_iv's search (iv.py), ported to JS so it
+// can run against a specific owned instance's IVs instead of only at data-
+// build time. CP is monotonic non-decreasing in level for fixed IVs (see
+// instances.js solveLevel), so the first level that exceeds the cap means
+// every higher level does too — safe to stop there.
+function bestLevelUnderCap(form, ivs, cap, maxLevel) {
+  if (cap === null) return maxLevel;
+  let best = null;
+  for (let doubled = 2; doubled <= maxLevel * 2; doubled += 1) {
+    const level = doubled / 2;
+    if (calculateCp(form, ivs, level) > cap) break;
+    best = level;
+  }
+  return best;
+}
+
+// Percentile framing for a rank out of a total pool: rank 1 (the best) reads
+// as the 100th percentile, the worst rank as the 0th.
+function percentileFromRank(rank, total) {
+  return Math.round(((total - rank) / (total - 1)) * 100);
+}
+
+// Exhaustively ranks one fixed IV spread against all 4096 possible spreads
+// for a league: each candidate spread gets its OWN best level under the cap
+// (never the given spread's level, and never a second stat-product formula —
+// statProduct() above is the only one), then spreads are ordered by stat
+// product to find where this one lands. Ties (a real possibility from the
+// stamina floor) share a rank rather than getting an arbitrary tie-break.
+export function rankIvSpread(form, ivs, league) {
+  const cap = LEAGUE_CP_CAP[league];
+  const maxLevel = RANK_MAX_LEVEL[league];
+  const level = bestLevelUnderCap(form, ivs, cap, maxLevel);
+  if (level === null) return null;
+  const target = statProduct(form, ivs, level);
+  let better = 0;
+  for (let atk = 0; atk < 16; atk += 1) {
+    for (let def = 0; def < 16; def += 1) {
+      for (let sta = 0; sta < 16; sta += 1) {
+        const candidateLevel = bestLevelUnderCap(form, { atk, def, sta }, cap, maxLevel);
+        if (candidateLevel === null) continue;
+        if (statProduct(form, { atk, def, sta }, candidateLevel) > target) better += 1;
+      }
+    }
+  }
+  const rank = better + 1;
+  return {
+    level, cp: calculateCp(form, ivs, level), statProduct: target,
+    rank, total: TOTAL_IV_SPREADS, percentile: percentileFromRank(rank, TOTAL_IV_SPREADS),
+  };
+}
+
+// Per-instance, per-league rank card: honest eligibility gate (reuses
+// detailedEligibility — star-only "probably eligible" guesses never get
+// ranked, only instances with known IVs), the full-IV-space rank, and a
+// rank-1-vs-yours delta (same ratioTier() qualityHint uses) when the
+// league's published rank-1 data is available.
+export function instanceLeagueRank(form, instance, league, row) {
+  if (!form || !instance?.ivs) return null;
+  const eligibility = detailedEligibility(instance, league);
+  if (!eligibility.eligible) return { league, eligible: false, reason: eligibility.reason };
+  const rank = rankIvSpread(form, instance.ivs, league);
+  if (!rank) return { league, eligible: false, reason: "No level 1-51 build of these IVs fits this league's cap." };
+  const delta = row?.rankOne?.statProduct ? ratioTier(rank.statProduct / row.rankOne.statProduct) : null;
+  return { league, eligible: true, ...rank, delta };
+}
+
+export const RANK_LEAGUES = Object.freeze(Object.keys(LEAGUE_CP_CAP));
+
+function ordinalSuffix(number) {
+  const mod100 = number % 100;
+  if (mod100 >= 11 && mod100 <= 13) return "th";
+  return { 1: "st", 2: "nd", 3: "rd" }[number % 10] ?? "th";
+}
+
+// Plain-language "#247 of 4096 · 93rd percentile" summary for an eligible
+// instanceLeagueRank() result. Callers escape and place this text themselves.
+export function rankSummaryText(rank) {
+  if (!rank?.eligible) return "";
+  return `#${rank.rank} of ${rank.total} · ${rank.percentile}${ordinalSuffix(rank.percentile)} percentile`;
 }
 
 

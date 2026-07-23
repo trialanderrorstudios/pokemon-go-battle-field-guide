@@ -56,6 +56,51 @@ export function solveLevel(form, ivs, cp) {
 }
 
 
+// In-game team-leader "Overall" appraisal star tiers, as IV-sum (0-45)
+// ranges. 4 stars is a distinct tier here for the perfect-roll (45) highlight
+// the game shows with a pink/red glow; the in-game UI itself only ever shows
+// 0-3 stars plus that color cue, so treat "4 stars" as this app's shorthand
+// for "the highlighted 3-star roll", not a literal 4th star the game draws.
+// Source (cross-checked, matching values): "Pokémon GO IVs and the Appraisal
+// System Explained" (igitems.com) and Pokémon GO Hub's appraisal guide
+// (pokemongohub.net), both giving 23-29 / 30-36 / 37-44 / 45.
+export const STAR_TIER_RANGES = Object.freeze([
+  Object.freeze({ stars: 0, min: 0, max: 22 }),
+  Object.freeze({ stars: 1, min: 23, max: 29 }),
+  Object.freeze({ stars: 2, min: 30, max: 36 }),
+  Object.freeze({ stars: 3, min: 37, max: 44 }),
+  Object.freeze({ stars: 4, min: 45, max: 45 }),
+]);
+
+
+// All atk/def/sta IV combinations (0-15 each) whose sum falls in a star
+// tier's range AND that reproduce the given CP at some level 1-51 (via
+// solveLevel, so this never forks the CP/level math). Backs the "I only know
+// the star tier" appraisal-widget path: narrows 4096 possible combos down to
+// the handful actually consistent with what the player already entered.
+// Capped at `limit` — a low CP/tier pair can match dozens of combos, and this
+// is meant to hand the user a short tap-to-fill list, not solve it for them.
+export function candidateIvsForTier(form, cp, tierRange, { limit = 10 } = {}) {
+  const cpNumber = Number(cp);
+  if (!form?.form_id || !tierRange || !Number.isInteger(cpNumber) || cpNumber <= 0) return [];
+  const candidates = [];
+  for (let atk = 0; atk <= 15; atk += 1) {
+    for (let def = 0; def <= 15; def += 1) {
+      for (let sta = 0; sta <= 15; sta += 1) {
+        const sum = atk + def + sta;
+        if (sum < tierRange.min || sum > tierRange.max) continue;
+        const ivs = { atk, def, sta };
+        if (solveLevel(form, ivs, cpNumber) !== null) {
+          candidates.push(ivs);
+          if (candidates.length >= limit) return candidates;
+        }
+      }
+    }
+  }
+  return candidates;
+}
+
+
 export function validateIvs(ivs) {
   for (const key of ["atk", "def", "sta"]) {
     const value = ivs?.[key];
@@ -196,4 +241,42 @@ export function bestInstanceForForm(instances, formId) {
 export function instanceLevel(form, instance) {
   if (!form || !instance) return null;
   return solveLevel(form, instance.ivs, instance.cp);
+}
+
+
+// Evolution CP predictor (round 13). Evolution preserves the exact IVs and
+// level of the pre-evolution Pokemon — only the base stats change, because
+// evolving doesn't reroll IVs or reset the CP-multiplier level the way
+// hatching or catching a new Pokemon would (Niantic support: "Evolving a
+// Pokemon does not change its IVs" / Silph Road IV literature; this is also
+// why Poke Genie and every other IV tool treats evolution as IV-preserving).
+// So the predicted evolved CP is exactly calculateCp() — the same function
+// this file already uses for every other CP figure — run against the target
+// form's base stats with those same IVs and level. No new math.
+//
+// form.evolves_to is a one-step edge list (see evolution.py): each entry is
+// {formId, candyCost} for one immediate next stage. This walks it
+// recursively to build the full remaining chain, so a three-stage line
+// (Machop -> Machoke -> Machamp) reports every stage, not just the next one.
+// A branching family (Eevee-class) has more than one edge at some step;
+// every branch is returned rather than guessing which one the player wants,
+// and the walk does not continue past a branch — the player picks one to
+// continue evolving, so choosing a single "main" line for them would be a
+// guess dressed up as data. Returns [] when the form doesn't evolve (or this
+// release has no sourced evolution-chain data for it) — never a guessed CP.
+export function evolutionForecast(form, ivs, level, forms = {}) {
+  const edges = form?.evolves_to ?? [];
+  const branches = [];
+  for (const edge of edges) {
+    const targetForm = forms[edge?.formId];
+    if (!targetForm || !Number.isInteger(edge.candyCost)) continue;
+    branches.push({
+      formId: edge.formId,
+      name: targetForm.name,
+      candyCost: edge.candyCost,
+      predictedCp: calculateCp(targetForm, ivs, level),
+      next: evolutionForecast(targetForm, ivs, level, forms),
+    });
+  }
+  return branches;
 }

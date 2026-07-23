@@ -1,6 +1,7 @@
 import { escapeHtml } from "./home.js";
 import { spriteHtml } from "../sprites.js";
 import { SWAP_LEAGUES, rankTeamAgainstOpponent, resolveSwapTeam, searchOpponentForms } from "../swap.js";
+import { instanceLeagueRank, rankSummaryText } from "../pvp-team.js";
 
 const OPPONENT_RESULT_CAP = 40;
 
@@ -14,9 +15,19 @@ function leagueToggle(league) {
   </div>`;
 }
 
-function teamMemberCard(form) {
+// Rank line for one of your team's forms in this league's IV space — only
+// when the instance is detailed (known IVs); star-only members stay silent
+// rather than guessing. Composes instanceLeagueRank(), same as the PvP My
+// Team and instance-sheet views.
+function swapRankLine(form, instance, league, pvpRow) {
+  const rank = instance ? instanceLeagueRank(form, instance, league, pvpRow) : null;
+  return rank?.eligible ? `<p class="swap-rank-line">${escapeHtml(rankSummaryText(rank))}</p>` : "";
+}
+
+function teamMemberCard(form, instance, league, pvpRow) {
   return `<div class="fallback-section swap-team-card">
     <div class="swap-card-heading">${spriteHtml(form.form_id, { [form.form_id]: form }, form.name, form.primary_type)}<h3>${escapeHtml(form.name)}</h3></div>
+    ${swapRankLine(form, instance, league, pvpRow)}
   </div>`;
 }
 
@@ -35,15 +46,18 @@ function manualPicker(roster, forms, manualFormIds) {
   </div>`;
 }
 
-function teamStep({ state, resolved, roster, forms }) {
+function teamStep({ state, resolved, roster, forms, pvp }) {
   const canContinue = resolved.teamForms.length > 0;
+  const pvpRows = pvp?.[state.league] ?? [];
   return `<section class="swap-step" aria-labelledby="swap-team-title">
     <p class="status-kicker">Step 1 of 3</p>
     <h2 id="swap-team-title">Pick your team</h2>
     ${leagueToggle(state.league)}
     ${resolved.degraded
       ? `<p>No saved ${escapeHtml(leagueName(state.league))} team yet — pick up to three owned Pokémon to use instead.</p>${manualPicker(roster, forms, state.manualFormIds)}`
-      : `<p>Using your saved ${escapeHtml(leagueName(state.league))} team.</p><div class="home-task-grid">${resolved.teamForms.map(teamMemberCard).join("")}</div>`}
+      : `<p>Using your saved ${escapeHtml(leagueName(state.league))} team.</p><div class="home-task-grid">${resolved.teamForms.map((form) => teamMemberCard(
+        form, resolved.instanceByFormId?.[form.form_id], state.league, pvpRows.find((row) => row.formId === form.form_id),
+      )).join("")}</div>`}
     <button type="button" class="swap-cta" data-action="swap-continue-team"${canContinue ? "" : " disabled"}>Choose opponent</button>
   </section>`;
 }
@@ -71,24 +85,25 @@ function opponentStep({ state, forms }) {
   </section>`;
 }
 
-function resultCard(row, rank) {
+function resultCard(row, matchupRank, league, instanceByFormId, pvpRows) {
   return `<li class="fallback-section swap-result-card">
-    <div class="swap-card-heading">${spriteHtml(row.formId, { [row.formId]: row.form }, row.form.name, row.form.primary_type)}<h3>#${rank} ${escapeHtml(row.form.name)}</h3></div>
+    <div class="swap-card-heading">${spriteHtml(row.formId, { [row.formId]: row.form }, row.form.name, row.form.primary_type)}<h3>#${matchupRank} ${escapeHtml(row.form.name)}</h3></div>
     <p>${escapeHtml(row.because)}</p>
+    ${swapRankLine(row.form, instanceByFormId?.[row.formId], league, pvpRows.find((pvpRow) => pvpRow.formId === row.formId))}
   </li>`;
 }
 
 function resultStep({ state, resolved, forms, pvp, moveCatalog }) {
   const opponent = forms[state.opponentFormId];
+  const pvpRows = pvp?.[state.league] ?? [];
+  const instanceByFormId = resolved.instanceByFormId ?? {};
   const ranked = rankTeamAgainstOpponent(resolved.teamForms, opponent, {
-    pvpRows: pvp?.[state.league] ?? [],
-    instanceByFormId: resolved.instanceByFormId ?? {},
-    moveCatalog,
+    pvpRows, instanceByFormId, moveCatalog,
   });
   return `<section class="swap-step" aria-labelledby="swap-result-title">
     <p class="status-kicker">Step 3 of 3</p>
     <h2 id="swap-result-title">Best lead vs ${escapeHtml(opponent.name)}</h2>
-    <ol class="swap-result-list">${ranked.map((row, index) => resultCard(row, index + 1)).join("")}</ol>
+    <ol class="swap-result-list">${ranked.map((row, index) => resultCard(row, index + 1, state.league, instanceByFormId, pvpRows)).join("")}</ol>
     <div class="swap-actions">
       <a class="safe-escape" href="./#swap" data-action="swap-back-opponent">Change opponent</a>
       <a class="safe-escape" href="./#swap" data-action="swap-reset">Start over</a>
@@ -108,7 +123,7 @@ export function renderSwap({ pvp = {}, pvpTeams = [], forms = {}, roster = {}, s
     ? opponentStep({ state, forms })
     : step === "result"
       ? resultStep({ state, resolved, forms, pvp, moveCatalog })
-      : teamStep({ state, resolved, roster, forms });
+      : teamStep({ state, resolved, roster, forms, pvp });
 
   return `<div class="swap-view">
     <a class="safe-escape" href="./#home">Back to Home</a>

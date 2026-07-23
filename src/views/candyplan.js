@@ -28,8 +28,10 @@ function rowHtml(row) {
   }
   const need = row.candyNeeded > 0 ? `${row.candyNeeded} more Candy` : "Ready now";
   const fill = row.dexFill ? " · evolve to fill YOUR dex" : "";
+  const predicted = row.predictedCp !== undefined
+    ? ` <span class="instance-predicted-cp-badge">~${escapeHtml(row.predictedCp)} CP</span>` : "";
   return `<li class="candyplan-row candyplan-row-reachable" data-reachable="${row.reachable}">
-    <strong>${escapeHtml(row.name)}</strong> → <strong>${escapeHtml(row.targetName)}</strong>
+    <strong>${escapeHtml(row.name)}</strong> → <strong>${escapeHtml(row.targetName)}</strong>${predicted}
     <span>${escapeHtml(need)}${escapeHtml(fill)}</span>
     ${row.because ? `<p>${escapeHtml(row.because)}</p>` : ""}${tradeKeepHtml(row)}
   </li>`;
@@ -38,10 +40,10 @@ function rowHtml(row) {
 
 // Reads recorded Candy + roster ownership + the same raid/PvP/gym relevance
 // signals triage.js already surfaces, ranked by cheapest reachable value
-// first. See candy-plan.js for the current data-availability gap: this app's
-// bundled forms don't carry evolution-chain data yet, so every row renders
-// through the honest "record Candy" or "data isn't in this release" grace
-// path until that ships.
+// first. See candy-plan.js: reachable rows carry a predicted evolved CP when
+// a detailed instance is on record for that owned form; forms this release
+// genuinely has no evolution-chain or Candy-cost data for still render
+// through the honest "data isn't in this release" grace path.
 export function renderCandyPlan({ forms = {}, roster = {}, candyInventory = {}, raids, pvp, gym, friendGapDex } = {}) {
   const available = candyPlanDataAvailable(forms);
   const rows = candyPlanRows({ forms, roster, candyInventory, raids, pvp, gym, friendGapDex });

@@ -2,7 +2,7 @@ import { escapeHtml } from "./home.js";
 import { jargonTerm } from "../glossary.js";
 import { spriteHtml } from "../sprites.js";
 import { displayMoveName, moveLink } from "./move-sheet.js";
-import { buildMyTeam, detectInstanceConflicts, LEAGUE_CP_CAP, MY_TEAM_SLOTS, myTeamOverridesFor } from "../pvp-team.js";
+import { buildMyTeam, detectInstanceConflicts, instanceLeagueRank, LEAGUE_CP_CAP, MY_TEAM_SLOTS, myTeamOverridesFor, rankSummaryText } from "../pvp-team.js";
 import { levelCapNote, xlPowerUpCost } from "../raid-target.js";
 import { typeChip } from "./types.js";
 
@@ -143,7 +143,7 @@ function pvpCard(row, forms, { showLeague = false, publishedRank = false, traine
         <div><dt>${jargonTerm("iv", "Rank-1 IVs")}</dt><dd>${escapeHtml(`${ivs.attack ?? "—"}/${ivs.defense ?? "—"}/${ivs.stamina ?? "—"}`)}</dd></div>
         <div><dt>Level</dt><dd>${escapeHtml(rankOne.level ?? "—")}</dd></div>
         <div><dt>${jargonTerm("cp", "CP")}</dt><dd>${escapeHtml(rankOne.cp ?? "—")}</dd></div>
-        <div><dt>Stat product</dt><dd>${escapeHtml(rankOne.statProduct ?? "—")}</dd></div>
+        <div><dt>${jargonTerm("stat-product", "Stat product")}</dt><dd>${escapeHtml(rankOne.statProduct ?? "—")}</dd></div>
         <div><dt>${jargonTerm("candy", "XL")}</dt><dd>${yesNo(rankOne.xlRequired)}</dd></div>
         <div><dt>Best Buddy</dt><dd>${yesNo(rankOne.bestBuddyRequired)}</dd></div>
       </dl>
@@ -308,6 +308,10 @@ function myTeamMemberCard(league, slot, member, options) {
   const quality = member.quality
     ? `<p class="pvp-myteam-quality">${escapeHtml(member.quality.tier)} · ${escapeHtml(member.quality.percent)}% of rank-1 stat product</p>`
     : "";
+  const rank = member.instance ? instanceLeagueRank(member.form, member.instance, league, member.row) : null;
+  const rankLine = rank?.eligible
+    ? `<p class="pvp-myteam-rank">${jargonTerm("stat-product", "IV rank")}: ${escapeHtml(rankSummaryText(rank))}</p>`
+    : "";
   return `<li class="pvp-myteam-slot" data-form-id="${escapeHtml(member.formId)}" data-role="${escapeHtml(slot)}">
     ${spriteHtml(member.formId, { [member.formId]: member.form }, member.form?.name ?? member.formId, member.form?.primary_type)}
     <div class="pvp-myteam-body">
@@ -316,6 +320,7 @@ function myTeamMemberCard(league, slot, member, options) {
       <p class="pvp-myteam-eligibility${member.eligibility.assumption ? " pvp-myteam-assumption" : ""}">${member.eligibility.assumption ? "Assumption: " : ""}${escapeHtml(member.eligibility.reason)}</p>
       ${idealVsYoursLine(member)}
       ${quality}
+      ${rankLine}
       ${moveLines.length ? `<ul class="pvp-myteam-move-delta">${moveLines.map((line) => `<li>${escapeHtml(line)}</li>`).join("")}</ul>` : ""}
       ${myTeamSlotSelect(league, slot, member.formId, options)}
     </div>

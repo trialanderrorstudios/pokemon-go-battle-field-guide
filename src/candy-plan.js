@@ -1,3 +1,6 @@
+import { bestInstanceForForm, evolutionForecast, instanceLevel } from "./instances.js";
+
+
 // Evolution Candy Planner — composes roster ownership, resource-inventory
 // Candy, and the existing raid/PvP/gym relevance signals into "what's worth
 // evolving toward". It never touches powerUpCost/xlPowerUpCost: power-up
@@ -5,16 +8,21 @@
 // are separate game currencies spent from the same Candy pool, and this
 // module only ever reasons about the latter.
 //
-// Data-availability gap (round 12 SPIKE, 2026-07-23): this app's bundled
-// forms carry zero evolution-chain or evolution-Candy-cost fields today —
-// verified against data/processed/encyclopedia.json's actual keys, not
-// assumed. The raw pokeminers-game-master.json scrape does contain real
-// evolutionBranch/candyCost data, but mapping its species+form identifiers
-// onto this app's form_id scheme is new data-extraction work for a future,
-// dedicated round — out of this round's "compose existing modules, never
-// fork math" scope. Until a form carries `evolves_to: [{ formId, candyCost
-// }]`, every owned+Candy-recorded row below resolves to the "data-gap" grace
-// path, never a guessed number.
+// Data-availability gap (round 12 SPIKE, 2026-07-23): closed in round 13.
+// pvpoke-pokemon.json's family.evolutions (chain topology) and pokeminers-
+// game-master.json's evolutionBranch (real Candy cost) are now mapped onto
+// this app's form_id scheme at build time — see evolution.py. A form with no
+// evolution, or no sourced cost/target for a branch, still carries an empty
+// `evolves_to`, so the "data-gap" path below stays live for whatever this
+// extraction genuinely can't source; it's just no longer the only path.
+//
+// Round 13 also adds a predicted CP per reachable row: when the owner has a
+// detailed instance (CP/IVs/level) recorded for the pre-evolution form, the
+// row's `predictedCp` is that instance's IVs+level run through the target
+// form's base stats (evolutionForecast — see instances.js; evolution
+// preserves IVs/level, so this is the same calculateCp() everything else
+// uses, not new math). Absent a detailed instance, `predictedCp` is simply
+// omitted — never a guessed number.
 
 
 function ownedFormIdSet(roster = {}) {
@@ -98,6 +106,19 @@ export function candyPlanRows({ forms = {}, roster = {}, candyInventory = {}, ra
 
     const candyOwned = candyInventory[formId];
     const branches = Array.isArray(form.evolves_to) ? form.evolves_to : null;
+
+    // Predicted CP per branch, keyed by target formId — degrades to no
+    // prediction (never a guess) when there's no detailed instance recorded
+    // for this owned form to derive an IV/level from.
+    const bestInstance = bestInstanceForForm(roster.instances, formId);
+    const bestLevel = bestInstance ? instanceLevel(form, bestInstance) : null;
+    const predictedCpByTarget = new Map();
+    if (bestInstance && bestLevel !== null) {
+      for (const forecastBranch of evolutionForecast(form, bestInstance.ivs, bestLevel, forms)) {
+        predictedCpByTarget.set(forecastBranch.formId, forecastBranch.predictedCp);
+      }
+    }
+
     if (!branches?.length) {
       rows.push({
         ...base,
@@ -119,12 +140,14 @@ export function candyPlanRows({ forms = {}, roster = {}, candyInventory = {}, ra
       if (!relevance && !dexFill) continue; // no derivable value -> never suggested
 
       const candyNeeded = Math.max(0, candyCost - candyOwned);
+      const predictedCp = predictedCpByTarget.get(targetFormId);
       rows.push({
         ...base,
         status: "reachable",
         candyOwned,
         candyCost,
         candyNeeded,
+        ...(predictedCp !== undefined ? { predictedCp } : {}),
         reachable: candyNeeded === 0,
         targetFormId,
         targetName: target.name,
