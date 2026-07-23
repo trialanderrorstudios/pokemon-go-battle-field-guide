@@ -3674,3 +3674,28 @@ h1 {
   border-color: var(--amber);
   color: var(--amber);
 }
+
+/*
+ * WebKit/Safari collapses native (appearance:auto) <select> to its ~18-20px
+ * intrinsic line height and drops authored min-height/padding, so filter
+ * dropdowns rendered ~20px tall — under the 44px tap target — on real iOS
+ * (headless Chromium honored the min-height, hiding this until a WebKit QA
+ * sweep, 2026-07-23). Force a controlled box on ALL app selects. appearance
+ * removes the native arrow, so a caret is drawn with twin gradients (no url()
+ * — the public-content scanner rejects any url(), including data URIs).
+ */
+select {
+  -webkit-appearance: none;
+  appearance: none;
+  min-height: 48px;
+  padding-block: 0.55rem;
+  padding-inline: 0.7rem 2rem;
+  background-image:
+    linear-gradient(45deg, transparent 50%, var(--cyan) 50%),
+    linear-gradient(135deg, var(--cyan) 50%, transparent 50%);
+  background-position:
+    calc(100% - 1.15rem) center,
+    calc(100% - 0.85rem) center;
+  background-size: 0.3rem 0.3rem, 0.3rem 0.3rem;
+  background-repeat: no-repeat;
+}
