@@ -32,7 +32,7 @@ export const GUIDE_COPY = Object.freeze({
   }),
   pvp: Object.freeze({
     title: "Picking a PvP team",
-    body: `Choose a league (Great, Ultra, or Master) to see ranked picks with recommended movesets and the ideal rank-1 IVs — ${jargonTerm("league-cp-caps", "league CP caps")} limit Great and Ultra, Master League has no cap. Data is this app's bundled PvP rankings for its current data cutoff, not live battle results.`,
+    body: `Choose a league (Great, Ultra, or Master) to see ranked picks with recommended movesets and the ideal rank-1 IVs — ${jargonTerm("league-cp-caps", "league CP caps")} limit Great and Ultra, Master League has no cap. The Anti-Meta view surfaces the best role players (Lead, Safe Switch, Closer, and more) outside the ${jargonTerm("meta-group", "meta group")}. Data is this app's bundled PvP rankings for its current data cutoff, not live battle results.`,
   }),
   more: Object.freeze({
     title: "Your roster and settings",

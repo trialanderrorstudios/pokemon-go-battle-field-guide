@@ -1883,6 +1883,98 @@ h1 {
   color: var(--muted);
 }
 
+.pvp-antimeta-teach {
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+.pvp-antimeta-meta-group {
+  margin: 0.75rem 0;
+  padding: 0.65rem;
+  border: 1px solid var(--line);
+  border-radius: 0.6rem;
+  background: var(--panel);
+}
+
+.pvp-antimeta-meta-list {
+  display: grid;
+  gap: 0.3rem;
+  margin: 0.5rem 0 0;
+  padding: 0;
+  list-style: none;
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+.pvp-matchups-teach {
+  color: var(--muted);
+  font-size: 0.8rem;
+  margin-bottom: 0.4rem;
+}
+
+.pvp-matchups-label {
+  font-weight: 700;
+  font-size: 0.8rem;
+  margin: 0.5rem 0 0.3rem;
+}
+
+.pvp-matchup-chip-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin: 0 0 0.5rem;
+}
+
+.pvp-matchup-chip {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.2rem 0.5rem;
+  border: 1px solid var(--line);
+  border-left-width: 4px;
+  border-radius: 999px;
+  background: var(--panel-raised);
+  font-size: 0.78rem;
+}
+
+.pvp-matchup-chip .sprite,
+.pvp-matchup-chip .sprite-fallback {
+  width: 24px;
+  height: 24px;
+}
+
+.pvp-matchup-chip--win {
+  border-left-color: var(--green);
+}
+
+.pvp-matchup-chip--loss {
+  border-left-color: var(--danger);
+}
+
+/* Compact per-row matchup line (replaced sprite chips, 2026-07-24). */
+.pvp-matchups {
+  font-size: 0.82rem;
+  color: var(--muted);
+}
+
+.pvp-matchups-win { color: var(--green); }
+.pvp-matchups-loss { color: var(--danger); }
+
+.pvp-matchup-chip-rating {
+  color: var(--muted);
+}
+
+.pvp-antimeta-roles {
+  display: grid;
+  gap: 1.25rem;
+  margin-top: 1rem;
+}
+
+.pvp-antimeta-role {
+  border-top: 1px solid var(--line);
+  padding-top: 0.75rem;
+}
+
 .pvp-summary,
 .pvp-empty,
 .pvp-types,

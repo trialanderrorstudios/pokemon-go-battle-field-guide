@@ -42,6 +42,11 @@ export const GLOSSARY = Object.freeze([
     definition: "A Shadow Pokémon was corrupted by Team GO Rocket. It hits harder and takes more damage than its regular form, and can be \"purified\" to remove that trade-off.",
   },
   {
+    id: "meta",
+    term: "meta",
+    definition: "The most common top-ranked Pokémon in a league right now — not everyone's team, but the ones showing up across many opponents' rankings.",
+  },
+  {
     id: "mega",
     term: "Mega",
     definition: "A temporary, more powerful evolution activated with Mega Energy. It boosts that Pokémon (and its type-mates) in raids and gyms for a limited time, then reverts.",
@@ -65,6 +70,16 @@ export const GLOSSARY = Object.freeze([
     id: "league-cp-caps",
     term: "league CP caps",
     definition: "PvP leagues limit how strong (by CP) your Pokémon can be — Great League caps at 1500, Ultra League at 2500. Master League has no cap at all.",
+  },
+  {
+    id: "pvpoke-sim-rating",
+    term: "sim rating",
+    definition: "A simulated 1-on-1 battle score from PvPoke, out of 1000. 500 means an even fight; higher favors the Pokémon shown, lower favors its opponent. It's a computer simulation, not a real recorded battle.",
+  },
+  {
+    id: "meta-leaders",
+    term: "the meta",
+    definition: "This app doesn't have real usage or ladder-share data, so \"the meta\" here is a proxy: the top-ranked picks in this app's own Top 50 for that league. Treat it as a rank cutoff, not confirmed popularity.",
   },
   {
     id: "stardust",
@@ -110,6 +125,11 @@ export const GLOSSARY = Object.freeze([
     id: "best-buddy",
     term: "Best Buddy",
     definition: "The highest buddy level, reached at 300 hearts. While a Best Buddy is set as your active buddy, it gets a small permanent CP boost — about one power-up level's worth.",
+  },
+  {
+    id: "meta-group",
+    term: "meta group",
+    definition: "This app's stand-in for \"what's commonly used\": the top-ranked picks in a league by pvpoke's meta-weighted score. It's a proxy, not real ladder usage or pick-rate data — this app doesn't have live battle stats.",
   },
 ]);
 

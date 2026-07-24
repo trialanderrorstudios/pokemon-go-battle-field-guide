@@ -6,13 +6,32 @@ import { buildMyTeam, detectInstanceConflicts, instanceLeagueRank, LEAGUE_CP_CAP
 import { moveCountsFor } from "../pvp-moves.js";
 import { levelCapNote, xlPowerUpCost } from "../raid-target.js";
 import { typeChip } from "./types.js";
+import { computeMetaCoverage } from "../meta-coverage.js";
 
 
 export const PVP_LEAGUES = Object.freeze(["great", "ultra", "master"]);
 const PVP_LEAGUE_FILTERS = Object.freeze(["all", ...PVP_LEAGUES]);
 const FORM_FILTERS = new Set(["all", "regular", "shadow"]);
-const VIEWS = new Set(["rankings", "teams"]);
+const VIEWS = new Set(["rankings", "teams", "antimeta"]);
 const INVESTMENT_FILTERS = new Set(["all", "S+", "S", "A", "B", "C"]);
+const ANTI_META_FILTERS = new Set(["all", "countersMeta"]);
+// "Meta" proxy: top-N by published rank in a league. Not real usage/ladder
+// share (we don't have that data) — just the current rank cutoff, stated in
+// the teach copy below. Kept small (top 3, not top 50) so the filter stays
+// meaningfully selective: a wide leader set overlaps with nearly every
+// Top-50 pick's favorable matchups and stops discriminating anything.
+const META_LEADER_COUNT = 3;
+
+// The "meta group" is a proxy, not real usage data: this app has no live
+// ladder/pick-rate feed, so "meta" here just means the top-ranked picks by
+// pvpoke's own meta-weighted rank. N=16 is a plain constant, not a user
+// control — bump it here if the operator wants a wider/narrower meta group.
+const ANTI_META_GROUP_SIZE = 16;
+const ANTI_META_PICKS_PER_ROLE = 5;
+// Matches the exact keys pvpoke computes on every row's roleScores object.
+const ANTI_META_ROLE_CATEGORIES = Object.freeze([
+  "Lead", "Safe Switch", "Closer", "Shield Pressure", "Attack Pressure", "Consistency",
+]);
 
 
 function allowed(value, values, fallback) {
@@ -30,6 +49,7 @@ export function createPvpState({ preferences = {}, filters = {} } = {}) {
     investment: allowed(requested.investment, INVESTMENT_FILTERS, "all"),
     league: allowed(requested.league, new Set(PVP_LEAGUE_FILTERS), "all"),
     view: allowed(requested.view, VIEWS, "teams"),
+    antiMeta: allowed(requested.antiMeta, ANTI_META_FILTERS, "all"),
   };
 }
 
@@ -42,8 +62,30 @@ export function pvpPreferencePayload(state = {}) {
       investment: normalized.investment,
       league: normalized.league,
       view: normalized.view,
+      antiMeta: normalized.antiMeta,
     },
   };
+}
+
+
+// Meta leaders for a league: the top META_LEADER_COUNT rows by published
+// rank. A proxy for "the meta" (we have no real usage/ladder-share data) —
+// stated explicitly in the filter's teach copy, not just here.
+function metaLeaderFormIds(leagueRows) {
+  return new Set(
+    leagueRows
+      .filter((row) => row.rank <= META_LEADER_COUNT)
+      .map((row) => row.formId)
+  );
+}
+
+
+function countersMeta(row, pvp) {
+  const leagueRows = pvp?.[row.league] ?? [];
+  const leaders = metaLeaderFormIds(leagueRows);
+  return (row.keyMatchups ?? []).some(
+    (entry) => entry.opponentFormId && leaders.has(entry.opponentFormId) && entry.rating > 500
+  );
 }
 
 
@@ -55,7 +97,9 @@ export function selectPvpRows(pvp = {}, state = createPvpState()) {
   return leagueRows.filter((row) => {
     if (normalized.form === "shadow" && !row.shadow) return false;
     if (normalized.form === "regular" && row.shadow) return false;
-    return normalized.investment === "all" || row.investmentTier === normalized.investment;
+    if (normalized.investment !== "all" && row.investmentTier !== normalized.investment) return false;
+    if (normalized.antiMeta === "countersMeta" && !countersMeta(row, pvp)) return false;
+    return true;
   });
 }
 
@@ -112,10 +156,12 @@ function controls(state) {
   return `<form class="pvp-controls" data-pvp-filters aria-label="PvP league and ranking filters">
     ${filterSelect("league", "League", state.league, PVP_LEAGUE_FILTERS.map((league) => [league, leagueName(league)]))}
     ${state.view === "rankings" ? `${filterSelect("form", "Form", state.form, [["all", "Regular + Shadow"], ["regular", "Regular only"], ["shadow", "Shadow only"]])}
-    ${filterSelect("investment", "Investment", state.investment, [["all", "All tiers"], ["S+", "S+"], ["S", "S"], ["A", "A"], ["B", "B"], ["C", "C"]])}` : ""}
+    ${filterSelect("investment", "Investment", state.investment, [["all", "All tiers"], ["S+", "S+"], ["S", "S"], ["A", "A"], ["B", "B"], ["C", "C"]])}
+    ${filterSelect("antiMeta", "Meta", state.antiMeta, [["all", "All picks"], ["countersMeta", "Counters the meta"]])}` : ""}
     <fieldset><legend>View</legend>
       <button type="button" data-pvp-view="teams" aria-pressed="${state.view === "teams"}">Teams</button>
       <button type="button" data-pvp-view="rankings" aria-pressed="${state.view === "rankings"}">Rankings</button>
+      <button type="button" data-pvp-view="antimeta" aria-pressed="${state.view === "antimeta"}">Anti-Meta</button>
     </fieldset>
   </form>`;
 }
@@ -138,7 +184,36 @@ function endgamePowerUpLine(row, trainerLevel = null) {
 }
 
 
-function pvpCard(row, forms, { showLeague = false, publishedRank = false, trainerLevel = null, pvpMoveCatalog = {} } = {}) {
+// One "Beats"/"Loses to" chip: opponent sprite (when we could resolve its
+// formId) + name + the raw PvPoke sim rating that earned it a spot here.
+
+
+// Resurfaces the pvpoke matchups/counters PvPoke already simulates per
+// Pokemon — top favorable and worst 1-on-1s. Sim data, not real ladder
+// outcomes; the jargonTerm teaches that inline.
+//
+// Rendered as ONE compact text line per row, not chip lists. The rankings
+// list is ~50 rows per league (150 across "all"); chip lists put ~1500
+// elements + 23k total DOM nodes on the page, which hung WebKit's layout on
+// the release-upgrade re-render (real-device WebKit test caught it,
+// 2026-07-24; Chromium coped and hid it). Names-only text is ~1 node per row.
+const MATCHUP_NAMES_SHOWN = 3;
+function matchupNames(entries) {
+  return entries.slice(0, MATCHUP_NAMES_SHOWN).map((entry) => entry.opponentName).join(", ");
+}
+
+function matchupsSection(row) {
+  const wins = row.keyMatchups ?? [];
+  const losses = row.keyCounters ?? [];
+  if (!wins.length && !losses.length) return "";
+  const winText = wins.length ? `<span class="pvp-matchups-win">Beats ${escapeHtml(matchupNames(wins))}</span>` : "";
+  const lossText = losses.length ? `<span class="pvp-matchups-loss">loses to ${escapeHtml(matchupNames(losses))}</span>` : "";
+  const sep = winText && lossText ? " · " : "";
+  return `<p class="pvp-matchups">${winText}${sep}${lossText} <span class="pvp-matchups-hint">(PvPoke ${jargonTerm("pvpoke-sim-rating", "sim rating")})</span></p>`;
+}
+
+
+function pvpCard(row, forms, { showLeague = false, publishedRank = false, trainerLevel = null, pvpMoveCatalog = {}, showMatchups = true } = {}) {
   const rankOne = row.rankOne ?? {};
   const ivs = rankOne.ivs ?? {};
   const eliteMoves = new Set(forms?.[row.formId]?.elite_moves ?? []);
@@ -171,6 +246,7 @@ function pvpCard(row, forms, { showLeague = false, publishedRank = false, traine
         <div><dt>Source version</dt><dd>${escapeHtml(row.sourceVersion ?? "Not documented")}</dd></div>
         <div><dt>Verified</dt><dd>${escapeHtml(row.verifiedAt ?? "Not documented")}</dd></div>
       </dl>
+      ${showMatchups ? matchupsSection(row) : ""}
       ${row.alternativeReason ? `<p class="pvp-alternative-reason"><strong>Why it is here:</strong> ${escapeHtml(row.alternativeReason)}</p>` : ""}
       <details><summary>Caveat and sources</summary>
         <p><strong>Caveat:</strong> ${escapeHtml(row.caveat)}</p>
@@ -182,19 +258,102 @@ function pvpCard(row, forms, { showLeague = false, publishedRank = false, traine
 }
 
 
-function rankingsView(pvp, forms, state, trainerLevel = null, pvpMoveCatalog = {}) {
+// Anti-meta type-coverage HEURISTIC (meta-coverage.js): types that pressure
+// the current top-ranked Pokémon in this league, and which owned-typing
+// candidates line up with that pressure. Types only — see heuristicLabel,
+// always shown alongside it, for what this ignores.
+function metaPressureSection(league, pvp, forms) {
+  const rows = pvp?.[league] ?? [];
+  const coverage = computeMetaCoverage({ rows, forms });
+  if (!coverage.pressure.length) return "";
+  return `<details class="pvp-roles-teach">
+    <summary>Types that pressure the ${escapeHtml(leagueName(league))} ${jargonTerm("meta")}</summary>
+    <p class="pvp-summary">${escapeHtml(coverage.heuristicLabel)}</p>
+    <p class="pvp-summary">Based on the typing of the current top ${escapeHtml(coverage.topN)} ranked Pokémon.</p>
+    <p class="type-chip-list">${coverage.pressure.slice(0, 6)
+      .map((entry) => `${typeChip(entry.type)} (${escapeHtml(entry.share)}%)`).join(" ")}</p>
+    ${coverage.candidates.length
+      ? `<p><strong>Candidate attackers strong into this meta:</strong></p>
+      <ol>${coverage.candidates.map((candidate) => (
+        `<li>${escapeHtml(candidate.pokemon)} ${candidate.matchedTypes.map(typeChip).join("")}</li>`
+      )).join("")}</ol>`
+      : ""}
+  </details>`;
+}
+
+
+function rankingsView(pvp, forms, state, trainerLevel = null, pvpMoveCatalog = {}, showMatchups = true) {
   const allRows = state.league === "all"
     ? PVP_LEAGUES.flatMap((league) => pvp?.[league] ?? [])
     : (pvp?.[state.league] ?? []);
   const rows = selectPvpRows(pvp, state);
+  const leaguesShown = state.league === "all" ? PVP_LEAGUES : [state.league];
   return `<section class="pvp-section" aria-labelledby="pvp-rankings-title">
     <p class="status-kicker">Open league cutoff snapshot</p>
     <h2 id="pvp-rankings-title">${escapeHtml(state.league === "all" ? "All leagues · Top 50 each" : `${leagueName(state.league)} Top 50`)}</h2>
     <p class="pvp-summary">Showing ${rows.length} of ${allRows.length}. Regular and Shadow forms remain separate exact-form entries.</p>
+    ${state.antiMeta === "countersMeta" ? `<p class="pvp-antimeta-teach">Showing Top 50 picks with a favorable PvPoke matchup against ${jargonTerm("meta-leaders", "the meta")} (top ${META_LEADER_COUNT} by rank in this league).</p>` : ""}
+    ${leaguesShown.map((league) => metaPressureSection(league, pvp, forms)).join("")}
     ${rows.length
-      ? `<ol class="pvp-card-list">${rows.map((row) => pvpCard(row, forms, { showLeague: state.league === "all", trainerLevel, pvpMoveCatalog })).join("")}</ol>`
-      : `<p class="pvp-empty">No entries match these filters. Change Form or Investment to continue.</p>`}
+      ? `<ol class="pvp-card-list">${rows.map((row) => pvpCard(row, forms, { showLeague: state.league === "all", trainerLevel, pvpMoveCatalog, showMatchups })).join("")}</ol>`
+      : `<p class="pvp-empty">No entries match these filters. Change Form, Investment, or Meta to continue.</p>`}
   </section>`;
+}
+
+
+// One role's pick list: candidates ranked by that role's own roleScore
+// (a pvpoke meta-weighted number, same source/caveats as everywhere else in
+// this section — not a new sim). Rows missing that role's score, or missing
+// roleScores entirely, are skipped rather than crashing or sorting as zero.
+function antiMetaRoleSection(role, candidates, forms) {
+  const picks = candidates
+    .filter((row) => Number.isFinite(row.roleScores?.[role]))
+    .sort((left, right) => right.roleScores[role] - left.roleScores[role])
+    .slice(0, ANTI_META_PICKS_PER_ROLE);
+  return `<div class="pvp-antimeta-role">
+    <h3>${escapeHtml(role)}</h3>
+    ${picks.length
+      ? `<ol class="pvp-team-members">${picks.map((row) => `<li class="pvp-team-member" data-form-id="${escapeHtml(row.formId)}" data-role="${escapeHtml(role)}">
+        ${spriteHtml(row.formId, forms, row.pokemon, forms?.[row.formId]?.primary_type)}
+        <div class="pvp-team-member-body">
+          <p class="pvp-team-member-heading"><strong>#${escapeHtml(row.rank)}</strong> ${escapeHtml(row.pokemon)}${row.shadow ? " · Shadow" : ""}</p>
+          <p>Primary role: ${escapeHtml(row.primaryRole)} · ${escapeHtml(role)} score: ${escapeHtml(row.roleScores[role])}</p>
+          <p>Overall meta-weighted score: ${escapeHtml(row.score ?? "—")}</p>
+        </div>
+      </li>`).join("")}</ol>`
+      : `<p class="pvp-empty">No eligible picks outside the meta group for this role yet.</p>`}
+  </div>`;
+}
+
+
+function antiMetaLeagueSection(pvp, forms, league) {
+  const rows = [...(pvp?.[league] ?? [])].sort((left, right) => (left.rank ?? Infinity) - (right.rank ?? Infinity));
+  if (!rows.length) return "";
+  const metaGroup = rows.slice(0, ANTI_META_GROUP_SIZE);
+  const candidates = rows.slice(ANTI_META_GROUP_SIZE);
+  return `<section class="pvp-section pvp-antimeta" aria-labelledby="pvp-antimeta-title-${escapeHtml(league)}">
+    <p class="status-kicker">Role fitness against the current meta</p>
+    <h2 id="pvp-antimeta-title-${escapeHtml(league)}">Anti-Meta Board · ${escapeHtml(leagueName(league))}</h2>
+    <details class="pvp-roles-teach">
+      <summary>What counts as "meta" here?</summary>
+      <p>${jargonTerm("meta-group", "Meta group")} means the top ${escapeHtml(ANTI_META_GROUP_SIZE)} picks in this league by pvpoke's meta-weighted rank — a proxy for what's commonly used. This app has no live ladder or usage-share data, so treat it as a stand-in, not real pick-rate stats. The picks below are ranked by pvpoke's own per-role scores, calculated against that same meta — same cutoff-date snapshot and caveats as the rest of this page.</p>
+    </details>
+    <div class="pvp-antimeta-meta-group">
+      <h3>Meta group (Top ${escapeHtml(ANTI_META_GROUP_SIZE)} by rank)</h3>
+      <ol class="pvp-antimeta-meta-list">${metaGroup.map((row) => (
+        `<li>#${escapeHtml(row.rank)} ${escapeHtml(row.pokemon)}${row.shadow ? " · Shadow" : ""} — ${escapeHtml(row.primaryRole)}</li>`
+      )).join("")}</ol>
+    </div>
+    <p class="pvp-summary">Best picks ranked ${escapeHtml(candidates.length)} of ${escapeHtml(rows.length)} — everyone outside the meta group above, grouped by which role they fit best.</p>
+    <div class="pvp-antimeta-roles">${ANTI_META_ROLE_CATEGORIES.map((role) => antiMetaRoleSection(role, candidates, forms)).join("")}</div>
+  </section>`;
+}
+
+
+function antiMetaView(pvp, forms, state) {
+  const leagues = state.league === "all" ? PVP_LEAGUES : [state.league];
+  const sections = leagues.map((league) => antiMetaLeagueSection(pvp, forms, league)).filter(Boolean);
+  return sections.length ? sections.join("") : `<p class="pvp-empty">No PvP rankings are available yet for the anti-meta board.</p>`;
 }
 
 
@@ -415,7 +574,7 @@ function teamsView(pvp, teams, alternatives, forms, roster, state, trainerLevel 
   </section>${alternativesView(alternatives, forms, state, trainerLevel, pvpMoveCatalog)}
   <details class="pvp-full-rankings">
     <summary>Full rankings</summary>
-    ${rankingsView(pvp, forms, { ...state, form: "all", investment: "all" }, trainerLevel, pvpMoveCatalog)}
+    ${rankingsView(pvp, forms, { ...state, form: "all", investment: "all" }, trainerLevel, pvpMoveCatalog, false)}
   </details>`;
 }
 
@@ -430,6 +589,8 @@ export function renderPvp({
     ${controls(normalized)}
     ${normalized.view === "teams"
       ? teamsView(pvp, pvpTeams, pvpAlternatives, forms, roster, normalized, trainerLevel, pvpMoveCatalog)
-      : rankingsView(pvp, forms, normalized, trainerLevel, pvpMoveCatalog)}
+      : normalized.view === "antimeta"
+        ? antiMetaView(pvp, forms, normalized)
+        : rankingsView(pvp, forms, normalized, trainerLevel, pvpMoveCatalog)}
   </div>`;
 }
