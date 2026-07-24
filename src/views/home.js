@@ -512,7 +512,7 @@ export function renderHome({
       ${taskCard({ href: "./#basics", title: "Battle Basics", detail: "New here? Start with the plain-language basics." })}
       ${taskCard({ href: "./#types", title: "Type Chart", detail: "Every type's strengths and weaknesses." })}
       ${taskCard({ href: "./#eggs", title: "Egg Pool", detail: "What can hatch from each egg distance." })}
-      ${taskCard({ href: "./#rocket", title: "Team GO Rocket", detail: "Shadow Raid bosses and Rocket-flavored events in rotation." })}
+      ${taskCard({ href: "./#rocket", title: "Team GO Rocket", detail: "Shadow Raid bosses, Rocket-flavored events, and who each grunt and leader can bring." })}
       ${taskCard({ href: "./#hundo", title: "Hundo Priority", detail: "Which hundos are worth chasing right now, and which aren't." })}
     </div>
     ${renderUpcomingSection({ currentEvents, forms, gapByFormId })}

@@ -192,7 +192,7 @@ export const ROUTE_CHUNKS = Object.freeze({
   candyplan: ["raids.json", "pvp.json", "gyms.json"],
   more: ["extras.json"],
   eggs: ["current-eggs.json"],
-  rocket: ["raid-targets.json", "current-bosses.json", "current-events.json"],
+  rocket: ["raid-targets.json", "current-bosses.json", "current-events.json", "rocket-lineups.json"],
   hundo: ["raid-targets.json", "current-bosses.json", "current-events.json", "raids.json", "pvp.json"],
   // Same relevance signals candyplan reads (raid/PvP/gym rank), plus the
   // current-bosses/current-events feeds Home's Coming Up section reads —
@@ -220,6 +220,7 @@ const CHUNK_FIELDS = Object.freeze({
   "current-bosses.json": ["currentBosses"],
   "current-events.json": ["currentEvents"],
   "current-eggs.json": ["currentEggs"],
+  "rocket-lineups.json": ["rocketLineups"],
 });
 
 // bootstrap()'s default for loadedChunkPaths when a caller (a test, or any
@@ -1927,12 +1928,20 @@ export function createInteractionController({
         rerender("swap");
         return;
       }
+      // More's ?list= sub-views swap the whole screen without changing route,
+      // so the router's render() — the only other place #app's scroll root is
+      // reset — never runs. Without these resets, opening Living Dex from a
+      // deeply scrolled More page lands mid-list with the title, guide, and
+      // "Back to More" escape scrolled off the top (device QA F-03,
+      // 2026-07-23). Reset after rerender so it isn't clobbered by the
+      // innerHTML swap.
       const moreList = target?.closest?.("[data-more-list]");
       if (moreList) {
         event.preventDefault?.();
         ui.moreList = moreList.dataset.moreList;
         navigateMore?.(ui.moreList);
         rerender("more");
+        scrollToTop();
         return;
       }
       const moreBack = target?.closest?.('a.safe-escape[href="./#more"]');
@@ -1941,6 +1950,7 @@ export function createInteractionController({
         ui.moreList = null;
         navigateMore?.(null);
         rerender("more");
+        scrollToTop();
         return;
       }
       const drillChoice = target?.closest?.("[data-drill-choice]");
@@ -3014,6 +3024,11 @@ export function bootstrap({
           raidTargetTool: state.raidTargetTool,
           forms: state.core.forms,
           raids: state.raids,
+          // Deliberately not part of the gate above: a release published
+          // before this chunk existed carries no rocketLineups, and the
+          // lineup section renders its own honest empty state rather than
+          // blanking the whole page.
+          rocketLineups: state.rocketLineups,
         })
         : chunkLoadingNotice("Team GO Rocket"));
     },

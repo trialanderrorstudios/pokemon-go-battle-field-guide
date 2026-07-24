@@ -94,7 +94,7 @@ export const GUIDE_COPY = Object.freeze({
   }),
   rocket: Object.freeze({
     title: "What's Rocket-flavored right now",
-    body: `Shadow Raid bosses in this release's rotation, plus any live Rocket/Shadow-flavored event. Tap a boss for hundo CP and counters like any raid target. This app has no sourced Team GO Rocket grunt/leader lineup data, so it doesn't cover Rocket battles themselves.`,
+    body: `Shadow Raid bosses in this release's rotation, live Rocket-flavored events, and the lineups Giovanni, the leaders, and each grunt can bring. Lineups show what a battle can open with and which Pokémon the feed marks as catchable — not per-battle odds, CP, or movesets.`,
   }),
   hundo: Object.freeze({
     title: "Chase the hundo, or the rank-1 spread?",
