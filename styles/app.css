@@ -3774,6 +3774,14 @@ h1 {
   font-size: 0.78rem;
 }
 
+/* The taunt is the identification tell, so it outranks the title line above it
+   in the card's hierarchy rather than reading as one more piece of metadata. */
+.rocket-quote {
+  color: var(--text);
+  font-style: italic;
+  margin: 0.3rem 0 0;
+}
+
 .egg-badges {
   display: flex;
   flex-wrap: wrap;

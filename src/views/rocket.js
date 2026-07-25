@@ -87,6 +87,7 @@ function lineupGroup(entry, forms) {
   return `<section class="egg-group" aria-labelledby="${groupId}">
     <h3 id="${groupId}">${escapeHtml(entry.name)}</h3>
     <p class="egg-row-cp">${escapeHtml(entry.title)}</p>
+    ${entry.quote ? `<p class="rocket-quote">“${escapeHtml(entry.quote)}”</p>` : ""}
     ${entry.type ? countersLine(entry.type) : ""}
     ${(entry.slots ?? []).map((mons, index) => lineupSlot(mons, index, forms)).join("")}
   </section>`;
@@ -113,6 +114,15 @@ export function renderRocket({
     ? lineups.map((entry) => lineupGroup(entry, forms)).join("")
     : `<p class="gym-empty">Rocket lineup data isn't bundled in this release.</p>`;
 
+  // These lines name no type, so hearing one tells you only that the taunt
+  // won't narrow the lineup — worth saying rather than leaving the user to
+  // hunt a quote that was never going to match.
+  const decoyQuotes = rocketLineups?.decoyQuotes ?? [];
+  const decoySection = decoyQuotes.length
+    ? `<p class="gym-empty">Hear one of these instead — ${decoyQuotes
+      .map((quote) => `“${escapeHtml(quote)}”`).join(", ")} — and the taunt names no type, so any lineup above is possible.</p>`
+    : "";
+
   const eventSection = events.length
     ? `<div class="home-event-grid">${events.map((event) => eventCard(event, { forms, now })).join("")}</div>`
     : `<p class="gym-empty">No Rocket-flavored events in this release's rotation.</p>`;
@@ -127,8 +137,9 @@ export function renderRocket({
     </section>
     <section class="more-section" aria-labelledby="rocket-lineups-title">
       <h2 id="rocket-lineups-title">Who you'll face</h2>
-      <p>What each battle can open with, slot by slot. "Catchable" marks a Pokémon the feed flags as a possible post-battle encounter — the same battler can carry that flag in more than one slot, and the feed doesn't say which one you end up with.</p>
+      <p>The quoted line is what the grunt says when you tap them — that taunt is the only tell you get, since the type is never written on screen. Match the line, then read the slots below it. "Catchable" marks a Pokémon the feed flags as a possible post-battle encounter — the same battler can carry that flag in more than one slot, and the feed doesn't say which one you end up with.</p>
       ${lineupSection}
+      ${decoySection}
     </section>
     <section class="more-section" aria-labelledby="rocket-events-title">
       <h2 id="rocket-events-title">Rocket-flavored events</h2>
