@@ -3827,3 +3827,100 @@ select {
   background-size: 0.3rem 0.3rem, 0.3rem 0.3rem;
   background-repeat: no-repeat;
 }
+
+/* ══ Small-phone density ══
+   The chassis costs a near-constant ~200px of height and ~40px of width.
+   On a 667px iPhone SE that is 30% of the viewport spent before any content,
+   and it squeezes body text to ~33 characters per line against a 45-75 ideal.
+   Measured on the live build 2026-07-28: #app was 336x468 inside 375x667.
+
+   This trims the ornamental margins only. The dex identity (bezel, lens,
+   LED, speaker slits, chamfer) all survive at a smaller scale — the point is
+   to stop charging full price on the device with the least to give. */
+@media (max-width: 400px) {
+  :root {
+    --tab-bar-height: 4rem;
+  }
+
+  .dexhead {
+    padding: max(0.5rem, env(safe-area-inset-top, 0px)) max(0.7rem, env(safe-area-inset-right, 0px)) 0.25rem max(0.7rem, env(safe-area-inset-left, 0px));
+  }
+
+  .lens {
+    width: 34px;
+    height: 34px;
+    border-width: 3px;
+  }
+
+  .bezelwrap {
+    margin: 0 max(0.35rem, env(safe-area-inset-right, 0px)) max(0.35rem, env(safe-area-inset-bottom, 0px)) max(0.35rem, env(safe-area-inset-left, 0px));
+    /* Bottom padding still clears the LED (bottom: 7px) and speaker slits
+       (bottom: 6px, 10px tall) that sit inside this box. */
+    padding: 6px 6px 18px;
+  }
+
+  #app {
+    padding: 0.7rem 0.7rem 0.9rem;
+  }
+
+  /* Card padding is the last squeeze on measure: at 375px every rem here
+     costs 32px of line length. */
+  .fallback-section {
+    padding: 0.75rem;
+  }
+}
+
+/* The collapsed guide is one line until asked for. Give the summary a real
+   affordance so it reads as openable, not as a dead heading. */
+/* .whats-new-card sets display:grid, and ANY display on a <details> disables
+   the native collapse — every child renders whether it is open or not, which
+   silently defeated the whole point of collapsing this card. Restore block
+   while closed; take the grid back only when open. */
+.guide-card {
+  display: block;
+}
+
+.guide-card[open] {
+  display: grid;
+}
+
+.guide-card > summary {
+  cursor: pointer;
+  list-style: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  min-height: 44px;
+}
+
+.guide-card > summary::-webkit-details-marker {
+  display: none;
+}
+
+.guide-card > summary::after {
+  content: "Read ▾";
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: var(--cyan);
+  white-space: nowrap;
+}
+
+.guide-card[open] > summary::after {
+  content: "Hide ▴";
+}
+
+/* Lane jump for the raid rankings: the Shadow list starts ~14 screens down. */
+.raid-jump {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin: 0 0 0.75rem;
+}
+
+.raid-jump button {
+  min-height: 44px;
+  padding: 0.4rem 0.75rem;
+  font-size: 0.82rem;
+  font-weight: 700;
+}

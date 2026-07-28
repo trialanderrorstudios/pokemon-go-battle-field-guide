@@ -153,10 +153,15 @@ export function renderGuide(route, storage) {
   if (isGuideDismissed(route, storage)) {
     return `<div class="guide-toggle-row"><button type="button" class="guide-toggle" data-action="show-guide" data-guide-route="${escapeHtml(route)}" aria-label="Show the ${escapeHtml(copy.title)} guide again">?</button></div>`;
   }
-  return `<div class="fallback-section whats-new-card guide-card" role="note">
-    <p><strong>${escapeHtml(copy.title)}</strong></p>
+  // Collapsed by default. On an iPhone SE the expanded card was the ENTIRE
+  // first viewport — a 60-word instruction paragraph and four links, with the
+  // search box, week strip and task grid all below the fold. Users dive in
+  // rather than read instructions, so the app has to be what they see first.
+  // The guide keeps every word; it just starts as one line.
+  return `<details class="fallback-section whats-new-card guide-card" role="note">
+    <summary><strong>${escapeHtml(copy.title)}</strong></summary>
     <p>${copy.body}</p>
     ${linksRow(copy.links)}
     <button type="button" data-action="dismiss-guide" data-guide-route="${escapeHtml(route)}">Got it</button>
-  </div>`;
+  </details>`;
 }

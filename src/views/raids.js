@@ -155,6 +155,10 @@ export function renderRaidRankings({ attackingType = "Bug", raids = {}, forms = 
     <p class="status-kicker">Level 40 practical performance</p>
     <h2 id="raid-rankings-title">${escapeHtml(selectedType)} raid attackers</h2>
     <p class="raid-method-note">Practical rank and points are distinct from standardized move-cycle DPS.</p>
+    <nav class="raid-jump" aria-label="Jump to a lane">
+      <button type="button" data-action="scroll-to" data-scroll-target="regular-raid-title">Regular, Mega &amp; Primal</button>
+      <button type="button" data-action="scroll-to" data-scroll-target="shadow-raid-title">Shadow</button>
+    </nav>
     <div class="raid-lanes">${lane("regular", raids.regular)}${lane("shadow", raids.shadow)}</div>
   </section>`;
 }

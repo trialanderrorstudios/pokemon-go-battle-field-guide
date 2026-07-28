@@ -2082,6 +2082,13 @@ export function createInteractionController({
         const taskId = actionEl.dataset.todayTaskId;
         if (taskId) toggleTodayTask(taskId, storage);
         rerenderCurrent();
+      } else if (action === "scroll-to") {
+        // The Shadow lane starts ~9,000px down a ~19,800px view: 14 screens of
+        // thumb before you reach it, with no way to skip. A plain #hash anchor
+        // would round-trip through the router, which re-renders the route and
+        // resets scroll to the top (same reason reveal-events exists).
+        rootElement?.querySelector?.(`#${CSS.escape(actionEl.dataset.scrollTarget ?? "")}`)
+          ?.scrollIntoView?.({ block: "start" });
       } else if (action === "scroll-app-top") {
         scrollToTop();
       } else if (action === "reveal-events") {
