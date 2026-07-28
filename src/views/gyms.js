@@ -93,7 +93,10 @@ function lineupSection(gym, forms) {
       : "none — no single attacking type is super-effective against more than one member"}</p>
   </article></li>`).join("");
 
-  const rankRows = ranking.slice(0, 25).map((row) => `<li class="gym-rank-row">
+  // 50, not 25: a second account or a friend's roster rarely has the top 25,
+  // and a ranking that stops before the Pokemon you actually own is a ranking
+  // you cannot act on.
+  const rankRows = ranking.slice(0, 50).map((row) => `<li class="gym-rank-row">
     <p class="gym-rank-head"><span class="gym-rank-n">#${row.rank}</span>
     <strong>${escapeHtml(row.pokemon)}</strong>
     <span class="gym-rank-score">${row.score}</span></p>
