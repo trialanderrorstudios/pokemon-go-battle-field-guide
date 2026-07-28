@@ -37,7 +37,11 @@ function buildCard(row, index, forms) {
     <h3 id="${id}">${escapeHtml(row.pokemon)}</h3>
     <p class="gym-moves"><strong>${movePair(row, forms)}</strong></p>
     <p>${escapeHtml(row.coverage)}</p>
-    <details><summary>Low-resource build</summary><p>${escapeHtml(row.build)}</p><p>${escapeHtml(row.budgetReason)}</p></details>
+    <!-- Why THIS one earns a slot was buried in the collapsed details below,
+         so the card face showed what it covers but never why it is cheap
+         enough to be on a low-resource list at all. -->
+    <p class="gym-why-line">${escapeHtml(row.budgetReason)} ${escapeHtml(row.healingEfficiency)} healing efficiency keeps potion spend down.</p>
+    <details><summary>Low-resource build</summary><p>${escapeHtml(row.build)}</p></details>
   </article></li>`;
 }
 
