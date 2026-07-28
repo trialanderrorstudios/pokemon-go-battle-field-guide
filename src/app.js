@@ -829,6 +829,10 @@ function gymState(
     lineupFormIds,
     ownedIndex: safeIndex(filters.ownedIndex),
     overallIndex: safeIndex(filters.overallIndex),
+    // The gym page answers two unrelated questions (what do I bring to break
+    // a gym, what do I leave behind to hold one). Nine sections in one scroll
+    // buried both; the tab keeps each answer one screen from the top.
+    view: filters.view === "defend" ? "defend" : "attack",
   };
 }
 
@@ -1750,6 +1754,12 @@ export function createInteractionController({
         recordFeedback(storage, feedbackSurface, feedbackFormId, feedbackVerdict);
         ui.interactionMessage = "Thanks for the feedback.";
         rerenderCurrent();
+        return;
+      }
+      const gymView = target?.closest?.("[data-gym-view]");
+      if (gymView) {
+        ui.gym.view = gymView.dataset.gymView === "defend" ? "defend" : "attack";
+        rerender("gyms");
         return;
       }
       const raidView = target?.closest?.("[data-raid-view]");
@@ -3099,6 +3109,7 @@ export function bootstrap({
           defenseLog: ui.defenseLog,
           rosterInstances: roster.instances,
           trainerTeam: ui.trainerProfile.team,
+          view: ui.gym.view,
         })}`
         : fallbackSections.gyms);
     },

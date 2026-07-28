@@ -66,6 +66,45 @@ function staggerSection(gym) {
 }
 
 
+// Computed over every gym-eligible form, unlike the curated shortlist below.
+// The point of showing lineups (not just a ranking) is that a lineup answers a
+// different question: what should a coordinated group actually place, and
+// therefore what is worth investing in next.
+function lineupSection(gym, forms) {
+  const lineups = gym.startingLineups ?? [];
+  const ranking = gym.defenderRanking ?? [];
+  if (!lineups.length && !ranking.length) return "";
+
+  const lineupCards = lineups.map((lineup, index) => `<li class="gym-card"><article>
+    <p class="gym-rank">Option ${index + 1}</p>
+    <ol class="gym-lineup-order">${lineup.members.map((member) => `<li>
+      ${spriteHtml(member.formId, forms, member.pokemon, forms?.[member.formId]?.primary_type)}
+      <strong>${escapeHtml(member.pokemon)}</strong>
+      <span class="gym-lineup-rank">#${member.rank}</span>
+    </li>`).join("")}</ol>
+    <p><strong>Shared weakness:</strong> ${lineup.sharedWeaknesses.length
+      ? `${escapeHtml(lineup.sharedWeaknesses.join(", "))} — one attacker type pressures more than one slot`
+      : "none — no single attacking type is super-effective against more than one member"}</p>
+  </article></li>`).join("");
+
+  const rankRows = ranking.slice(0, 25).map((row) => `<li class="gym-rank-row">
+    <span class="gym-rank-n">#${row.rank}</span>
+    <strong>${escapeHtml(row.pokemon)}</strong>
+    <span class="gym-rank-score">${row.score}</span>
+    <span class="gym-rank-weak">${escapeHtml((row.weaknesses ?? []).join(", ")) || "no weaknesses"}</span>
+  </li>`).join("");
+
+  return `<section class="gym-section" aria-labelledby="gym-lineups-title">
+    ${sectionHeading("Coordinated opening", "Starting lineups", "gym-lineups-title")}
+    <p class="gym-intro">Three accounts dropping one each. Each option avoids a single attacking type sweeping the whole set, and no Pokémon anchors more than two options — so these are genuinely different things to invest toward, not one answer reshuffled.</p>
+    <ul class="gym-card-list">${lineupCards}</ul>
+    ${sectionHeading("Computed, not curated", "Defender ranking", "gym-ranking-title")}
+    <p class="gym-intro">${escapeHtml(gym.rankingMethodology ?? "")}</p>
+    <ol class="gym-rank-list">${rankRows}</ol>
+  </section>`;
+}
+
+
 function defenderCard(row, forms, ownedFormIds) {
   const owned = new Set(ownedFormIds ?? []).has(row.formId);
   return `<li class="gym-card${owned ? " is-owned" : ""}"><article>
@@ -122,6 +161,7 @@ function defenseSection(gym, forms, ownedFormIds, trainerTeam) {
     <p class="gym-team-note">${ownTeamGymNote(trainerTeam)}</p>
     <p class="gym-iv-note">IV spread for a defender: favor Defense and Stamina over Attack. There's no CP cap to work around here, but higher Attack IV only inflates CP — and higher CP decays motivation faster — without adding any staying power.</p>
     ${warnings}
+    <p class="gym-empty">Heads up: these tiers are a hand-curated shortlist, not a computed ranking over every eligible defender. The raid attacker ranks come out of the DPS engine; this list does not.</p>
     <ul class="gym-card-list">${(gym.defenders ?? []).map((row) => defenderCard(row, forms, ownedFormIds)).join("")}</ul>
   </section>`;
 }
@@ -250,16 +290,30 @@ export function renderGyms({
   rosterInstances = [],
   now = Date.now(),
   trainerTeam = null,
+  view = "attack",
 } = {}) {
   const deploymentMap = buildDeploymentMap(defenseLog, now);
-  return `<div class="gyms-view">
-    <p class="gym-tricks-seed"><a class="safe-escape" href="./#tricks">See gym tricks →</a></p>
-    ${renderPlacementCoach({ placementResult, ownedIndex, overallIndex, rosterInstances, deploymentMap })}
-    ${offenseSection(gym, forms)}
-    ${staggerSection(gym)}
+  const defending = view === "defend";
+  // Two unrelated jobs share this route: breaking a gym and holding one. Split
+  // them so neither answer is nine sections deep.
+  const tabs = `<div class="pvp-controls" aria-label="Gym tools">
+    <fieldset><legend>Gym view</legend>
+      <button type="button" data-gym-view="attack" aria-pressed="${!defending}">Attacking</button>
+      <button type="button" data-gym-view="defend" aria-pressed="${defending}">Defending</button>
+    </fieldset>
+  </div>`;
+  const body = defending
+    ? `${renderPlacementCoach({ placementResult, ownedIndex, overallIndex, rosterInstances, deploymentMap })}
+    ${lineupSection(gym, forms)}
     ${defenseSection(gym, forms, ownedFormIds, trainerTeam)}
     ${motivationSection()}
-    ${ownedDefenderEditor(gym.defenders, ownedFormIds)}
+    ${ownedDefenderEditor(gym.defenders, ownedFormIds)}`
+    : `${offenseSection(gym, forms)}
+    ${staggerSection(gym)}`;
+  return `<div class="gyms-view">
+    <p class="gym-tricks-seed"><a class="safe-escape" href="./#tricks">See gym tricks →</a></p>
+    ${tabs}
+    ${body}
     ${leaderboardPointerCard()}
   </div>`;
 }
