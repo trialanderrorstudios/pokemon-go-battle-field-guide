@@ -295,6 +295,7 @@ export function renderGyms({
   now = Date.now(),
   trainerTeam = null,
   view = "attack",
+  lineupControls = "",
 } = {}) {
   const deploymentMap = buildDeploymentMap(defenseLog, now);
   const defending = view === "defend";
@@ -307,7 +308,8 @@ export function renderGyms({
     </fieldset>
   </div>`;
   const body = defending
-    ? `${renderPlacementCoach({ placementResult, ownedIndex, overallIndex, rosterInstances, deploymentMap })}
+    ? `${lineupControls}
+    ${renderPlacementCoach({ placementResult, ownedIndex, overallIndex, rosterInstances, deploymentMap })}
     ${lineupSection(gym, forms)}
     ${defenseSection(gym, forms, ownedFormIds, trainerTeam)}
     ${motivationSection()}

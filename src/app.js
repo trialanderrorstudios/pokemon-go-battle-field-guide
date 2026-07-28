@@ -3099,7 +3099,12 @@ export function bootstrap({
       const placementState = { ...state, lineupFormIds: ui.gym.lineupFormIds };
       const placementResult = placementFor(placementState, roster);
       app.innerHTML = interactionNotice(ui) + (state.gym
-        ? `${gymLineupControls(state, ui)}${renderGyms({
+        // The lineup builder is Defending content and was rendering on both
+        // tabs, above the tab strip itself — so the Attacking tab opened on a
+        // defender-placement control, the exact confusion the split was meant
+        // to remove. Hand it to renderGyms so it sits inside the tab body.
+        ? `${renderGyms({
+          lineupControls: ui.gym.view === "defend" ? gymLineupControls(state, ui) : "",
           gym: state.gym,
           forms: state.core.forms,
           placementResult,
