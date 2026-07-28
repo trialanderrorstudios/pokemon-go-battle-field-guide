@@ -81,6 +81,8 @@ function lineupSection(gym, forms) {
       ${spriteHtml(member.formId, forms, member.pokemon, forms?.[member.formId]?.primary_type)}
       <strong>${escapeHtml(member.pokemon)}</strong>
       <span class="gym-lineup-rank">#${member.rank}</span>
+      <p class="gym-moves">${moveLink(member.bestFastMove, { kind: "Fast" })} + ${moveLink(member.bestChargedMove, { kind: "Charged" })}</p>
+      <p class="gym-why-line">${escapeHtml(member.whyRanked ?? "")}</p>
     </li>`).join("")}</ol>
     <p><strong>Shared weakness:</strong> ${lineup.sharedWeaknesses.length
       ? `${escapeHtml(lineup.sharedWeaknesses.join(", "))} — one attacker type pressures more than one slot`
@@ -88,10 +90,11 @@ function lineupSection(gym, forms) {
   </article></li>`).join("");
 
   const rankRows = ranking.slice(0, 25).map((row) => `<li class="gym-rank-row">
-    <span class="gym-rank-n">#${row.rank}</span>
+    <p class="gym-rank-head"><span class="gym-rank-n">#${row.rank}</span>
     <strong>${escapeHtml(row.pokemon)}</strong>
-    <span class="gym-rank-score">${row.score}</span>
-    <span class="gym-rank-weak">${escapeHtml((row.weaknesses ?? []).join(", ")) || "no weaknesses"}</span>
+    <span class="gym-rank-score">${row.score}</span></p>
+    <p class="gym-moves">${moveLink(row.bestFastMove, { kind: "Fast" })} + ${moveLink(row.bestChargedMove, { kind: "Charged" })}</p>
+    <p class="gym-why-line">${escapeHtml(row.whyRanked ?? "")}</p>
   </li>`).join("");
 
   return `<section class="gym-section" aria-labelledby="gym-lineups-title">
@@ -101,6 +104,7 @@ function lineupSection(gym, forms) {
     ${sectionHeading("Computed, not curated", "Defender ranking", "gym-ranking-title")}
     <p class="gym-intro">${escapeHtml(gym.rankingMethodology ?? "")}</p>
     <ol class="gym-rank-list">${rankRows}</ol>
+    <p class="gym-iv-note">${escapeHtml(gym.defenderLevelNote ?? "")}</p>
   </section>`;
 }
 
