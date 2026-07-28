@@ -3924,3 +3924,17 @@ select {
   font-size: 0.82rem;
   font-weight: 700;
 }
+
+/* Why a card sits where it does. The cards were already dense with numbers;
+   these lines are the sentence that turns the numbers into a decision. */
+.raid-why-line,
+.gym-move-note {
+  margin: 0.4rem 0 0;
+  font-size: 0.82rem;
+  line-height: 1.45;
+  color: var(--muted);
+}
+
+.gym-move-note {
+  color: var(--cyan);
+}

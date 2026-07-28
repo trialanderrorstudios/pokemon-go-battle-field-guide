@@ -134,6 +134,7 @@ function rankCard(row, lane, forms, pvp) {
         <div><dt>Budget value</dt><dd>${escapeHtml(row.budgetValue ?? "—")}</dd></div>
         <div><dt>Future-proof</dt><dd>${escapeHtml(row.futureProof ?? "—")}</dd></div>
       </dl>
+      ${row.whyRanked ? `<p class="raid-why-line">${escapeHtml(row.whyRanked)}</p>` : ""}
       ${shadowAdvisorLine(row, lane, pvp)}
       <details><summary>Availability and notes</summary>
         <p>${notes.length ? notes.map(escapeHtml).join(" · ") : "No additional notes."}</p>
