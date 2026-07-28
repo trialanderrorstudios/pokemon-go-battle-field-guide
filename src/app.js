@@ -3203,6 +3203,13 @@ export function bootstrap({
       app.innerHTML = interactionNotice(ui) + (routeChunksReady("today", loadedChunkPaths)
         ? renderToday({
           data: state, roster, defenseLog: ui.defenseLog, storage, gapByFormId: getGapByFormId(),
+          investRows: nextActions({
+            data: state,
+            roster,
+            stardust: ui.stardust,
+            candyInventory: ui.candyInventory,
+            weather: ui.weather,
+          }),
         })
         : chunkLoadingNotice("Today"));
     },

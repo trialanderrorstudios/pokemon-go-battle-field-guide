@@ -219,9 +219,24 @@ function todayTaskRow(item, done) {
   </li>`;
 }
 
+// One ranked answer to "what should I spend resources on", against the bosses
+// that are actually up and the dust the trainer actually has.
+function investNextSection(rows) {
+  if (!rows.length) return "";
+  return `<section class="fallback-section today-invest" aria-labelledby="today-invest-title">
+    <p class="status-kicker">Worth building next</p>
+    <h3 id="today-invest-title">Spend resources here</h3>
+    <ul class="today-invest-list">${rows.map((row) => `<li${row.affordable ? "" : ' class="is-short"'}>
+      <strong>${escapeHtml(row.name)}</strong>
+      <p class="raid-why-line">${escapeHtml(row.why)}</p>
+    </li>`).join("")}</ul>
+  </section>`;
+}
+
+
 export function renderToday({
   data = {}, roster = {}, defenseLog = null, staleness = null, profile = null, now = new Date(), storage = null,
-  gapByFormId = null,
+  gapByFormId = null, investRows = [],
 } = {}) {
   const items = buildTodayItems({
     data, roster, defenseLog, staleness, profile, now, gapByFormId,
@@ -235,5 +250,6 @@ export function renderToday({
     <p class="status-kicker">${escapeHtml(dateLabel)}</p>
     <h2 id="today-view-title">Today</h2>
     ${body}
+    ${investNextSection(investRows)}
   </section>`;
 }

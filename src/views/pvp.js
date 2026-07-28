@@ -238,6 +238,7 @@ function pvpCard(row, forms, { showLeague = false, publishedRank = false, traine
         <div><dt>Best Buddy</dt><dd>${yesNo(rankOne.bestBuddyRequired)}</dd></div>
       </dl>
       ${endgamePowerUpLine(row, trainerLevel)}
+      ${row.whyRanked ? `<p class="raid-why-line">${escapeHtml(row.whyRanked)}</p>` : ""}
       <dl class="pvp-guidance">
         <div><dt>Role</dt><dd>${escapeHtml(row.primaryRole)} · ${escapeHtml((row.roles ?? []).join(", "))}</dd></div>
         <div><dt>Investment</dt><dd>${escapeHtml(row.investmentTier)} · ${escapeHtml(row.recommendation)}</dd></div>

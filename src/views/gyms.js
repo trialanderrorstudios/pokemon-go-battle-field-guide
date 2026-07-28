@@ -96,6 +96,7 @@ function lineupSection(gym, forms) {
     <p class="gym-moves">${moveLink(row.bestFastMove, { kind: "Fast" })} + ${moveLink(row.bestChargedMove, { kind: "Charged" })}</p>
     <p class="gym-why-line">${escapeHtml(row.whyRanked ?? "")}</p>
     ${row.moveNote ? `<p class="gym-move-note">${escapeHtml(row.moveNote)}</p>` : ""}
+    ${row.placementValue ? `<p class="gym-why-line"><strong>Placement:</strong> ${escapeHtml(row.placementValue)}</p>` : ""}
   </li>`).join("");
 
   return `<section class="gym-section" aria-labelledby="gym-lineups-title">

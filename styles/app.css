@@ -3938,3 +3938,23 @@ select {
 .gym-move-note {
   color: var(--cyan);
 }
+
+/* "Spend resources here" — the one ranked answer on Today. */
+.today-invest-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 0.6rem;
+}
+
+.today-invest-list li {
+  padding: 0.6rem 0.7rem;
+  border: 1px solid var(--line);
+  border-radius: 0.6rem;
+}
+
+/* Can't afford it yet: still worth seeing, visibly not actionable today. */
+.today-invest-list li.is-short {
+  opacity: 0.72;
+}
