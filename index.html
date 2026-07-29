@@ -14,6 +14,9 @@
   <link rel="apple-touch-icon" href="./icons/apple-touch-icon.png">
   <link rel="icon" href="./icons/field-guide.svg" type="image/svg+xml">
   <link rel="stylesheet" href="./styles/app.css">
+  <!-- Classic script, loaded first: it must run even when the module
+       graph below fails. See src/boot-watchdog.js. -->
+  <script src="./src/boot-watchdog.js"></script>
   <script type="module" src="./src/app.js"></script>
 </head>
 <body>

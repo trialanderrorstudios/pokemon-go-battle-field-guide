@@ -142,6 +142,10 @@ export function createRouter({
     // itself (?boss=X#raids folds into #raids/target), and marking the view we
     // came in with would light the wrong segment of the strip it just drew.
     markCurrent(route, resolveRoute(windowObject.location.href, safeBase).view || view);
+    // Tells src/boot-watchdog.js the app is alive. Set on a real render, not
+    // on script load: a module that parses and then throws while rendering is
+    // just as dead to the user as one that never loaded.
+    documentObject?.documentElement?.setAttribute?.("data-app-booted", "true");
     windowObject.scrollTo?.(0, 0);
     // The screen (#app) scrolls internally now, not the window — reset its
     // scroll position too, and restart the 220ms dex page-wipe.

@@ -37,6 +37,7 @@ const SHELL_CODE_FILES = Object.freeze([
   "./icons/apple-touch-icon.png",
   "./icons/share-qr.svg",
   "./src/app.js",
+  "./src/boot-watchdog.js",
   "./src/backup.js",
   "./src/breakpoints.js",
   "./src/buddy.js",
