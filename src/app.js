@@ -342,23 +342,55 @@ function tipSearchResultCard(result, rawQuery) {
 // type-chart.js's weaknessesOf — never a second hand-rolled type table. No
 // owned-star here: a raid boss isn't a roster pick, so it skips
 // ownedStarButton unlike the plain pokemon card below.
-function bossSearchResultCard(result, forms, rawQuery) {
+// A raid-boss hit used to be a sprite, a name and four weakness chips — you
+// had to tap through to learn the one thing you are usually searching for,
+// which is whether the CP in front of you is a hundo. All of this already
+// existed on raidTargetTool; the card simply was not given it.
+function bossSearchResultCard(result, forms, rawQuery, target = null, counters = []) {
   const weak = weaknessesOf(result.types).slice(0, 4);
   const weakChips = weak.map((row) => (
     `<span class="type-weak-badge${row.multiplier >= 2.56 ? " is-double" : ""}">${typeChip(row.type)}${row.multiplier >= 2.56 ? "4x" : "2x"}</span>`
   )).join("");
+
+  const cp = target ? `<dl class="search-boss-cp">
+    <div><dt>Hundo CP</dt><dd>${target.normal?.hundoCP ?? "—"}</dd></div>
+    <div><dt>Weather boosted</dt><dd>${target.weatherBoosted?.hundoCP ?? "—"}</dd></div>
+    <div><dt>Lowest raid IV</dt><dd>${target.normal?.minimumRaidIVCP ?? "—"}</dd></div>
+  </dl>` : "";
+
+  const boostNote = target?.weatherBoostConditions?.length
+    ? `<p class="search-boss-note">Boosted in ${target.weatherBoostConditions.map(escapeHtml).join(" or ")} — a boosted catch reads ${target.weatherBoosted?.hundoCP ?? "higher"} at hundo.</p>`
+    : "";
+
+  // Top counters with the moveset to actually build, not just a species name.
+  const counterList = counters.length ? `<ul class="search-boss-counters">${counters.slice(0, 3).map((counter) => (
+    `<li>${spriteHtml(counter.formId, forms, counter.pokemon, forms?.[counter.formId]?.primary_type)}<strong>${escapeHtml(counter.pokemon)}</strong>
+      <span class="gym-moves">${moveLink(counter.optimalFastMove ?? counter.fastMove, { kind: "Fast" })} + ${moveLink(counter.optimalChargedMove ?? counter.chargedMove, { kind: "Charged" })}</span></li>`
+  )).join("")}</ul>` : "";
+
   return `<li class="search-result-card search-result-boss">
     <a class="safe-escape" href="./?boss=${encodeURIComponent(result.formId)}#raids">${spriteHtml(result.formId, forms, result.name, forms?.[result.formId]?.primary_type)}<strong>${highlightMatch(result.name, rawQuery)}</strong> <span>Raid boss</span>${weakChips ? `<span class="type-chip-list" aria-label="Weak to">Weak to: ${weakChips}</span>` : ""}</a>
+    ${cp}
+    ${boostNote}
+    ${counterList ? `<p class="search-boss-label">Bring</p>${counterList}` : ""}
+    ${target?.hundoRule ? `<p class="search-boss-note">${escapeHtml(target.hundoRule)}</p>` : ""}
   </li>`;
 }
 
 
-function renderSearchResults(results, forms, roster, rawQuery = "") {
+function renderSearchResults(results, forms, roster, rawQuery = "", raidData = {}) {
   if (!results.length) return "<p>No local matches.</p>";
   const owned = new Set(roster?.ownedFormIds ?? []);
+  const targetsByForm = new Map(
+    (raidData.raidTargetTool?.targets ?? []).map((target) => [target.bossFormId, target]),
+  );
   return `<ul>${results.slice(0, 10).map((result) => (
     result.resultCategory === "tip" ? tipSearchResultCard(result, rawQuery)
-      : result.resultCategory === "raid-boss" ? bossSearchResultCard(result, forms, rawQuery)
+      : result.resultCategory === "raid-boss"
+        ? bossSearchResultCard(
+          result, forms, rawQuery, targetsByForm.get(result.formId) ?? null,
+          countersForBoss(result, raidData),
+        )
         : `<li class="search-result-card${owned.has(result.formId) ? " is-owned" : ""}">${spriteHtml(result.formId, forms, result.name, forms?.[result.formId]?.primary_type)}<strong>${highlightMatch(result.name, rawQuery)}</strong> <span>${escapeHtml(result.resultCategory)}</span>${ownedStarButton({ formId: result.formId, name: result.name, owned: owned.has(result.formId), route: "search" })}</li>`
   )).join("")}</ul>`;
 }
@@ -420,7 +452,22 @@ export async function requestPushPermission({ flagEnabled, notification = global
 }
 
 
-export function bindSearch(documentObject, index, forms, roster, storage = null) {
+// Top counters for a boss, from the ranked attacker lists the app already
+// ships: the types that hit it super-effectively, best-ranked first. Cheap
+// because it only runs for raid-boss hits, of which there are a handful.
+function countersForBoss(result, raidData) {
+  const rows = raidData.raids?.regular ?? [];
+  if (!rows.length) return [];
+  const superEffective = new Set(weaknessesOf(result.types ?? []).map((row) => row.type));
+  return rows
+    .filter((row) => row.status === "ranked" && superEffective.has(row.attackingType))
+    .sort((left, right) => left.rank - right.rank)
+    .filter((row, position, all) => all.findIndex((other) => other.formId === row.formId) === position)
+    .slice(0, 3);
+}
+
+
+export function bindSearch(documentObject, index, forms, roster, storage = null, raidData = {}) {
   const form = documentObject.querySelector("[data-global-search]");
   const input = form?.querySelector("input[type='search']");
   const output = form?.querySelector("[data-search-results]");
@@ -432,7 +479,9 @@ export function bindSearch(documentObject, index, forms, roster, storage = null)
   };
   const render = () => {
     const query = input.value.trim();
-    output.innerHTML = query ? renderSearchResults(search(index, input.value), forms, roster, input.value) : "";
+    output.innerHTML = query
+      ? renderSearchResults(search(index, input.value), forms, roster, input.value, raidData)
+      : "";
     if (recentsContainer) recentsContainer.hidden = Boolean(query);
   };
   input.addEventListener("input", render);
@@ -826,6 +875,7 @@ function gymState(
     lineupFormIds,
     ownedIndex: safeIndex(filters.ownedIndex),
     overallIndex: safeIndex(filters.overallIndex),
+    lineupShape: filters.lineupShape === "breaker" ? "breaker" : "clean",
   };
 }
 
@@ -1880,6 +1930,17 @@ export function createInteractionController({
             gymDefenderSpeciesByFormId,
           );
         }
+        await persistTask("gyms", nextUi);
+        rerender("gyms");
+        return;
+      }
+      const shapeToggle = target?.closest?.("[data-lineup-shape]")
+        ?? (target?.dataset?.lineupShape ? target : null);
+      if (shapeToggle) {
+        // Which lineup strategy to show. Persisted with the rest of the gym
+        // task state so it survives a route change, like the lane indexes.
+        const nextUi = structuredClone(ui);
+        nextUi.gym.lineupShape = shapeToggle.dataset.lineupShape === "breaker" ? "breaker" : "clean";
         await persistTask("gyms", nextUi);
         rerender("gyms");
         return;
@@ -2995,7 +3056,10 @@ export function bootstrap({
           weather: ui.weather,
         }),
       });
-      searchRefresh = bindSearch(documentObject, index, state.core.forms, roster, storage);
+      searchRefresh = bindSearch(documentObject, index, state.core.forms, roster, storage, {
+        raidTargetTool: state.raidTargetTool,
+        raids: state.raids,
+      });
     },
     basics(view) {
       app.innerHTML = (LEARN_VIEWS[view] ?? renderBasics)();
@@ -3071,6 +3135,7 @@ export function bootstrap({
         // to remove. Hand it to renderGyms so it sits inside the tab body.
         ? `${renderGyms({
           lineupControls: view === "defend" ? gymLineupControls(state, ui) : "",
+          lineupShape: ui.gym.lineupShape,
           gym: state.gym,
           forms: state.core.forms,
           placementResult,

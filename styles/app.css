@@ -3928,3 +3928,54 @@ select {
   letter-spacing: 0.03em;
   text-transform: uppercase;
 }
+
+/* Raid-boss search hit: the CP figures are the reason people search a boss
+   name, so they get real hierarchy rather than a chip squeezed into the row. */
+.search-boss-cp {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.4rem;
+  margin: 0.5rem 0 0;
+}
+
+.search-boss-cp dt {
+  font-size: 0.7rem;
+  color: var(--muted);
+}
+
+.search-boss-cp dd {
+  margin: 0;
+  font-size: 1.05rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.search-boss-label {
+  margin: 0.6rem 0 0.2rem;
+  font-size: 0.72rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.search-boss-counters {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 0.35rem;
+}
+
+.search-boss-counters li {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  flex-wrap: wrap;
+}
+
+.search-boss-note {
+  margin: 0.45rem 0 0;
+  font-size: 0.78rem;
+  line-height: 1.4;
+  color: var(--muted);
+}

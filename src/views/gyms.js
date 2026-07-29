@@ -74,10 +74,25 @@ function staggerSection(gym) {
 // The point of showing lineups (not just a ranking) is that a lineup answers a
 // different question: what should a coordinated group actually place, and
 // therefore what is worth investing in next.
-function lineupSection(gym, forms) {
-  const lineups = gym.startingLineups ?? [];
+function lineupSection(gym, forms, lineupShape = "clean") {
+  // Two strategies, not one ranked list. "Clean" is stronger when you can
+  // build it; "chain breakers" is what a second account or a friend's thinner
+  // roster can actually field, and burying it below five clean options hides
+  // the answer most people need.
+  const breaker = lineupShape === "breaker";
+  const lineups = (breaker ? gym.chainBreakerLineups : gym.startingLineups) ?? [];
   const ranking = gym.defenderRanking ?? [];
   if (!lineups.length && !ranking.length) return "";
+
+  const shapeTabs = `<div class="pvp-controls" aria-label="Lineup strategy">
+    <fieldset><legend>Lineup shape</legend>
+      <button type="button" data-lineup-shape="clean" aria-pressed="${!breaker}">No shared weakness</button>
+      <button type="button" data-lineup-shape="breaker" aria-pressed="${breaker}">Chain breakers</button>
+    </fieldset>
+  </div>
+  <p class="gym-intro">${breaker
+    ? "Two walls that share a weakness, with something between them that resists it — the attacker cannot walk straight through. Use these when you do not have three unrelated walls to hand."
+    : "Nothing here is super-effective against more than one member, so no single attacker gets a free run. Strongest when you can build it."}</p>`;
 
   const lineupCards = lineups.map((lineup, index) => `<li class="gym-card"><article>
     <p class="gym-rank">Option ${index + 1}</p>
@@ -111,6 +126,7 @@ function lineupSection(gym, forms) {
 
   return `<section class="gym-section" aria-labelledby="gym-lineups-title">
     ${sectionHeading("Coordinated opening", "Starting lineups", "gym-lineups-title")}
+    ${shapeTabs}
     <p class="gym-intro">Three accounts dropping one each. Each option avoids a single attacking type sweeping the whole set, and no Pokémon anchors more than two options — so these are genuinely different things to invest toward, not one answer reshuffled.</p>
     <ul class="gym-card-list">${lineupCards}</ul>
     ${sectionHeading("Computed, not curated", "Defender ranking", "gym-ranking-title")}
@@ -308,6 +324,7 @@ export function renderGyms({
   trainerTeam = null,
   view = "attack",
   lineupControls = "",
+  lineupShape = "clean",
 } = {}) {
   const deploymentMap = buildDeploymentMap(defenseLog, now);
   const defending = view === "defend";
@@ -320,7 +337,7 @@ export function renderGyms({
   const body = defending
     ? `${lineupControls}
     ${renderPlacementCoach({ placementResult, ownedIndex, overallIndex, rosterInstances, deploymentMap })}
-    ${lineupSection(gym, forms)}
+    ${lineupSection(gym, forms, lineupShape)}
     ${defenseSection(gym, forms, ownedFormIds, trainerTeam)}
     ${motivationSection()}
     ${ownedDefenderEditor(gym.defenders, ownedFormIds)}`
