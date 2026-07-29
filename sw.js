@@ -481,31 +481,48 @@ export function createQueuedReleaseDispatcher(dispatch = dispatchReleaseCommand)
 }
 
 
+// Exported for tests/web/sw-precache-split.test.mjs, which guards that install
+// finishes without waiting on the sprite warm.
+export function installShellForTest(environment) {
+  return installShell(environment);
+}
+
+
 async function installShell(environment = {}) {
   const env = runtime(environment);
   const cache = await env.caches.open(SHELL_CACHE);
   // Atomic on purpose: these 82 files ARE the app, and a partial shell is a
   // broken boot. Small enough that all-or-nothing is affordable.
   await cache.addAll(SHELL_CODE_FILES);
-  // Sprites are warmed separately and best-effort. A missing sprite degrades
-  // to sprites.js's coloured fallback circle; a failed install degrades to no
-  // app at all. Never let the second happen for the sake of the first.
-  await warmSpriteCache(env);
+  // NOT awaited. Warming is 1,135 fetches; blocking install on it keeps the
+  // worker in "installing" for minutes on a phone, which is its own outage —
+  // the app has no active worker and every sprite misses. Kick it off and let
+  // install finish. Sprites resolve from the network meanwhile.
+  void warmSpriteCache(env).catch(function () {});
 }
 
+
+// Batched rather than sequential: 1,135 serial round-trips is minutes of
+// warming on mobile. Small batches keep it off the critical path without
+// opening 1,135 sockets at once.
+const SPRITE_WARM_BATCH = 12;
 
 export async function warmSpriteCache(environment = {}) {
   const env = runtime(environment);
   const cache = await env.caches.open(SPRITE_CACHE);
   let added = 0;
-  for (const path of SPRITE_FILES) {
-    try {
-      if (await cache.match(path)) continue; // survives shell bumps; do not refetch
-      await cache.add(path);
-      added += 1;
-    } catch {
-      // Best effort by design — see SPRITE_FILES.
-    }
+  for (let index = 0; index < SPRITE_FILES.length; index += SPRITE_WARM_BATCH) {
+    const batch = SPRITE_FILES.slice(index, index + SPRITE_WARM_BATCH);
+    const results = await Promise.all(batch.map(async (path) => {
+      try {
+        if (await cache.match(path)) return 0; // survives shell bumps
+        await cache.add(path);
+        return 1;
+      } catch {
+        return 0; // best effort by design — see SPRITE_FILES
+      }
+    }));
+    added += results.reduce((sum, value) => sum + value, 0);
   }
   return added;
 }
@@ -542,10 +559,10 @@ async function fetchSpriteCacheFirst(request, env) {
     if (response?.ok) await cache.put(request, response.clone());
     return response;
   } catch {
-    // Network unreachable and SPRITE_CACHE hasn't warmed this URL yet — a
-    // freshly activated worker starts with an empty SPRITE_CACHE, but
-    // SHELL_FILES precached all 1135 sprites into SHELL_CACHE at install.
-    // Fall back there before giving up.
+    // Network unreachable and SPRITE_CACHE has not warmed this URL yet.
+    // SHELL_CACHE no longer carries sprites (they moved to their own
+    // version-independent cache), so this only hits for clients still on a
+    // pre-r57 shell. Harmless to keep; it costs one miss.
     const shell = await env.caches.open(SHELL_CACHE);
     const shellHit = await shell.match(request);
     if (shellHit) return shellHit;
