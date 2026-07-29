@@ -26,7 +26,7 @@ const MANIFEST_PATH = "release-manifest.json";
 // SPRITE_VARIANT_IDS entry) — they belong in the app shell like the other
 // icons, not the versioned data-release cache.
 const SPRITE_DEX_COUNT = 1025;
-export const SHELL_FILES = Object.freeze([
+const SHELL_CODE_FILES = Object.freeze([
   "./",
   "./index.html",
   "./manifest.webmanifest",
@@ -109,9 +109,25 @@ export const SHELL_FILES = Object.freeze([
   "./src/views/triage.js",
   "./src/views/tricks.js",
   "./src/views/types.js",
-  ...Array.from({ length: SPRITE_DEX_COUNT }, (_, index) => `./sprites/${index + 1}.png`),
-  ...Object.values(SPRITE_VARIANT_IDS).map((id) => `./sprites/${id}.png`),
 ]);
+
+// Sprites live in their OWN cache, versioned independently of the shell.
+// They used to sit in the install-time addAll alongside the app code: 1,135
+// images in a 1,217-entry atomic addAll, re-fetched in full on EVERY shell
+// revision. addAll rejects if a single entry fails, so one flaky image on a
+// phone failed the whole install and the new worker never activated — the
+// app then boots into the static pre-JS shell, where the nav bar only
+// highlights sections and the cards do nothing (reported 2026-07-29 after
+// five shell bumps in one day).
+const SPRITE_FILES = Object.freeze([
+  ...Array.from({ length: SPRITE_DEX_COUNT }, (_, index) => `./sprites/${index + 1}.png`),
+  ...Object.values(SPRITE_VARIANT_IDS).map((id) => `./sprites/${id}.png`)
+]);
+
+// The three-way allowlist contract (sw.js / build.py / publish script) is
+// about what gets PUBLISHED, not which cache holds it — so parity compares
+// the union.
+export const SHELL_FILES = Object.freeze([...SHELL_CODE_FILES, ...SPRITE_FILES]);
 
 
 function runtime(env = {}) {
@@ -467,7 +483,30 @@ export function createQueuedReleaseDispatcher(dispatch = dispatchReleaseCommand)
 async function installShell(environment = {}) {
   const env = runtime(environment);
   const cache = await env.caches.open(SHELL_CACHE);
-  await cache.addAll(SHELL_FILES);
+  // Atomic on purpose: these 82 files ARE the app, and a partial shell is a
+  // broken boot. Small enough that all-or-nothing is affordable.
+  await cache.addAll(SHELL_CODE_FILES);
+  // Sprites are warmed separately and best-effort. A missing sprite degrades
+  // to sprites.js's coloured fallback circle; a failed install degrades to no
+  // app at all. Never let the second happen for the sake of the first.
+  await warmSpriteCache(env);
+}
+
+
+export async function warmSpriteCache(environment = {}) {
+  const env = runtime(environment);
+  const cache = await env.caches.open(SPRITE_CACHE);
+  let added = 0;
+  for (const path of SPRITE_FILES) {
+    try {
+      if (await cache.match(path)) continue; // survives shell bumps; do not refetch
+      await cache.add(path);
+      added += 1;
+    } catch {
+      // Best effort by design — see SPRITE_FILES.
+    }
+  }
+  return added;
 }
 
 
