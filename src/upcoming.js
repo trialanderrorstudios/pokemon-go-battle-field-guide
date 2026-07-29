@@ -8,10 +8,9 @@
 import { escapeHtml, formatEventWhen, safeEventLink, startOfDay } from "./views/home.js";
 
 const HORIZON_DAYS = 14;
-const TEASER_CAP = 3;
 
-// Same backdrop kinds Home's week strip already excludes — a season/pass/
-// league/choose-your-path isn't a single dated occurrence. raid-battles is
+// Always-on backdrops: a season/pass/league/choose-your-path isn't a single
+// dated occurrence, and would crowd out the week's real ones. raid-battles is
 // excluded from the per-day cards too; it's handled separately below for
 // the 5-star rotation-boundary hint instead.
 const DAY_EXCLUDED_KINDS = new Set([
@@ -76,6 +75,23 @@ export function rotationBoundaryHints(events, now, horizonEnd) {
     });
   }
   return hints;
+}
+
+// ── happening now ────────────────────────────────────────────────────────
+// An event already running has a start date in the past, so the day calendar
+// below can never reach it — and that includes every DAY_EXCLUDED_KINDS
+// backdrop, which is always in progress by definition. This group is the app's
+// only surface for either since Home's all-events accordion was retired.
+// raid-battles stays out: the current-bosses grid on the same page already
+// answers "what's in raids right now", and the rotation hints cover the rest.
+export function happeningNowEvents(events, now) {
+  return (events ?? [])
+    .filter((event) => event.kind !== "raid-battles")
+    .map((event) => ({ ...event, start: new Date(event.startsAt), end: new Date(event.endsAt) }))
+    .filter((event) => !Number.isNaN(event.start.valueOf())
+      && event.start <= now
+      && (Number.isNaN(event.end.valueOf()) || event.end > now))
+    .sort((left, right) => left.end - right.end);
 }
 
 // ── per-day items ────────────────────────────────────────────────────────
@@ -144,7 +160,7 @@ export function buildUpcomingCalendar({
 // ── rendering ────────────────────────────────────────────────────────────
 function itemRow(item) {
   const gapLine = item.gap
-    ? `<p class="event-action">${escapeHtml(item.gap.headline)} — <a class="safe-escape" href="${escapeHtml(item.gap.href)}">See Build Next →</a></p>`
+    ? `<p class="event-action">${escapeHtml(item.gap.headline)} — <a class="safe-escape" href="${escapeHtml(item.gap.href)}">See Roster Gaps →</a></p>`
     : "";
   const prepLine = item.prepNudge ? `<p class="event-action">Prep your counters early →</p>` : "";
   const body = `<p class="event-type-badge">${escapeHtml(item.badge)}</p>
@@ -157,48 +173,35 @@ function itemRow(item) {
   return `<div class="home-event-card" data-event-id="${escapeHtml(item.id)}">${body}</div>`;
 }
 
-function dayGroup(group) {
+function group(label, items) {
   return `<div class="home-event-type-group">
-    <p class="event-type-heading"><span class="event-type-badge">${escapeHtml(dayHeaderLabel(group.date))}</span></p>
-    <div class="home-event-grid">${group.items.map(itemRow).join("")}</div>
+    <p class="event-type-heading"><span class="event-type-badge">${escapeHtml(label)}</span></p>
+    <div class="home-event-grid">${items.map(itemRow).join("")}</div>
   </div>`;
 }
 
-// Collapsed by default, same pattern as renderCurrentEvents's "Upcoming
-// events" accordion — id used by app.js's reveal-upcoming action.
+function dayGroup(day) {
+  return group(dayHeaderLabel(day.date), day.items);
+}
+
+// Collapsed by default: the one rendering of the events feed on Home —
+// what's running right now, then the next 14 days.
 export function renderUpcomingSection({
   currentEvents, forms, now = new Date(), gapByFormId = null,
 } = {}) {
   const days = buildUpcomingCalendar({ currentEvents, forms, now, gapByFormId });
-  const body = days.length
-    ? days.map(dayGroup).join("")
+  // prepNudge off: "Prep your counters early" is advice for something that
+  // hasn't started yet.
+  const running = happeningNowEvents(currentEvents?.events, now)
+    .map((event) => ({ ...eventItem(event, forms, now, gapByFormId), prepNudge: false }));
+  const nowGroup = running.length ? group("Happening now", running) : "";
+  const body = days.length || running.length
+    ? nowGroup + days.map(dayGroup).join("")
     : `<p class="event-type-blurb">Nothing scheduled in the next 14 days yet — check back after the next data refresh.</p>`;
   return `<section class="home-event-section" aria-labelledby="upcoming-title">
     <details id="upcoming-details" class="home-event-details">
-      <summary id="upcoming-title">Coming up (next 14 days)</summary>
+      <summary id="upcoming-title">Now and coming up (next 14 days)</summary>
       ${body}
     </details>
-  </section>`;
-}
-
-function teaserRow(item) {
-  return `<a class="week-strip-row" href="${escapeHtml(item.href)}"${item.external ? ' target="_blank" rel="noopener"' : ""} data-event-id="${escapeHtml(item.id)}">
-    <span class="week-strip-badge">${escapeHtml(item.badge)}</span>
-    <span class="week-strip-when">${escapeHtml(item.when)}</span>
-    <span class="week-strip-name">${escapeHtml(item.name)}</span>
-  </a>`;
-}
-
-// Compact next-3 teaser for Home, next to the week strip — only linkable
-// rows (a boss row or a safe external link); rotation hints and unlinkable
-// generic events show up in the full Coming Up section below instead.
-export function renderUpcomingTeaser({ currentEvents, forms, now = new Date() } = {}) {
-  const days = buildUpcomingCalendar({ currentEvents, forms, now });
-  const items = days.flatMap((day) => day.items).filter((item) => item.href).slice(0, TEASER_CAP);
-  if (!items.length) return "";
-  return `<section class="home-week-strip fallback-section" aria-labelledby="upcoming-teaser-title">
-    <h3 id="upcoming-teaser-title" class="home-section-title">Coming up</h3>
-    <div class="week-strip-list">${items.map(teaserRow).join("")}</div>
-    <button type="button" class="week-strip-all-link" data-action="reveal-upcoming">Next 14 days →</button>
   </section>`;
 }

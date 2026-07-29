@@ -89,7 +89,7 @@ export function powerUpNext(data, roster, trainerLevel = null) {
       stardust: cost.stardust,
       maxed: cost.candy === 0 && cost.stardust === 0,
       capNote: levelCapNote(40, trainerLevel),
-      href: "./?list=future#more",
+      href: "./#more/future",
     };
   });
 }

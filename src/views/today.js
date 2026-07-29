@@ -7,7 +7,7 @@
 //   daily-pass verdict + coach picks -> coach.js buildCoachSummary (worthRaiding)
 //   gym status -> gym-defense-log.js buildLeaderboard/durationMs (local active entries)
 //   staleness / profile -> optional round-8 modules, no-op when absent
-import { escapeHtml, formatRaidHourWhen } from "./home.js";
+import { escapeHtml, formatRaidHourWhen, whyLine } from "./home.js";
 import { buildCoachSummary } from "../coach.js";
 import { durationMs } from "../gym-defense-log.js";
 import { communityDayTodayItem } from "../cd-brief.js";
@@ -63,18 +63,38 @@ function hourEventItem(event, forms, now) {
 }
 
 // null (not an empty-array item) when nothing's in rotation, so an empty
-// week collapses cleanly into the "nothing scheduled" card instead of
-// leaving a hollow "no bosses" row behind.
+// week leaves no hollow "no bosses" row behind.
 function dailyPassItem(summary) {
   const top = summary.worthRaiding[0];
   if (!top) return null;
+  // Owned-counter count/names and the Raid Hour window are the only two
+  // things the retired Coach card carried that this row dropped — folded in
+  // here rather than kept alive as a second "should I raid this" surface.
+  const counters = top.ownedCounterCount
+    ? `${top.ownedCounterCount} owned counter${top.ownedCounterCount === 1 ? "" : "s"}${top.topCounterNames?.length ? ` (${top.topCounterNames.join(", ")})` : ""}`
+    : "No owned counters yet";
   return {
     id: "daily-pass",
     title: "Worth your free daily pass?",
-    detail: `${VERDICT_BY_BAND[top.band] ?? "Check"} — ${top.name}: ${top.headline}`,
+    detail: [
+      `${VERDICT_BY_BAND[top.band] ?? "Check"} — ${top.name}: ${top.headline}`,
+      counters,
+      top.raidHourWhen ? `Raid Hour ${top.raidHourWhen}` : "",
+    ].filter(Boolean).join(" · "),
     href: top.href,
   };
 }
+
+
+// The retired Coach's "Your PvP team" panel was a second rendering of the
+// same buildMyTeam data the PvP page's Teams view already shows, so it's a
+// link row here instead of a duplicated status section.
+const PVP_TEAM_ITEM = Object.freeze({
+  id: "pvp-teams",
+  title: "Check your PvP teams",
+  detail: "Great, Ultra, and Master League picks from the Pokémon you own.",
+  href: "./#pvp",
+});
 
 function formatElapsed(ms) {
   const totalMinutes = Math.floor(ms / 60000);
@@ -100,28 +120,6 @@ function gymStatusItems(defenseLog, now) {
   }));
 }
 
-function coachPickItems(summary) {
-  return summary.worthRaiding.slice(0, 2).map((row) => ({
-    id: `coach-${row.formId}`,
-    title: `Coach pick: ${row.name}`,
-    detail: row.headline,
-    href: "./#coach",
-  }));
-}
-
-// Round-8's staleness module isn't merged yet — `staleness` stays optional
-// and this is a no-op until it lands. Shape expected once it does:
-// { active: boolean, message?: string, href?: string }.
-function stalenessItems(staleness) {
-  if (!staleness?.active) return [];
-  return [{
-    id: "staleness",
-    title: "Data refresh nudge",
-    detail: staleness.message ?? "Your data may be stale — check for updates.",
-    href: staleness.href ?? "./#more",
-  }];
-}
-
 // gapByFormId (round 15, gap-analyzer.js): { [formId]: { headline, href } }
 // for current/upcoming bosses a weak roster lane leaves uncovered. Checks
 // today's hour events first (already same-day filtered above), then this
@@ -141,7 +139,7 @@ function gapItem(data, gapByFormId, now) {
     return {
       id: `gap-${formId}`,
       title: `Roster gap: ${forms?.[formId]?.name ?? formId}`,
-      detail: `${gap.headline} — see Build Next for what to power up.`,
+      detail: `${gap.headline} — see Roster Gaps for what to power up.`,
       href: gap.href,
     };
   }
@@ -163,7 +161,7 @@ function applyProfileGate(items, profile) {
 }
 
 export function buildTodayItems({
-  data = {}, roster = {}, defenseLog = null, staleness = null, profile = null, now = new Date(), gapByFormId = null,
+  data = {}, roster = {}, defenseLog = null, profile = null, now = new Date(), gapByFormId = null,
 } = {}) {
   const summary = buildCoachSummary({ data, roster, now, trainerLevel: profile?.trainerLevel });
   const forms = data?.core?.forms ?? data?.forms ?? {};
@@ -174,10 +172,9 @@ export function buildTodayItems({
     ...todaysHourEvents(data?.currentEvents?.events, now).map((event) => hourEventItem(event, forms, now)),
     ...(cdToday ? [cdToday] : []),
     ...(pass ? [pass] : []),
-    ...(gap ? [gap] : []),
     ...gymStatusItems(defenseLog, now),
-    ...coachPickItems(summary),
-    ...stalenessItems(staleness),
+    ...(gap ? [gap] : []),
+    PVP_TEAM_ITEM,
   ];
   return applyProfileGate(items, profile);
 }
@@ -220,36 +217,38 @@ function todayTaskRow(item, done) {
 }
 
 // One ranked answer to "what should I spend resources on", against the bosses
-// that are actually up and the dust the trainer actually has.
-function investNextSection(rows) {
+// that are actually up and the dust the trainer actually has. The badge is the
+// one thing the retired Coach's "Power up next" card had that nextActions
+// lacks: durability past the current rotation (extras.json futureProof).
+function investNextSection(rows, futureProofFormIds) {
   if (!rows.length) return "";
   return `<section class="fallback-section today-invest" aria-labelledby="today-invest-title">
     <p class="status-kicker">Worth building next</p>
     <h3 id="today-invest-title">Spend resources here</h3>
     <ul class="today-invest-list">${rows.map((row) => `<li${row.affordable ? "" : ' class="is-short"'}>
-      <strong>${escapeHtml(row.name)}</strong>
-      <p class="raid-why-line">${escapeHtml(row.why)}</p>
+      <strong>${escapeHtml(row.name)}</strong>${futureProofFormIds.has(row.formId) ? '<span class="today-invest-badge">Future-proof</span>' : ""}
+      ${whyLine(row.whyRanked)}
     </li>`).join("")}</ul>
   </section>`;
 }
 
 
 export function renderToday({
-  data = {}, roster = {}, defenseLog = null, staleness = null, profile = null, now = new Date(), storage = null,
-  gapByFormId = null, investRows = [],
+  data = {}, roster = {}, defenseLog = null, profile = null, now = new Date(), storage = null,
+  gapByFormId = null, investRows = [], futureProof = null,
 } = {}) {
   const items = buildTodayItems({
-    data, roster, defenseLog, staleness, profile, now, gapByFormId,
+    data, roster, defenseLog, profile, now, gapByFormId,
   });
   const dateLabel = now.toLocaleDateString("en-US", { weekday: "long", month: "short", day: "numeric" });
   const doneIds = loadDoneIds(storage, now);
-  const body = items.length
-    ? `<ul class="today-task-list">${items.map((item) => todayTaskRow(item, doneIds.has(item.id))).join("")}</ul>`
-    : `<p class="today-empty fallback-section">Nothing scheduled today — <a class="safe-escape" href="./#basics">Basics</a> or <a class="safe-escape" href="./#drill">Type Drill</a>?</p>`;
+  const futureProofFormIds = new Set((futureProof ?? [])
+    .filter((row) => row.futureProof === "High")
+    .map((row) => row.formId));
   return `<section class="today-view" aria-labelledby="today-view-title">
     <p class="status-kicker">${escapeHtml(dateLabel)}</p>
     <h2 id="today-view-title">Today</h2>
-    ${body}
-    ${investNextSection(investRows)}
+    <ul class="today-task-list">${items.map((item) => todayTaskRow(item, doneIds.has(item.id))).join("")}</ul>
+    ${investNextSection(investRows, futureProofFormIds)}
   </section>`;
 }

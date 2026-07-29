@@ -1,4 +1,4 @@
-// #hundo: hundo-hunting priority list (round 15). Composes existing engines
+// #raids/hundo: hundo-hunting priority list (round 15). Composes existing engines
 // only — no new IV/CP/rank math forked here:
 //   - raid relevance -> data.raids.regular/shadow ranked rows, the same
 //     signal triage.js's displayedRaidRelevance and rocket.js already read
@@ -245,7 +245,7 @@ function rowHtml(row, forms) {
     <p class="boss-tier">${escapeHtml(row.hundoCp)} CP — ${escapeHtml(row.hundoCpLabel)}</p>
     <p class="boss-tier">${escapeHtml(row.availability.label)}</p>
     <p class="today-task-detail">${verdictLine(row)}</p>
-    ${row.fillsWeakLane ? `<p class="event-action">Also fills a weak lane in your roster — <a class="safe-escape" href="./#buildnext">See Build Next →</a></p>` : ""}
+    ${row.fillsWeakLane ? `<p class="event-action">Also fills a weak lane in your roster — <a class="safe-escape" href="./#triage/gaps" data-route="triage" data-view="gaps">See Roster Gaps →</a></p>` : ""}
   </a>`;
 }
 

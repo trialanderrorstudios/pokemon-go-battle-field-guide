@@ -21,7 +21,7 @@ function categoryGroup(categoryId, label) {
 export function renderTricks() {
   const groups = Object.entries(TIP_CATEGORIES).map(([id, label]) => categoryGroup(id, label)).join("");
   return `<div class="more-view">
-    <a class="safe-escape" href="./#home">Back to Home</a>
+    <a class="safe-escape" href="./#basics" data-route="basics" data-view="">Back to Basics</a>
     <section class="more-section" aria-labelledby="tricks-title">
       <p class="status-kicker">Curated, sourced knowledge</p>
       <h2 id="tricks-title">Tips &amp; Tricks</h2>

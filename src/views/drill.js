@@ -40,7 +40,7 @@ function endScreen(drill) {
 
 export function renderDrill(drill) {
   const total = drill.questions.length;
-  if (!total) return `<div class="more-view"><a class="safe-escape" href="./#home">Back to Home</a><p>No drill questions available.</p></div>`;
+  if (!total) return `<div class="more-view"><a class="safe-escape" href="./#basics" data-route="basics" data-view="">Back to Basics</a><p>No drill questions available.</p></div>`;
   const body = drill.index >= total
     ? endScreen(drill)
     : (() => {
@@ -55,7 +55,7 @@ export function renderDrill(drill) {
     })();
   const isMoves = drill.mode === "moves";
   return `<div class="more-view">
-    <a class="safe-escape" href="./#home">Back to Home</a>
+    <a class="safe-escape" href="./#basics" data-route="basics" data-view="">Back to Basics</a>
     <section class="more-section" aria-labelledby="drill-title">
       <p class="status-kicker">${isMoves ? "Move count drill" : "Type matchup drill"}</p>
       <h2 id="drill-title">${isMoves ? "How many to get there?" : "What beats what?"}</h2>

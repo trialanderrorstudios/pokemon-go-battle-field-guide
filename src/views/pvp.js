@@ -1,4 +1,4 @@
-import { escapeHtml } from "./home.js";
+import { escapeHtml, whyLine } from "./home.js";
 import { jargonTerm } from "../glossary.js";
 import { spriteHtml } from "../sprites.js";
 import { displayMoveName, moveLink } from "./move-sheet.js";
@@ -48,7 +48,6 @@ export function createPvpState({ preferences = {}, filters = {} } = {}) {
     form: allowed(requested.form, FORM_FILTERS, "all"),
     investment: allowed(requested.investment, INVESTMENT_FILTERS, "all"),
     league: allowed(requested.league, new Set(PVP_LEAGUE_FILTERS), "all"),
-    view: allowed(requested.view, VIEWS, "teams"),
     antiMeta: allowed(requested.antiMeta, ANTI_META_FILTERS, "all"),
   };
 }
@@ -61,7 +60,6 @@ export function pvpPreferencePayload(state = {}) {
       form: normalized.form,
       investment: normalized.investment,
       league: normalized.league,
-      view: normalized.view,
       antiMeta: normalized.antiMeta,
     },
   };
@@ -152,17 +150,12 @@ function filterSelect(name, label, value, choices) {
 }
 
 
-function controls(state) {
+function controls(state, view) {
   return `<form class="pvp-controls" data-pvp-filters aria-label="PvP league and ranking filters">
     ${filterSelect("league", "League", state.league, PVP_LEAGUE_FILTERS.map((league) => [league, leagueName(league)]))}
-    ${state.view === "rankings" ? `${filterSelect("form", "Form", state.form, [["all", "Regular + Shadow"], ["regular", "Regular only"], ["shadow", "Shadow only"]])}
+    ${view === "rankings" ? `${filterSelect("form", "Form", state.form, [["all", "Regular + Shadow"], ["regular", "Regular only"], ["shadow", "Shadow only"]])}
     ${filterSelect("investment", "Investment", state.investment, [["all", "All tiers"], ["S+", "S+"], ["S", "S"], ["A", "A"], ["B", "B"], ["C", "C"]])}
     ${filterSelect("antiMeta", "Meta", state.antiMeta, [["all", "All picks"], ["countersMeta", "Counters the meta"]])}` : ""}
-    <fieldset><legend>View</legend>
-      <button type="button" data-pvp-view="teams" aria-pressed="${state.view === "teams"}">Teams</button>
-      <button type="button" data-pvp-view="rankings" aria-pressed="${state.view === "rankings"}">Rankings</button>
-      <button type="button" data-pvp-view="antimeta" aria-pressed="${state.view === "antimeta"}">Anti-Meta</button>
-    </fieldset>
   </form>`;
 }
 
@@ -238,7 +231,7 @@ function pvpCard(row, forms, { showLeague = false, publishedRank = false, traine
         <div><dt>Best Buddy</dt><dd>${yesNo(rankOne.bestBuddyRequired)}</dd></div>
       </dl>
       ${endgamePowerUpLine(row, trainerLevel)}
-      ${row.whyRanked ? `<p class="raid-why-line">${escapeHtml(row.whyRanked)}</p>` : ""}
+      ${whyLine(row.whyRanked)}
       <dl class="pvp-guidance">
         <div><dt>Role</dt><dd>${escapeHtml(row.primaryRole)} · ${escapeHtml((row.roles ?? []).join(", "))}</dd></div>
         <div><dt>Investment</dt><dd>${escapeHtml(row.investmentTier)} · ${escapeHtml(row.recommendation)}</dd></div>
@@ -580,17 +573,21 @@ function teamsView(pvp, teams, alternatives, forms, roster, state, trainerLevel 
 }
 
 
+// `view` comes from the route (#pvp/rankings), not from state: which question
+// you are asking is a URL fact, the league/form/investment filters narrowing
+// the answer are not. A bare #pvp is Teams. Battle Swap is a segment of that
+// strip now; the "Reset PvP filters" link is gone because it never reset any —
+// it pointed at ./#pvp, which re-renders with the same persisted filters.
 export function renderPvp({
-  pvp = {}, pvpTeams = [], pvpAlternatives = [], forms = {}, roster = {}, state, trainerLevel = null, pvpMoveCatalog = {},
+  pvp = {}, pvpTeams = [], pvpAlternatives = [], forms = {}, roster = {}, state, view = "", trainerLevel = null, pvpMoveCatalog = {},
 } = {}) {
   const normalized = createPvpState({ filters: state });
+  const activeView = allowed(view, VIEWS, "teams");
   return `<div class="pvp-view">
-    <a class="safe-escape" href="./#pvp">Reset PvP filters</a>
-    <a class="safe-escape" href="./#swap">Battle Swap — who should I lead?</a>
-    ${controls(normalized)}
-    ${normalized.view === "teams"
+    ${controls(normalized, activeView)}
+    ${activeView === "teams"
       ? teamsView(pvp, pvpTeams, pvpAlternatives, forms, roster, normalized, trainerLevel, pvpMoveCatalog)
-      : normalized.view === "antimeta"
+      : activeView === "antimeta"
         ? antiMetaView(pvp, forms, normalized)
         : rankingsView(pvp, forms, normalized, trainerLevel, pvpMoveCatalog)}
   </div>`;

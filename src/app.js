@@ -1,4 +1,4 @@
-import { createRouter, ROUTES } from "./router.js";
+import { createRouter, resolveRoute, ROUTES } from "./router.js";
 import { APP_SHELL_REVISION, ReleaseManager } from "./release-manager.js";
 import { ATTACK_TYPES, WEATHERS, becauseLine, buildRaidPlan, loadWeather, powerUpCost, saveWeather } from "./raid-target.js";
 import {
@@ -26,7 +26,7 @@ import {
 import { scorePlacement } from "./placement.js";
 import { jargonTerm } from "./glossary.js";
 import { dismissGuide, renderGuide, showGuide } from "./guide.js";
-import { escapeHtml, ownedStarButton, renderHome } from "./views/home.js";
+import { escapeHtml, ownedStarButton, renderHome, viewSegments } from "./views/home.js";
 import { renderBasics } from "./views/basics.js";
 import { renderMaxBasics } from "./views/maxbasics.js";
 import { renderTypes, typeChip } from "./views/types.js";
@@ -35,7 +35,7 @@ import { renderGlossary } from "./views/glossary.js";
 import { handleSpriteError, spriteHtml } from "./sprites.js";
 import { renderGyms } from "./views/gyms.js";
 import { renderLeaderboard } from "./views/leaderboard.js";
-import { renderMore } from "./views/more.js";
+import { MORE_LISTS, renderMore } from "./views/more.js";
 import { buildMoveIndex } from "./moves.js";
 import { moveLink, renderMoveSheet } from "./views/move-sheet.js";
 import { renderInstanceSheet } from "./views/instance-sheet.js";
@@ -128,12 +128,15 @@ import {
   toggleSwapManualPick,
 } from "./swap.js";
 import { renderSwap } from "./views/swap.js";
-import { renderCoach } from "./views/coach.js";
-import { renderToday, toggleTodayTask } from "./views/today.js";
+import { toggleTodayTask } from "./views/today.js";
 import { renderEggs } from "./views/eggs.js";
 import { renderRocket } from "./views/rocket.js";
 import { renderHundo } from "./views/hundo.js";
 import { renderDelta } from "./views/delta.js";
+// Home's "Spend resources here" rows. next-action.js has been in the three
+// shell allowlists since it landed, but nothing ever imported it — the
+// invest section threw a ReferenceError on every render until now.
+import { nextActions } from "./next-action.js";
 import { loadCachedReleaseDiff, refreshReleaseDiff, releaseDiffDismissedKey } from "./release-diff.js";
 import { renderTricks } from "./views/tricks.js";
 import { renderCandyPlan } from "./views/candyplan.js";
@@ -166,38 +169,34 @@ function usableState(state) {
 // that route's data depends on. core.json loads eagerly for every route
 // (forms/meta/methodology); everything below loads lazily on first visit to
 // a route that needs it, then stays cached in memory for the session. Routes
-// not listed here (basics/maxbasics/types/glossary/drill) render from static
-// copy only and never touch release chunk data.
+// not listed here (basics and its Learn sub-views) render from static copy
+// only and never touch release chunk data.
+//
+// A route's entry is the union of every sub-view it renders — chunk loading is
+// keyed on the route, so #raids/hundo's data has to be declared by raids.
 export const ROUTE_CHUNKS = Object.freeze({
   // raids.json: gap-analyzer.js's roster-gap teaser (getGapByFormId below)
   // reads state.raids and is gated on raids.json actually being loaded —
   // without it here, Home never fetches the chunk its own teaser depends on.
-  home: ["raid-targets.json", "current-bosses.json", "current-events.json", "raids.json"],
-  raids: ["raids.json", "raid-targets.json"],
+  // extras.json: the future-proof badge on the "spend resources here" rows.
+  home: ["raid-targets.json", "current-bosses.json", "current-events.json", "raids.json", "extras.json"],
+  // current-bosses/current-events/pvp belong to the Hundo Priority sub-view:
+  // a chase/don't-chase verdict built from partial raid+PvP data would be
+  // wrong, not just incomplete.
+  raids: ["raids.json", "raid-targets.json", "current-bosses.json", "current-events.json", "pvp.json"],
   gyms: ["gyms.json"],
+  // The drop-form's Placement Coach prefill reads the same ranked defenders
+  // the Gyms page does; undeclared, a cold deep-link silently loses it.
+  leaderboard: ["gyms.json"],
   pvp: ["pvp.json"],
-  swap: ["pvp.json"],
-  coach: ["raid-targets.json", "current-bosses.json", "current-events.json", "extras.json", "pvp.json"],
-  // Today composes the same feeds Coach does (events + buildCoachSummary),
-  // so it waits on the same chunk set — a checklist built from partial data
-  // would confidently tell the user "nothing on today". raids.json is also
-  // required: the roster-gap row (gapItem, today.js) reads it via the same
-  // getGapByFormId gate Home uses.
-  today: ["raid-targets.json", "current-bosses.json", "current-events.json", "extras.json", "pvp.json", "raids.json"],
   // gyms.json: ranked defenders are a KEEP signal — without it triage marks
   // Blissey-class walls as transfer candy (operator-reported 2026-07-23).
-  triage: ["raids.json", "pvp.json", "extras.json", "gyms.json"],
-  // Same relevance signals triage.js reads (raid/PvP/gym rank) — waiting on
-  // them keeps the "worth evolving toward" call honest, not partial.
-  candyplan: ["raids.json", "pvp.json", "gyms.json"],
+  // current-bosses/current-events belong to the Roster Gaps sub-view, which
+  // scores candidates against the bosses actually in rotation.
+  triage: ["raids.json", "pvp.json", "extras.json", "gyms.json", "current-bosses.json", "current-events.json"],
   more: ["extras.json"],
   eggs: ["current-eggs.json"],
   rocket: ["raid-targets.json", "current-bosses.json", "current-events.json", "rocket-lineups.json"],
-  hundo: ["raid-targets.json", "current-bosses.json", "current-events.json", "raids.json", "pvp.json"],
-  // Same relevance signals candyplan reads (raid/PvP/gym rank), plus the
-  // current-bosses/current-events feeds Home's Coming Up section reads —
-  // this page composes both (gap-analyzer.js), so it waits on all of them.
-  buildnext: ["raids.json", "pvp.json", "gyms.json", "current-bosses.json", "current-events.json"],
 });
 
 export function chunksNeededFor(route, loadedChunkPaths) {
@@ -333,7 +332,7 @@ function highlightMatch(name, rawQuery) {
 // Tips have no sprite/owned-star affordance (they're not Pokémon forms) —
 // just a link into the Tricks page instead of the sprite+star card shape.
 function tipSearchResultCard(result, rawQuery) {
-  return `<li class="search-result-card search-result-tip"><a class="safe-escape" href="./#tricks"><strong>${highlightMatch(result.name, rawQuery)}</strong> <span>Tip</span></a></li>`;
+  return `<li class="search-result-card search-result-tip"><a class="safe-escape" href="./#basics/tricks" data-route="basics" data-view="tricks"><strong>${highlightMatch(result.name, rawQuery)}</strong> <span>Tip</span></a></li>`;
 }
 
 // "What beats this?" — a raid-boss search hit routes straight to that
@@ -550,7 +549,7 @@ const STALENESS_THRESHOLD_MS = 14 * 24 * 60 * 60 * 1000;
 const STALENESS_SNOOZE_MS = 7 * 24 * 60 * 60 * 1000;
 // Views that read roster.instances for CP/IV-precise guidance — where a stale
 // import actually misleads. "more" is where My Roster + re-import live.
-const STALENESS_BANNER_ROUTES = new Set(["more", "coach", "swap", "triage"]);
+const STALENESS_BANNER_ROUTES = new Set(["more", "home", "pvp", "triage"]);
 
 function stalenessSnoozeKey(importedAt) {
   return `poke-genie-staleness-snoozed:${importedAt}`;
@@ -674,7 +673,6 @@ function downloadFile(filename, payload, { documentObject, windowObject }) {
 const TASK_ROUTES = new Set(["raids", "gyms", "pvp"]);
 const RAID_LANES = new Set(["regular", "shadow", "owned"]);
 const RAID_LEVELS = new Set(["normal", "weatherBoosted"]);
-const RAID_VIEWS = new Set(["rankings", "target"]);
 const RAID_TARGET_CATEGORIES = Object.freeze([
   ["all", "All targets"],
   ["standard", "Standard"],
@@ -719,7 +717,6 @@ function raidState(filters = {}, validFormIds = null) {
     observedCp,
     targetFormId: validFormId(filters.targetFormId, validFormIds, "0150-normal"),
     targetCategory: allowed(filters.targetCategory, RAID_TARGET_CATEGORY_SET, "all"),
-    view: allowed(filters.view, RAID_VIEWS, "rankings"),
     showAll: Boolean(filters.showAll),
   };
 }
@@ -829,10 +826,6 @@ function gymState(
     lineupFormIds,
     ownedIndex: safeIndex(filters.ownedIndex),
     overallIndex: safeIndex(filters.overallIndex),
-    // The gym page answers two unrelated questions (what do I bring to break
-    // a gym, what do I leave behind to hold one). Nine sections in one scroll
-    // buried both; the tab keeps each answer one screen from the top.
-    view: filters.view === "defend" ? "defend" : "attack",
   };
 }
 
@@ -928,8 +921,7 @@ export function createInteractionState({
     drill: createDrillState({ storage }),
     swap: createSwapState(),
     triage: createTriageViewState(),
-    lastTask: savedTask ? { route: savedTask.route } : null,
-    moreList: null,
+    lastTask: savedTask ? { route: savedTask.route, view: typeof savedTask.view === "string" ? savedTask.view : "" } : null,
     installMessage: "",
     rosterMessage: "",
     rosterQuery: "",
@@ -992,7 +984,6 @@ export function createInteractionController({
   gymDefenderSpeciesByFormId = null,
   renderRoute = () => {},
   releaseManager = null,
-  navigateMore = null,
   installPrompt = null,
   onRosterExport = null,
   onClipboardCopy = null,
@@ -1009,6 +1000,7 @@ export function createInteractionController({
   storage = null,
   rerenderCurrent = () => {},
   isCurrentRoute = () => true,
+  currentView = () => "",
   rootElement = null,
   scrollToTop = () => {},
 } = {}) {
@@ -1040,15 +1032,19 @@ export function createInteractionController({
   const persistTask = async (route, nextUi) => {
     failureRoute = route;
     const filters = taskFilters(route, nextUi);
+    // The sub-view is a URL fact, so Continue resumes #raids/target, not just
+    // #raids. A star tapped from Home persists the route with no view, which
+    // is the route default — the honest answer, not a guess.
+    const view = isCurrentRoute(route) ? currentView() : "";
     await mutateRoster((current) => {
       const preferences = {
         ...(current.preferences ?? {}),
-        lastTask: { route, filters },
+        lastTask: { route, view, filters },
       };
       if (route === "pvp") preferences.pvp = structuredClone(nextUi.pvp);
       return { ...current, preferences };
     });
-    nextUi.lastTask = { route };
+    nextUi.lastTask = { route, view };
     nextUi.interactionMessage = "";
     clearTriageCopyStatus(nextUi);
     replaceObject(ui, nextUi);
@@ -1106,7 +1102,7 @@ export function createInteractionController({
           ui.swap.opponentQuery.length,
         );
         const ownerDocument = swapOpponentQuery.ownerDocument;
-        rerender("swap");
+        rerender("pvp");
         const nextInput = ownerDocument?.querySelector?.("[data-swap-opponent-query]");
         nextInput?.focus?.({ preventScroll: true });
         nextInput?.setSelectionRange?.(caret, caret);
@@ -1282,13 +1278,13 @@ export function createInteractionController({
         ui.buddyPlan = buddyPlanFormControl.value === ""
           ? clearBuddyPlan(storage)
           : saveBuddyPlan(storage, { formId: buddyPlanFormControl.value, instanceId: null, hearts: null });
-        rerender("coach");
+        rerender("home");
         return;
       }
       const buddyPlanInstanceControl = target?.closest?.("[data-buddy-plan-instance]");
       if (buddyPlanInstanceControl && ui.buddyPlan?.formId) {
         ui.buddyPlan = saveBuddyPlan(storage, { ...ui.buddyPlan, instanceId: buddyPlanInstanceControl.value || null });
-        rerender("coach");
+        rerender("home");
         return;
       }
       const buddyPlanHeartsControl = target?.closest?.("[data-buddy-plan-hearts]");
@@ -1297,7 +1293,7 @@ export function createInteractionController({
           ...ui.buddyPlan,
           hearts: buddyPlanHeartsControl.value === "" ? null : Number(buddyPlanHeartsControl.value),
         });
-        rerender("coach");
+        rerender("home");
         return;
       }
       const myFriendCodeControl = target?.closest?.("[data-my-friend-code]");
@@ -1360,13 +1356,13 @@ export function createInteractionController({
       const tradeNameControl = target?.closest?.("[data-trade-name]");
       if (tradeNameControl) {
         ui.trade = { ...ui.trade, name: tradeNameControl.value };
-        rerender("trades");
+        rerender("more");
         return;
       }
       const tradeImportTextControl = target?.closest?.("[data-trade-import-text]");
       if (tradeImportTextControl) {
         ui.trade = { ...ui.trade, importText: tradeImportTextControl.value };
-        rerender("trades");
+        rerender("more");
         return;
       }
       const instanceCp = target?.closest?.("[data-instance-cp]");
@@ -1440,7 +1436,6 @@ export function createInteractionController({
             gymDefenderSpeciesByFormId,
             storage,
           });
-          nextUi.moreList = ui.moreList;
           nextUi.installMessage = ui.installMessage;
           nextUi.interactionMessage = ui.interactionMessage;
           nextUi.rosterMessage = `Imported ${roster.ownedFormIds.length} owned forms.`;
@@ -1756,20 +1751,6 @@ export function createInteractionController({
         rerenderCurrent();
         return;
       }
-      const gymView = target?.closest?.("[data-gym-view]");
-      if (gymView) {
-        ui.gym.view = gymView.dataset.gymView === "defend" ? "defend" : "attack";
-        rerender("gyms");
-        return;
-      }
-      const raidView = target?.closest?.("[data-raid-view]");
-      if (raidView) {
-        const nextUi = structuredClone(ui);
-        nextUi.raid = raidState({ ...nextUi.raid, view: raidView.dataset.raidView }, validFormIds);
-        await persistTask("raids", nextUi);
-        rerender("raids");
-        return;
-      }
       const counterLane = target?.closest?.("[data-counter-lane]");
       if (counterLane) {
         const nextUi = structuredClone(ui);
@@ -1834,16 +1815,17 @@ export function createInteractionController({
         failureRoute = route;
         const nextUi = structuredClone(ui);
         const filters = taskFilters(route, nextUi);
+        const view = isCurrentRoute(route) ? currentView() : "";
         await mutateRoster((current) => ({
           ...current,
           schemaVersion: ROSTER_SCHEMA,
           ...toggleOwnedFields(current),
           preferences: {
             ...(current.preferences ?? {}),
-            lastTask: { route, filters },
+            lastTask: { route, view, filters },
           },
         }));
-        nextUi.lastTask = { route };
+        nextUi.lastTask = { route, view };
         nextUi.interactionMessage = "";
         clearTriageCopyStatus(nextUi);
         replaceObject(ui, nextUi);
@@ -1912,63 +1894,34 @@ export function createInteractionController({
         rerender("gyms");
         return;
       }
-      const pvpView = target?.closest?.("[data-pvp-view]");
-      if (pvpView) {
-        const nextUi = structuredClone(ui);
-        nextUi.pvp = createPvpState({ filters: { ...nextUi.pvp, view: pvpView.dataset.pvpView } });
-        await persistTask("pvp", nextUi);
-        rerender("pvp");
-        return;
-      }
       const swapLeague = target?.closest?.("[data-swap-league]");
       if (swapLeague) {
         ui.swap = setSwapLeague(ui.swap, swapLeague.dataset.swapLeague);
-        rerender("swap");
+        rerender("pvp");
         return;
       }
       const swapManualPick = target?.closest?.("[data-swap-manual-form-id]");
       if (swapManualPick) {
         ui.swap = toggleSwapManualPick(ui.swap, swapManualPick.dataset.swapManualFormId);
-        rerender("swap");
+        rerender("pvp");
         return;
       }
       const swapOpponentPick = target?.closest?.("[data-swap-opponent-form-id]");
       if (swapOpponentPick) {
         ui.swap = selectSwapOpponent(ui.swap, swapOpponentPick.dataset.swapOpponentFormId);
-        rerender("swap");
+        rerender("pvp");
         return;
       }
-      // More's ?list= sub-views swap the whole screen without changing route,
-      // so the router's render() — the only other place #app's scroll root is
-      // reset — never runs. Without these resets, opening Living Dex from a
-      // deeply scrolled More page lands mid-list with the title, guide, and
-      // "Back to More" escape scrolled off the top (device QA F-03,
-      // 2026-07-23). Reset after rerender so it isn't clobbered by the
-      // innerHTML swap.
-      const moreList = target?.closest?.("[data-more-list]");
-      if (moreList) {
-        event.preventDefault?.();
-        ui.moreList = moreList.dataset.moreList;
-        navigateMore?.(ui.moreList);
-        rerender("more");
-        scrollToTop();
-        return;
-      }
-      const moreBack = target?.closest?.('a.safe-escape[href="./#more"]');
-      if (moreBack && ui.moreList) {
-        event.preventDefault?.();
-        ui.moreList = null;
-        navigateMore?.(null);
-        rerender("more");
-        scrollToTop();
-        return;
-      }
+      // More's sub-views are routes now (#more/<view>), so the scroll reset,
+      // Back behaviour and dex wipe come from router.render() — the hand-rolled
+      // ui.moreList/navigateMore/scrollToTop patch that shadowed the URL (and
+      // the F-03 mid-list landing it was patching) is gone with it.
       const drillChoice = target?.closest?.("[data-drill-choice]");
       if (drillChoice) {
         const nextUi = structuredClone(ui);
         nextUi.drill = answerDrillQuestion(nextUi.drill, drillChoice.dataset.drillChoice, storage);
         replaceObject(ui, nextUi);
-        rerender("drill");
+        rerender("basics");
         return;
       }
       const drillNext = target?.closest?.("[data-drill-next]");
@@ -1976,7 +1929,7 @@ export function createInteractionController({
         const nextUi = structuredClone(ui);
         nextUi.drill = advanceDrillQuestion(nextUi.drill);
         replaceObject(ui, nextUi);
-        rerender("drill");
+        rerender("basics");
         return;
       }
       const drillRestart = target?.closest?.("[data-drill-restart]");
@@ -1984,7 +1937,7 @@ export function createInteractionController({
         const nextUi = structuredClone(ui);
         nextUi.drill = restartDrillRound(nextUi.drill, { movePool: moveCountPool });
         replaceObject(ui, nextUi);
-        rerender("drill");
+        rerender("basics");
         return;
       }
       const drillMode = target?.closest?.("[data-drill-mode]");
@@ -1992,7 +1945,7 @@ export function createInteractionController({
         const nextUi = structuredClone(ui);
         nextUi.drill = setDrillMode(nextUi.drill, drillMode.dataset.drillMode, { movePool: moveCountPool });
         replaceObject(ui, nextUi);
-        rerender("drill");
+        rerender("basics");
         return;
       }
       const editFriend = target?.closest?.("[data-edit-friend-id]");
@@ -2069,7 +2022,7 @@ export function createInteractionController({
         rerender("leaderboard");
       } else if (action === "clear-buddy-plan") {
         ui.buddyPlan = clearBuddyPlan(storage);
-        rerender("coach");
+        rerender("home");
       } else if (action === "dismiss-guide") {
         const route = actionEl.dataset.guideRoute;
         if (route) dismissGuide(route, storage);
@@ -2086,31 +2039,10 @@ export function createInteractionController({
         // The Shadow lane starts ~9,000px down a ~19,800px view: 14 screens of
         // thumb before you reach it, with no way to skip. A plain #hash anchor
         // would round-trip through the router, which re-renders the route and
-        // resets scroll to the top (same reason reveal-events exists).
         rootElement?.querySelector?.(`#${CSS.escape(actionEl.dataset.scrollTarget ?? "")}`)
           ?.scrollIntoView?.({ block: "start" });
       } else if (action === "scroll-app-top") {
         scrollToTop();
-      } else if (action === "reveal-events") {
-        // Home's week-strip rows without a boss/external link (and its
-        // "All events" link) open the collapsed "Upcoming events" accordion
-        // and jump to it — a plain #hash anchor would instead round-trip
-        // through the router's hashchange handler, which re-renders Home
-        // and resets scroll to the top before the browser's own anchor
-        // jump ever gets seen.
-        const details = rootElement?.querySelector?.("#home-event-details");
-        if (details) {
-          details.open = true;
-          details.scrollIntoView?.({ block: "start" });
-        }
-      } else if (action === "reveal-upcoming") {
-        // Same round-trip-avoidance as reveal-events above, for the Coming
-        // Up teaser's "Next 14 days" link.
-        const details = rootElement?.querySelector?.("#upcoming-details");
-        if (details) {
-          details.open = true;
-          details.scrollIntoView?.({ block: "start" });
-        }
       } else if (action === "dismiss-update-banner") {
         const releaseId = releaseManager?.state?.candidate?.releaseId;
         if (releaseId) storage?.setItem?.(updateBannerDismissedKey(releaseId), "1");
@@ -2361,14 +2293,14 @@ export function createInteractionController({
         rerender("leaderboard");
       } else if (action === "trade-toggle-export") {
         ui.trade = { ...ui.trade, exportOpen: !ui.trade.exportOpen };
-        rerender("trades");
+        rerender("more");
       } else if (action === "trade-copy-export") {
         let payload = "";
         try {
           payload = exportDexSummary(ui.trade.name, state.core.forms, roster);
         } catch (error) {
           ui.trade = { ...ui.trade, message: error?.message ?? String(error) };
-          rerender("trades");
+          rerender("more");
           return;
         }
         const copied = await (api.onRosterShareCopy ?? onRosterShareCopy)?.(payload);
@@ -2376,7 +2308,7 @@ export function createInteractionController({
           ...ui.trade,
           message: copied ? "Copied your dex summary to clipboard." : "Could not copy automatically — select and copy the text above.",
         };
-        rerender("trades");
+        rerender("more");
       } else if (action === "trade-import") {
         try {
           const { friends, friend } = importFriendSummary(storage, ui.trade.importText);
@@ -2385,16 +2317,16 @@ export function createInteractionController({
         } catch (error) {
           ui.trade = { ...ui.trade, message: error?.message ?? String(error) };
         }
-        rerender("trades");
+        rerender("more");
       } else if (action === "trade-remove-friend") {
         const friendId = target?.closest?.("[data-trade-friend-id]")?.dataset.tradeFriendId;
         ui.tradeFriends = removeTradeFriend(storage, friendId);
         if (ui.trade.selectedFriendId === friendId) ui.trade = { ...ui.trade, selectedFriendId: null };
-        rerender("trades");
+        rerender("more");
       } else if (action === "trade-select-friend") {
         const friendId = target?.closest?.("[data-trade-friend-id]")?.dataset.tradeFriendId;
         ui.trade = { ...ui.trade, selectedFriendId: ui.trade.selectedFriendId === friendId ? null : friendId };
-        rerender("trades");
+        rerender("more");
       } else if (action === "defense-log-use-location") {
         // Geolocation gym picker: request coords, find nearest cached gym within 150m
         if (!navigator.geolocation) {
@@ -2452,19 +2384,19 @@ export function createInteractionController({
         rerender("leaderboard");
       } else if (action === "swap-continue-team") {
         ui.swap = advanceSwapToOpponent(ui.swap);
-        rerender("swap");
+        rerender("pvp");
       } else if (action === "swap-back-team") {
         event.preventDefault?.();
         ui.swap = backToSwapTeam(ui.swap);
-        rerender("swap");
+        rerender("pvp");
       } else if (action === "swap-back-opponent") {
         event.preventDefault?.();
         ui.swap = backToSwapOpponent(ui.swap);
-        rerender("swap");
+        rerender("pvp");
       } else if (action === "swap-reset") {
         event.preventDefault?.();
         ui.swap = createSwapState();
-        rerender("swap");
+        rerender("pvp");
       }
     },
   };
@@ -2764,16 +2696,12 @@ function raidTargetSurface(state, ui, roster) {
 }
 
 
-function renderRaidSurface(state, ui, roster) {
+function renderRaidSurface(state, ui, roster, view) {
   const controls = `<div class="pvp-controls" aria-label="Raid tools">
     <label>Attacking type<select data-raid-type>${ATTACK_TYPES.map((type) => option(type, type, ui.raid.attackingType)).join("")}</select></label>
     <label>Current weather<select data-weather-choice>${WEATHERS.map((weather) => option(weather, weather, ui.weather)).join("")}</select></label>
-    <fieldset><legend>Raid view</legend>
-      <button type="button" data-raid-view="rankings" aria-pressed="${ui.raid.view === "rankings"}">Top 15 by type</button>
-      <button type="button" data-raid-view="target" aria-pressed="${ui.raid.view === "target"}">Raid Target</button>
-    </fieldset>
   </div>`;
-  return `<div class="raids-view">${controls}${ui.raid.view === "target"
+  return `<div class="raids-view">${controls}${view === "target"
     ? raidTargetSurface(state, ui, roster)
     : renderRaids({ attackingType: ui.raid.attackingType, raids: state.raids, forms: state.core.forms, pvp: state.pvp })}</div>`;
 }
@@ -2814,13 +2742,15 @@ function interactionNotice(ui) {
 
 function continueTaskFor(state, ui) {
   const route = ui.lastTask?.route;
+  const view = ui.lastTask?.view ?? "";
   if (route === "raids") {
     const target = (state.raidTargetTool?.targets ?? [])
       .find((row) => row.bossFormId === ui.raid.targetFormId);
     return {
       route,
-      label: ui.raid.view === "target" ? "Continue Raid Target" : "Continue Raid Rankings",
-      detail: ui.raid.view === "target"
+      view,
+      label: view === "target" ? "Continue Raid Target" : "Continue Raid Rankings",
+      detail: view === "target"
         ? `${target?.boss ?? "Saved raid target"} · ${ui.raid.counterLane} counters`
         : `${ui.raid.attackingType} attackers · ${ui.raid.counterLane} lane`,
     };
@@ -2829,6 +2759,7 @@ function continueTaskFor(state, ui) {
     const count = ui.gym.lineupFormIds.length;
     return {
       route,
+      view,
       label: "Continue Gym Plan",
       detail: `${count} defender${count === 1 ? "" : "s"} selected · owned and overall lanes`,
     };
@@ -2839,8 +2770,9 @@ function continueTaskFor(state, ui) {
       : `${ui.pvp.league[0].toUpperCase()}${ui.pvp.league.slice(1)} League`;
     return {
       route,
+      view,
       label: "Continue PvP",
-      detail: `${league} · ${ui.pvp.form} forms · ${ui.pvp.view}`,
+      detail: `${league} · ${ui.pvp.form} forms · ${view || "teams"}`,
     };
   }
   return null;
@@ -2970,7 +2902,15 @@ export function bootstrap({
   let controller;
   let searchRefresh = () => {};
   let currentRoute = "home";
+  let currentView = "";
   let triageResult = null;
+  const basePath = basePathFrom(windowObject.location);
+  // "" whenever the asked-for route isn't the one in the URL — a rerender of
+  // some other route can't inherit this route's sub-view.
+  const viewForRoute = (route) => {
+    const resolved = resolveRoute(windowObject.location.href, basePath);
+    return resolved.route === route ? resolved.view : "";
+  };
   // Focus management for the move-sheet/instance-sheet dialogs: remembers
   // whether a dialog was open on the previous render and what had focus
   // before it opened, so opening moves focus in and closing returns it —
@@ -2993,8 +2933,41 @@ export function bootstrap({
       forms: state.core.forms,
     })
     : null);
+  // #basics/<view> — the Learn hub's sub-views. Static copy, no chunk data.
+  const LEARN_VIEWS = {
+    types: () => renderTypes(),
+    glossary: () => renderGlossary(),
+    drill: () => renderDrill(ui.drill),
+    tricks: () => renderTricks(),
+    max: () => renderMaxBasics(),
+  };
+  const deltaView = () => renderDelta({
+    diff: loadCachedReleaseDiff(storage, releaseState.manifest?.releaseId ?? null),
+    roster,
+  });
+  const tradesView = () => {
+    const selectedFriend = ui.tradeFriends.find((friend) => friend.id === ui.trade.selectedFriendId) ?? null;
+    return renderTrades({
+      trade: ui.trade,
+      friends: ui.tradeFriends,
+      exportText: (() => {
+        try {
+          return exportDexSummary(ui.trade.name, state.core.forms, roster);
+        } catch {
+          return "";
+        }
+      })(),
+      comparison: selectedFriend ? tradeComparison(state.core.forms, roster, selectedFriend) : null,
+    });
+  };
   const renderers = {
     home() {
+      // Home is the "what should I do now" surface: today's checklist, where
+      // to spend resources, the buddy plan, then reference below. Deliberately
+      // not gated on routeChunksReady like the verdict pages are — it's the
+      // cold-boot landing route, and every section here renders its own empty
+      // state from whatever has actually landed, then re-renders when the
+      // rest of the chunks do.
       app.innerHTML = interactionNotice(ui) + renderHome({
         cutoff: state.core.meta?.asOf,
         offlineStatus: state.offlineStatus ?? offlineLabel(releaseState),
@@ -3004,29 +2977,28 @@ export function bootstrap({
         currentEvents: state.currentEvents,
         raidTargetTool: state.raidTargetTool,
         forms: state.core.forms,
-        raids: state.raids,
         whatsNew: whatsNewCard(releaseState, storage),
         releaseDiff: loadCachedReleaseDiff(storage, releaseState.manifest?.releaseId ?? null),
         roster,
         storage,
         gapByFormId: getGapByFormId(),
+        data: state,
+        defenseLog: ui.defenseLog,
+        futureProof: state.futureProof,
+        buddyPlan: ui.buddyPlan,
+        trainerLevel: ui.trainerProfile.level,
+        investRows: nextActions({
+          data: state,
+          roster,
+          stardust: ui.stardust,
+          candyInventory: ui.candyInventory,
+          weather: ui.weather,
+        }),
       });
       searchRefresh = bindSearch(documentObject, index, state.core.forms, roster, storage);
     },
-    delta() {
-      app.innerHTML = renderDelta({
-        diff: loadCachedReleaseDiff(storage, releaseState.manifest?.releaseId ?? null),
-        roster,
-      });
-    },
-    basics() {
-      app.innerHTML = renderBasics();
-    },
-    maxbasics() {
-      app.innerHTML = renderMaxBasics();
-    },
-    types() {
-      app.innerHTML = renderTypes();
+    basics(view) {
+      app.innerHTML = (LEARN_VIEWS[view] ?? renderBasics)();
     },
     eggs() {
       app.innerHTML = interactionNotice(ui) + (state.currentEggs
@@ -3040,7 +3012,6 @@ export function bootstrap({
           currentEvents: state.currentEvents,
           raidTargetTool: state.raidTargetTool,
           forms: state.core.forms,
-          raids: state.raids,
           // Deliberately not part of the gate above: a release published
           // before this chunk existed carries no rocketLineups, and the
           // lineup section renders its own honest empty state rather than
@@ -3049,60 +3020,48 @@ export function bootstrap({
         })
         : chunkLoadingNotice("Team GO Rocket"));
     },
-    hundo() {
-      // Same honesty gate as Coach/Triage: a chase/don't-chase verdict built
-      // from partial raid+PvP data would be wrong, not just incomplete.
-      // weakLaneTypes (round 15 seam): the roster's uncovered attacking types
-      // from the same gap analyzer Build Next reads, so a hundo that's also a
-      // ranked attacker of a weak lane can cross-link to Build Next. raids.json
-      // is in this route's chunk set, so typeCoverage has its ranked rows.
-      app.innerHTML = interactionNotice(ui) + (routeChunksReady("hundo", loadedChunkPaths)
-        ? renderHundo({
-          data: state,
-          weakLaneTypes: new Set(weakLanes(typeCoverage({ raids: state.raids, roster })).map((lane) => lane.attackingType)),
-        })
-        : chunkLoadingNotice("Hundo Priority"));
-    },
-    glossary() {
-      app.innerHTML = renderGlossary();
-    },
-    tricks() {
-      app.innerHTML = renderTricks();
-    },
-    trades() {
-      const selectedFriend = ui.tradeFriends.find((friend) => friend.id === ui.trade.selectedFriendId) ?? null;
-      app.innerHTML = interactionNotice(ui) + renderTrades({
-        trade: ui.trade,
-        friends: ui.tradeFriends,
-        exportText: (() => {
-          try {
-            return exportDexSummary(ui.trade.name, state.core.forms, roster);
-          } catch {
-            return "";
-          }
-        })(),
-        comparison: selectedFriend ? tradeComparison(state.core.forms, roster, selectedFriend) : null,
-      });
-    },
-    drill() {
-      app.innerHTML = renderDrill(ui.drill);
-    },
-    raids() {
+    raids(view) {
+      // ?boss=<formId> is a deep link into the target view. Move the hash with
+      // it so the strip, Back and a re-share of the URL all agree, and consume
+      // the param once so later re-renders (picking a different target) aren't
+      // silently overridden back to it.
+      let activeView = view;
       const bossParam = new URLSearchParams(windowObject.location?.search ?? "").get("boss");
-      if (bossParam && validFormIds.has(bossParam)) {
+      if (activeView !== "hundo" && bossParam && validFormIds.has(bossParam)) {
         ui.raid.targetFormId = bossParam;
-        ui.raid.view = "target";
-        // Consume the deep-link param once so later re-renders (e.g. picking a
-        // different boss target) aren't silently overridden back to it.
+        activeView = "target";
         const url = new URL(windowObject.location.href);
         url.searchParams.delete("boss");
+        url.hash = "#raids/target";
         windowObject.history.replaceState({}, "", url.href);
       }
-      app.innerHTML = interactionNotice(ui) + (state.raids && state.raidTargetTool
-        ? renderRaidSurface(state, ui, roster)
+      // The strip is rendered here, not inside renderRaidSurface: Hundo is a
+      // sibling view from another module, and a tab strip you cannot use to
+      // leave the tab is the dead end #more used to be.
+      const tabs = viewSegments("Raid view", "raids", [
+        ["", "Top 15 by type"],
+        ["target", "Raid Target"],
+        ["hundo", "Hundo Priority"],
+      ], activeView);
+      if (activeView === "hundo") {
+        // Same honesty gate as Triage: a chase/don't-chase verdict built
+        // from partial raid+PvP data would be wrong, not just incomplete.
+        // weakLaneTypes (round 15 seam): the roster's uncovered attacking
+        // types from the same gap analyzer Roster Gaps reads, so a hundo
+        // that's also a ranked attacker of a weak lane can cross-link there.
+        app.innerHTML = interactionNotice(ui) + tabs + (routeChunksReady("raids", loadedChunkPaths)
+          ? renderHundo({
+            data: state,
+            weakLaneTypes: new Set(weakLanes(typeCoverage({ raids: state.raids, roster })).map((lane) => lane.attackingType)),
+          })
+          : chunkLoadingNotice("Hundo Priority"));
+        return;
+      }
+      app.innerHTML = interactionNotice(ui) + tabs + (state.raids && state.raidTargetTool
+        ? renderRaidSurface(state, ui, roster, activeView)
         : fallbackSections.raids);
     },
-    gyms() {
+    gyms(view) {
       const placementState = { ...state, lineupFormIds: ui.gym.lineupFormIds };
       const placementResult = placementFor(placementState, roster);
       app.innerHTML = interactionNotice(ui) + (state.gym
@@ -3111,7 +3070,7 @@ export function bootstrap({
         // defender-placement control, the exact confusion the split was meant
         // to remove. Hand it to renderGyms so it sits inside the tab body.
         ? `${renderGyms({
-          lineupControls: ui.gym.view === "defend" ? gymLineupControls(state, ui) : "",
+          lineupControls: view === "defend" ? gymLineupControls(state, ui) : "",
           gym: state.gym,
           forms: state.core.forms,
           placementResult,
@@ -3121,7 +3080,7 @@ export function bootstrap({
           defenseLog: ui.defenseLog,
           rosterInstances: roster.instances,
           trainerTeam: ui.trainerProfile.team,
-          view: ui.gym.view,
+          view,
         })}`
         : fallbackSections.gyms);
     },
@@ -3168,56 +3127,84 @@ export function bootstrap({
         trainerTeam: ui.trainerProfile.team,
       });
     },
-    pvp() {
-      app.innerHTML = interactionNotice(ui) + (state.pvp
+    pvp(view) {
+      // Swap lives in its own module, so the strip is built here and shared by
+      // both branches rather than inside renderPvp.
+      const tabs = viewSegments("PvP view", "pvp", [
+        ["", "Teams"],
+        ["rankings", "Rankings"],
+        ["antimeta", "Anti-Meta"],
+        ["swap", "Battle Swap"],
+      ], view);
+      if (view === "swap") {
+        app.innerHTML = interactionNotice(ui) + tabs + (state.pvp
+          ? renderSwap({
+            pvp: state.pvp, pvpTeams: state.pvpTeams, forms: state.core.forms,
+            roster, state: ui.swap, moveCatalog, pvpMoveCatalog,
+          })
+          : chunkLoadingNotice("Swap"));
+        return;
+      }
+      app.innerHTML = interactionNotice(ui) + tabs + (state.pvp
         ? renderPvp({
           pvp: state.pvp, pvpTeams: state.pvpTeams,
           pvpAlternatives: state.pvpAlternatives, forms: state.core.forms,
-          roster, state: ui.pvp, trainerLevel: ui.trainerProfile.level, pvpMoveCatalog,
+          roster, state: ui.pvp, view, trainerLevel: ui.trainerProfile.level, pvpMoveCatalog,
         })
         : fallbackSections.pvp);
     },
-    swap() {
-      app.innerHTML = interactionNotice(ui) + (state.pvp
-        ? renderSwap({
-          pvp: state.pvp, pvpTeams: state.pvpTeams, forms: state.core.forms,
-          roster, state: ui.swap, moveCatalog, pvpMoveCatalog,
-        })
-        : (fallbackSections.swap || chunkLoadingNotice("Swap")));
-    },
-    coach() {
-      // Coach composes raid targets, current bosses/events, PvP teams, and
-      // Future-Proof picks from several release chunks — a partial mix would
-      // silently under-report (e.g. "nothing worth raiding" because bosses
-      // just haven't loaded yet), so it waits for all of them rather than
-      // rendering a misleading summary.
-      app.innerHTML = interactionNotice(ui) + (routeChunksReady("coach", loadedChunkPaths)
-        ? renderCoach({
-          data: state, roster, trainerLevel: ui.trainerProfile.level, buddyPlan: ui.buddyPlan,
-        })
-        : chunkLoadingNotice("Coach"));
-    },
-    today() {
-      // Same honesty gate as Coach: the checklist reads events + coach picks,
-      // so it waits for those chunks instead of claiming an empty day.
-      app.innerHTML = interactionNotice(ui) + (routeChunksReady("today", loadedChunkPaths)
-        ? renderToday({
-          data: state, roster, defenseLog: ui.defenseLog, storage, gapByFormId: getGapByFormId(),
-          investRows: nextActions({
-            data: state,
+    triage(view) {
+      // Every view here is a verdict about the roster, and one computed from
+      // partially-loaded raids/pvp/gym/boss data would be wrong, not just
+      // incomplete — so all three wait for the route's chunks.
+      const ready = routeChunksReady("triage", loadedChunkPaths);
+      // Same strip as Raids/Gyms/PvP. Without it #triage/gaps and #triage/candy
+      // are dead ends — neither sub-view module carries a ./#triage escape, and
+      // Candy Planner is otherwise only reachable from the More menu.
+      const tabs = viewSegments("My Box view", "triage", [
+        ["", "Triage"],
+        ["gaps", "Roster Gaps"],
+        ["candy", "Candy Planner"],
+      ], view);
+      if (view === "candy") {
+        // Trade seam: dex numbers any saved trade friend lacks (from the same
+        // tradeComparison the Trades view renders) — flags "keep for trading"
+        // rows against "evolve to fill YOUR dex" ones.
+        const friendGapDex = new Set();
+        for (const friend of ui.tradeFriends) {
+          for (const row of tradeComparison(state.core.forms, roster, friend).youHaveTheyLack) {
+            friendGapDex.add(row.dex);
+          }
+        }
+        app.innerHTML = interactionNotice(ui) + tabs + (ready
+          ? renderCandyPlan({
+            forms: state.core.forms,
             roster,
-            stardust: ui.stardust,
             candyInventory: ui.candyInventory,
-            weather: ui.weather,
-          }),
-        })
-        : chunkLoadingNotice("Today"));
-    },
-    triage() {
-      // Same honesty concern as Coach: a "cut" or "keep" verdict computed
-      // from partially-loaded raids/pvp/budget data would be wrong, not just
-      // incomplete, so triage waits for its chunks before judging the roster.
-      app.innerHTML = interactionNotice(ui) + (routeChunksReady("triage", loadedChunkPaths)
+            raids: state.raids,
+            pvp: state.pvp,
+            gym: state.gym,
+            friendGapDex,
+          })
+          : chunkLoadingNotice("Candy Planner"));
+        return;
+      }
+      if (view === "gaps") {
+        app.innerHTML = interactionNotice(ui) + tabs + (ready
+          ? renderBuildNext({
+            forms: state.core.forms,
+            roster,
+            raids: state.raids,
+            candyInventory: ui.candyInventory,
+            triageResult: getTriageResult(),
+            trainerLevel: ui.trainerProfile.level,
+            currentBosses: state.currentBosses,
+            currentEvents: state.currentEvents,
+          })
+          : chunkLoadingNotice("Roster Gaps"));
+        return;
+      }
+      app.innerHTML = interactionNotice(ui) + tabs + (ready
         ? renderTriage({
           result: getTriageResult(),
           forms: state.core.forms,
@@ -3227,65 +3214,39 @@ export function bootstrap({
         })
         : chunkLoadingNotice("Triage"));
     },
-    candyplan() {
-      // Trade seam: dex numbers any saved trade friend lacks (from the same
-      // tradeComparison the Trades view renders) — flags "keep for trading"
-      // rows against "evolve to fill YOUR dex" ones.
-      const friendGapDex = new Set();
-      for (const friend of ui.tradeFriends) {
-        for (const row of tradeComparison(state.core.forms, roster, friend).youHaveTheyLack) {
-          friendGapDex.add(row.dex);
-        }
+    more(view) {
+      if (view === "delta") {
+        app.innerHTML = deltaView();
+        return;
       }
-      app.innerHTML = interactionNotice(ui) + (routeChunksReady("candyplan", loadedChunkPaths)
-        ? renderCandyPlan({
-          forms: state.core.forms,
-          roster,
-          candyInventory: ui.candyInventory,
-          raids: state.raids,
-          pvp: state.pvp,
-          gym: state.gym,
-          friendGapDex,
-        })
-        : chunkLoadingNotice("Candy Planner"));
-    },
-    buildnext() {
-      // Same honesty concern as Triage/Candy Planner: a weak-lane call or a
-      // Build-Next candidate composed from partially-loaded raids/pvp/gym/
-      // boss data would be wrong, not just incomplete.
-      app.innerHTML = interactionNotice(ui) + (routeChunksReady("buildnext", loadedChunkPaths)
-        ? renderBuildNext({
-          forms: state.core.forms,
-          roster,
-          raids: state.raids,
-          candyInventory: ui.candyInventory,
-          triageResult: getTriageResult(),
-          trainerLevel: ui.trainerProfile.level,
-          currentBosses: state.currentBosses,
-          currentEvents: state.currentEvents,
-        })
-        : chunkLoadingNotice("Build Next"));
-    },
-    more() {
+      if (view === "trades") {
+        app.innerHTML = interactionNotice(ui) + tradesView();
+        return;
+      }
       // Storage estimate is async and only needs fetching once per session;
-      // cache it on ui.diagnostics and rerender More when it resolves.
-      if (ui.diagnostics.storageEstimate === undefined) {
+      // cache it on ui.diagnostics and rerender More when it resolves. Only
+      // #more/about renders it, so only that view pays for the call.
+      if (view === "about" && ui.diagnostics.storageEstimate === undefined) {
         ui.diagnostics.storageEstimate = null;
         windowObject.navigator?.storage?.estimate?.()
           .then((estimate) => {
             ui.diagnostics.storageEstimate = estimate ?? false;
-            if (currentRoute === "more") renderers.more();
+            if (currentRoute === "more") renderers.more(currentView);
           })
           .catch(() => { ui.diagnostics.storageEstimate = false; });
       }
-      app.innerHTML = (routeChunksReady("more", loadedChunkPaths)
+      // Only the library lists read extras.json. The menu, roster, settings
+      // and about views are pure local state, so they must not sit behind a
+      // chunk fetch — More is the nav destination.
+      const needsChunks = Boolean(MORE_LISTS[view]);
+      app.innerHTML = (!needsChunks || routeChunksReady("more", loadedChunkPaths)
         ? renderMore({
           ...state.core,
           budgets: state.budgets,
           megasPrimals: state.megasPrimals,
           futureProof: state.futureProof,
           coveragePlanner: state.coveragePlanner,
-          listId: ui.moreList ?? new URLSearchParams(windowObject.location?.search ?? "").get("list"),
+          view,
           roster,
           rosterQuery: ui.rosterQuery,
           collectionQuery: ui.collectionQuery,
@@ -3328,8 +3289,13 @@ export function bootstrap({
   };
   for (const route of Object.keys(renderers)) {
     const base = renderers[route];
-    renderers[route] = () => {
+    // The sub-view comes from the URL, not from an argument: a rerender
+    // triggered by an in-view interaction (a checkbox, a filter chip) must
+    // land on the same view the user is looking at without every one of the
+    // ~200 rerender() call sites having to know which that is.
+    renderers[route] = (view = viewForRoute(route)) => {
       currentRoute = route;
+      currentView = view;
       // Handle URL quick-log params for the leaderboard: ?log=1&gym=<name>&mon=<formId>#leaderboard
       // searchParams.get() returns already-decoded values, so don't decodeURIComponent again
       if (route === "leaderboard") {
@@ -3349,7 +3315,7 @@ export function bootstrap({
           // Don't auto-submit; let user review and click submit
         }
       }
-      base();
+      base(view);
       // Route-driven chunk loading: kick off (fire-and-forget) any release
       // chunk this route needs but hasn't loaded yet, AFTER base() has
       // rendered off the current loadedChunkPaths — ensureRouteChunks claims
@@ -3414,7 +3380,7 @@ export function bootstrap({
     };
   }
   const router = createRouter({
-    basePath: basePathFrom(windowObject.location),
+    basePath,
     renderers,
     windowObject,
     documentObject,
@@ -3431,13 +3397,6 @@ export function bootstrap({
     installPrompt,
     renderRoute(route) {
       renderers[route]?.();
-    },
-    navigateMore(listId) {
-      const url = new URL(windowObject.location.href);
-      if (listId) url.searchParams.set("list", listId);
-      else url.searchParams.delete("list");
-      url.hash = "more";
-      windowObject.history.pushState({}, "", url.href);
     },
     onRosterExport(payload) {
       downloadFile("pokemon-go-field-guide-roster.json", payload, { documentObject, windowObject });
@@ -3467,6 +3426,7 @@ export function bootstrap({
     searchRefresh: () => searchRefresh(),
     rerenderCurrent: () => renderers[currentRoute]?.(),
     isCurrentRoute: (route) => currentRoute === route,
+    currentView: () => currentView,
     rootElement: documentObject.documentElement,
     scrollToTop: () => app.scrollTo?.(0, 0),
     storage,
@@ -3567,7 +3527,7 @@ export async function startFieldGuide({
     // "What changed" diff: computed once per landed release (cached, keyed
     // to that release id — see release-diff.js), not held in memory here.
     // Fire-and-forget; a second rebootstrap once it lands is what lets the
-    // Home card and #delta view pick it up without the operator navigating.
+    // Home card and #more/delta view pick it up without the operator navigating.
     // Skip that second rebootstrap on a cache hit — the rebootstrap just
     // above already rendered with this same cached diff via
     // loadCachedReleaseDiff, so re-running it would be a wasted full re-render.

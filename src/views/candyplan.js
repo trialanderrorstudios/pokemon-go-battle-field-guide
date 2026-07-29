@@ -8,7 +8,7 @@ import { candyPlanDataAvailable, candyPlanRows } from "../candy-plan.js";
 function tradeKeepHtml(row) {
   return row.tradeKeep
     ? `<p class="candyplan-trade-keep">A saved trade friend lacks this species — consider keeping a spare
-      <a href="./#trades" data-route="trades">for trading</a>.</p>`
+      <a href="./#more/trades" data-route="more" data-view="trades">for trading</a>.</p>`
     : "";
 }
 
@@ -49,7 +49,7 @@ export function renderCandyPlan({ forms = {}, roster = {}, candyInventory = {}, 
   const rows = candyPlanRows({ forms, roster, candyInventory, raids, pvp, gym, friendGapDex });
 
   return `<section class="candyplan-view" aria-labelledby="candyplan-title">
-    <a class="safe-escape" href="./#more">Back to More</a>
+    <a class="safe-escape" href="./#triage" data-route="triage" data-view="">Back to My Box</a>
     <p class="status-kicker">Candy planner</p>
     <h2 id="candyplan-title">Evolution Candy Planner</h2>
     ${available ? "" : `<p class="fallback-section">This release's bundled data does not include evolution chains
@@ -58,6 +58,6 @@ export function renderCandyPlan({ forms = {}, roster = {}, candyInventory = {}, 
     <ul class="candyplan-list">${rows.length
     ? rows.map(rowHtml).join("")
     : '<li class="gym-empty">Own a Pokémon and record its Candy in My Roster to see it here.</li>'}</ul>
-    <p><a class="safe-escape" href="./#trades" data-route="trades">Compare dex with a friend &rarr;</a></p>
+    <p><a class="safe-escape" href="./#more/trades" data-route="more" data-view="trades">Compare dex with a friend &rarr;</a></p>
   </section>`;
 }

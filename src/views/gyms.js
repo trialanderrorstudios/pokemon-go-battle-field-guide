@@ -1,4 +1,4 @@
-import { escapeHtml, ownedStarButton } from "./home.js";
+import { escapeHtml, ownedStarButton, viewSegments, whyLine } from "./home.js";
 import { spriteHtml } from "../sprites.js";
 import { moveLink } from "./move-sheet.js";
 import { jargonTerm } from "../glossary.js";
@@ -40,7 +40,7 @@ function buildCard(row, index, forms) {
     <!-- Why THIS one earns a slot was buried in the collapsed details below,
          so the card face showed what it covers but never why it is cheap
          enough to be on a low-resource list at all. -->
-    <p class="gym-why-line">${escapeHtml(row.budgetReason)} ${escapeHtml(row.healingEfficiency)} healing efficiency keeps potion spend down.</p>
+    ${whyLine(row.whyRanked)}
     <details><summary>Low-resource build</summary><p>${escapeHtml(row.build)}</p></details>
   </article></li>`;
 }
@@ -86,7 +86,7 @@ function lineupSection(gym, forms) {
       <strong>${escapeHtml(member.pokemon)}</strong>
       <span class="gym-lineup-rank">#${member.rank}</span>
       <p class="gym-moves">${moveLink(member.bestFastMove, { kind: "Fast" })} + ${moveLink(member.bestChargedMove, { kind: "Charged" })}</p>
-      <p class="gym-why-line">${escapeHtml(member.whyRanked ?? "")}</p>
+      ${whyLine(member.whyRanked)}
     </li>`).join("")}</ol>
     <p><strong>Shared weakness:</strong> ${lineup.sharedWeaknesses.length
       ? `${escapeHtml(lineup.sharedWeaknesses.join(", "))} — one attacker type pressures more than one slot`
@@ -101,9 +101,9 @@ function lineupSection(gym, forms) {
     <strong>${escapeHtml(row.pokemon)}</strong>
     <span class="gym-rank-score">${row.score}</span></p>
     <p class="gym-moves">${moveLink(row.bestFastMove, { kind: "Fast" })} + ${moveLink(row.bestChargedMove, { kind: "Charged" })}</p>
-    <p class="gym-why-line">${escapeHtml(row.whyRanked ?? "")}</p>
+    ${whyLine(row.whyRanked)}
     ${row.moveNote ? `<p class="gym-move-note">${escapeHtml(row.moveNote)}</p>` : ""}
-    ${row.placementValue ? `<p class="gym-why-line"><strong>Placement:</strong> ${escapeHtml(row.placementValue)}</p>` : ""}
+    ${whyLine(row.placementValue, "Placement:")}
   </li>`).join("");
 
   return `<section class="gym-section" aria-labelledby="gym-lineups-title">
@@ -127,7 +127,7 @@ function defenderCard(row, forms, ownedFormIds) {
     <p><strong>${movePair(row, forms)}</strong></p>
     <p><strong>Weak to:</strong> ${escapeHtml((row.weaknesses ?? []).join(", "))}</p>
     <p>${escapeHtml(row.placementValue)}</p>
-    <p class="gym-why-line">${escapeHtml(row.whyLine)}</p>
+    ${whyLine(row.whyRanked)}
     ${ownedStarButton({ formId: row.formId, name: row.pokemon, owned, route: "gyms" })}
     <span class="owned-count">${owned ? "Owned" : "Not owned"}</span>
     <details><summary>Motivation and solo counters</summary>
@@ -310,12 +310,10 @@ export function renderGyms({
   const defending = view === "defend";
   // Two unrelated jobs share this route: breaking a gym and holding one. Split
   // them so neither answer is nine sections deep.
-  const tabs = `<div class="pvp-controls" aria-label="Gym tools">
-    <fieldset><legend>Gym view</legend>
-      <button type="button" data-gym-view="attack" aria-pressed="${!defending}">Attacking</button>
-      <button type="button" data-gym-view="defend" aria-pressed="${defending}">Defending</button>
-    </fieldset>
-  </div>`;
+  const tabs = viewSegments("Gym view", "gyms", [
+    ["", "Attacking"],
+    ["defend", "Defending"],
+  ], defending ? "defend" : "");
   const body = defending
     ? `${lineupControls}
     ${renderPlacementCoach({ placementResult, ownedIndex, overallIndex, rosterInstances, deploymentMap })}
@@ -326,7 +324,7 @@ export function renderGyms({
     : `${offenseSection(gym, forms)}
     ${staggerSection(gym)}`;
   return `<div class="gyms-view">
-    <p class="gym-tricks-seed"><a class="safe-escape" href="./#tricks">See gym tricks →</a></p>
+    <p class="gym-tricks-seed"><a class="safe-escape" href="./#basics/tricks" data-route="basics" data-view="tricks">See gym tricks →</a></p>
     ${tabs}
     ${body}
     ${leaderboardPointerCard()}

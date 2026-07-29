@@ -119,7 +119,7 @@ export function nextActions({
     || left.stardust - right.stardust
     || left.name.localeCompare(right.name)
   ));
-  return rows.slice(0, limit).map((row) => ({ ...row, why: explain(row) }));
+  return rows.slice(0, limit).map((row) => ({ ...row, whyRanked: explain(row) }));
 }
 
 function explain(row) {

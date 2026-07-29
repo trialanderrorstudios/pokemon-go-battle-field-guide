@@ -9,12 +9,11 @@ import { jargonTerm } from "./glossary.js";
 export const GUIDE_COPY = Object.freeze({
   home: Object.freeze({
     title: "New to battling? Start here",
-    body: `New to battling? Read the plain-language Basics page first, then import or star the Pokémon you already own so recommendations use your roster, and check This Week for what's worth doing right now.`,
+    body: `This page is today's checklist: what's on right now, whether it's worth your free raid pass, and where to spend Stardust next. Read the plain-language Basics page first, then import or star the Pokémon you already own so every recommendation here uses your roster.`,
     links: Object.freeze([
-      Object.freeze({ href: "./#more", label: "Optional: set trainer level & team" }),
+      Object.freeze({ href: "./#more/settings", label: "Optional: set trainer level & team" }),
       Object.freeze({ href: "./#basics", label: "1. Battle Basics" }),
-      Object.freeze({ href: "./#more", label: "2. Import or star Pokémon" }),
-      Object.freeze({ href: "./#coach", label: "3. This Week" }),
+      Object.freeze({ href: "./#more/roster", label: "2. Import or star Pokémon" }),
     ]),
   }),
   raids: Object.freeze({
@@ -35,8 +34,8 @@ export const GUIDE_COPY = Object.freeze({
     body: `Choose a league (Great, Ultra, or Master) to see ranked picks with recommended movesets and the ideal rank-1 IVs — ${jargonTerm("league-cp-caps", "league CP caps")} limit Great and Ultra, Master League has no cap. The Anti-Meta view surfaces the best role players (Lead, Safe Switch, Closer, and more) outside the ${jargonTerm("meta-group", "meta group")}. Data is this app's bundled PvP rankings for its current data cutoff, not live battle results.`,
   }),
   more: Object.freeze({
-    title: "Your roster and settings",
-    body: `Import your Pokémon (a Poke Genie CSV export works) or add them one at a time, mark favorites with the star, and adjust text size, theme, and offline updates further down. Everything here stays on this device — use "Back up my data" to save it as one file, and moving to a new phone or tablet is just export on one device, AirDrop the file over, then restore on the other.`,
+    title: "Everything that isn't a battle answer",
+    body: `This is the index for the rest of the app. My Roster is where you import your Pokémon (a Poke Genie CSV export works) or add them one at a time; Settings holds trainer level, text size, and theme; the Library holds the long reference lists; About this build holds backups, diagnostics, and where the data came from. Everything stays on this device — "Back up my data" on About saves it all as one file you can AirDrop to a new phone and restore.`,
   }),
   triage: Object.freeze({
     title: "Sorting your box",
@@ -48,68 +47,13 @@ export const GUIDE_COPY = Object.freeze({
     body: `Battle Basics explains raids, gyms, PvP, moves, dodging, weather, and CP/IV in plain language from top to bottom — there's nothing to tap, just read down the page. Tap ? again to jump back to the top.`,
     inline: true,
   }),
-  types: Object.freeze({
-    title: "Reading the type chart",
-    body: `Tap any type to see what it's strong against, weak to, and resisted by. This is the game's fixed 18-type chart, so it never changes with events or updates.`,
-  }),
-  glossary: Object.freeze({
-    title: "Looking up a term",
-    body: `Every bit of jargon used elsewhere in this app is defined here in plain language — scroll or use your browser's find-on-page to look one up.`,
-  }),
-  drill: Object.freeze({
-    title: "Practicing type matchups and move counts",
-    body: `Pick a direction (Effective against or Weak to) to drill the fixed type chart — no live data involved. Move counts drills real fast-move-to-charged-move energy counts from this release's own PvP rankings instead.`,
-  }),
-  swap: Object.freeze({
-    title: "Mid-battle helper",
-    body: `Pick your team in Step 1, who you're facing in Step 2, and this suggests your best lead and next swap in Step 3 — handy to check right before or during a PvP battle.`,
-  }),
-  coach: Object.freeze({
-    title: "Your weekly digest",
-    body: `This Week rounds up the best raids to fight, what's worth powering up, a buddy pick, and a suggested PvP team in one scroll — refreshed with this app's weekly data cutoff, not live game state. Under Walk this buddy, you can also start a Best Buddy plan: pick a Pokémon you own, enter its hearts so far, and see days left to Best Buddy at the standard daily heart cap.`,
-  }),
-  maxbasics: Object.freeze({
-    title: "How Max Battles work",
-    body: `Plain-language rules for Max Battles specifically — Max Particles to enter, the Max Meter filling mid-fight, and what Max Moves do. This is reference content, not live game state.`,
-  }),
-  today: Object.freeze({
-    title: "Your open-every-day checklist",
-    body: `A daily rundown pulled from what's already elsewhere in the app: today's Raid or Spotlight Hour, whether it's worth your free raid pass, your active gym defenders, and this week's top Coach picks. Check items off as you go — the list resets fresh tomorrow.`,
-  }),
   eggs: Object.freeze({
     title: "What can hatch",
     body: `Grouped by egg distance (1 km through 12 km), with shiny eligibility and hatch CP for each Pokémon in the pool. This is this app's bundled egg chart at its data cutoff, not live from the game.`,
   }),
-  delta: Object.freeze({
-    title: "What changed since last time",
-    body: `Compares this release's PvP rankings, moveset picks, raid boss rotation, and species list against the previous one — Pokémon you own are called out first, then everything else that moved.`,
-  }),
-  tricks: Object.freeze({
-    title: "Community-known tips and shortcuts",
-    body: `Curated mechanics and shortcuts grouped by category — Trading, Raids, Candy &amp; XP, Gyms, PvP, Quality of Life, and Community. Each tip cites its source and shows a "verified" date so you know how current it is; tap a category to expand it.`,
-  }),
-  candyplan: Object.freeze({
-    title: "Planning your Candy",
-    body: `Lists species you own with Candy recorded and, once this app's data includes evolution chains, what evolving them is worth. Record Candy for a species in My Roster to see it here.`,
-  }),
   rocket: Object.freeze({
     title: "What's Rocket-flavored right now",
     body: `Shadow Raid bosses in this release's rotation, live Rocket-flavored events, and the lineups Giovanni, the leaders, and each grunt can bring. Lineups show what a battle can open with and which Pokémon the feed marks as catchable — not per-battle odds, CP, or movesets.`,
-  }),
-  hundo: Object.freeze({
-    title: "Chase the hundo, or the rank-1 spread?",
-    body: `Ranks today's raid bosses and featured spawns by whether a perfect 15/15/15 is actually worth chasing. Raids and Master League always reward the hundo — no CP cap. Great and Ultra League often don't: a capped league can let a lower Attack IV reach a higher level and win on stat product instead, so those rows flag the rank-1 spread as the better chase.`,
-  }),
-  buildnext: Object.freeze({
-    title: "Fixing a roster gap",
-    body: `Attacking types your owned roster doesn't have a strong counter for yet, and the best Pokémon you already own to fix each one — evolving what you have, with an honest Candy cost. Only ever suggests Pokémon you already own.`,
-  }),
-  trades: Object.freeze({
-    title: "Comparing dex with a friend",
-    body: `Share your dex summary (just which species you own, plus shiny/lucky flags — never exact roster detail) and paste a friend's back to see a mirror-gap: what you have that they lack, and what they have that you lack. That's your trade-night candidate list. This app doesn't know catch dates, so it can't tell you which trade would turn out guaranteed Lucky — see the Trading tips on the Tips &amp; Tricks page for that rule.`,
-    links: Object.freeze([
-      Object.freeze({ href: "./#tricks", label: "Lucky-trade rules refresher" }),
-    ]),
   }),
 });
 

@@ -1019,77 +1019,6 @@ h1 {
   margin: 0.2rem 0;
 }
 
-/* ── At-a-glance week strip ── */
-.home-week-strip {
-  display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
-}
-
-.week-strip-list {
-  display: flex;
-  flex-direction: column;
-  gap: 0.35rem;
-}
-
-.week-strip-row {
-  display: grid;
-  grid-template-columns: auto 1fr;
-  column-gap: 0.5rem;
-  row-gap: 0.05rem;
-  align-items: baseline;
-  min-height: 48px;
-  padding: 0.5rem 0.6rem;
-  border: 1px solid var(--line);
-  border-radius: 0.6rem;
-  background: var(--panel-raised);
-  color: inherit;
-  font: inherit;
-  text-align: left;
-  text-decoration: none;
-  cursor: pointer;
-}
-
-.week-strip-row:focus-visible {
-  outline: 3px solid var(--focus);
-  box-shadow: 0 0 0 5px rgba(24, 32, 56, 0.85);
-  outline-offset: 2px;
-}
-
-.week-strip-badge {
-  grid-column: 1;
-  font-size: 0.68rem;
-  font-weight: 800;
-  letter-spacing: 0.03em;
-  color: var(--cyan);
-  text-transform: uppercase;
-}
-
-.week-strip-when {
-  grid-column: 2;
-  font-size: 0.7rem;
-  color: var(--muted);
-}
-
-.week-strip-name {
-  grid-column: 1 / -1;
-  font-size: 0.9rem;
-  color: var(--text);
-  font-weight: 650;
-}
-
-.week-strip-all-link {
-  align-self: flex-start;
-  min-height: 48px;
-  padding: 0 0.2rem;
-  border: none;
-  background: none;
-  color: var(--cyan);
-  font: inherit;
-  font-weight: 700;
-  text-decoration: underline;
-  cursor: pointer;
-}
 
 .home-event-details summary {
   min-height: 48px;
@@ -1380,13 +1309,6 @@ h1 {
   margin: 0.2rem 0;
 }
 
-.boss-pass-worth {
-  margin: 0;
-  font-size: 0.78rem;
-  color: var(--green);
-  font-weight: 600;
-}
-
 .raid-pass-teach-note {
   margin: 0 0 0.5rem;
   font-size: 0.8rem;
@@ -1518,7 +1440,6 @@ h1 {
 
 .gym-intro,
 .gym-caveat,
-.gym-why-line,
 .gym-iv-note,
 .gym-card details,
 .gym-empty,
@@ -1705,6 +1626,15 @@ h1 {
   margin-inline: auto;
 }
 
+/* "Later this week", collapsed: it isn't a what-do-I-do-now answer. */
+.coach-week > summary {
+  min-height: 48px;
+  padding-block: 0.65rem;
+  color: var(--text);
+  font-weight: 750;
+  cursor: pointer;
+}
+
 .today-task-list {
   display: grid;
   gap: 0.5rem;
@@ -1794,10 +1724,11 @@ h1 {
 .safe-escape:focus-visible,
 .pvp-controls select:focus-visible,
 .pvp-controls button:focus-visible,
+.view-segments a:focus-visible,
 .app-actions button:focus-visible,
 .more-section button:focus-visible,
 .file-action:focus-within,
-.more-route-card:focus-visible {
+.more-menu-list a:focus-visible {
   outline: 3px solid var(--focus);
   box-shadow: 0 0 0 5px rgba(24, 32, 56, 0.85);
   outline-offset: 2px;
@@ -1824,6 +1755,7 @@ h1 {
 
 .pvp-controls select,
 .pvp-controls button,
+.view-segments a,
 .app-actions button,
 .more-section button,
 .file-action {
@@ -1856,9 +1788,30 @@ h1 {
   clip: rect(0 0 0 0);
 }
 
-.pvp-controls button[aria-pressed="true"] {
+.pvp-controls button[aria-pressed="true"],
+.view-segments a[aria-current] {
   color: var(--cyan-ink);
   background: var(--cyan);
+}
+
+/* The one content switcher: #route/view links styled as the segmented control
+   the raid/gym/PvP button groups used to hand-roll. Anchors, not buttons, so
+   the router owns history, scroll reset and aria-current — hence the display
+   rules a <button> gets for free. auto-fit because the strips are 2-4 wide. */
+.view-segments {
+  margin-bottom: 0.75rem;
+}
+
+.view-segments fieldset {
+  grid-template-columns: repeat(auto-fit, minmax(7.5rem, 1fr));
+}
+
+.view-segments a {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  text-decoration: none;
 }
 
 .pvp-section h2,
@@ -2433,7 +2386,6 @@ h1 {
   padding-left: 1.2rem;
 }
 
-.more-route-grid,
 .claim-grid,
 .app-actions {
   display: grid;
@@ -2445,20 +2397,26 @@ h1 {
   background: var(--cyan);
 }
 
-.more-route-card {
-  display: grid;
-  gap: 0.15rem;
-  min-height: 88px;
-  padding: 0.8rem;
-  border: 1px solid var(--cyan);
-  border-radius: 0.8rem;
-  background: var(--panel-raised);
+/* More is a menu: one tappable row per destination, no cards and no preview
+   copy — the whole point is that the index fits on a screen. */
+.more-menu-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.more-menu-list a {
+  display: flex;
+  min-height: 48px;
+  align-items: center;
+  border-bottom: 1px solid var(--line);
+  color: var(--cyan);
+  font-weight: 750;
   text-decoration: none;
 }
 
-.more-route-card span,
-.more-route-card small {
-  color: var(--muted);
+.more-menu-list li:last-child a {
+  border-bottom: 0;
 }
 
 .source-card code {
@@ -2893,7 +2851,6 @@ h1 {
     grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 
-  .more-route-grid,
   .claim-grid,
   .app-actions {
     grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -3927,7 +3884,7 @@ select {
 
 /* Why a card sits where it does. The cards were already dense with numbers;
    these lines are the sentence that turns the numbers into a decision. */
-.raid-why-line,
+.why-line,
 .gym-move-note {
   margin: 0.4rem 0 0;
   font-size: 0.82rem;
@@ -3957,4 +3914,17 @@ select {
 /* Can't afford it yet: still worth seeing, visibly not actionable today. */
 .today-invest-list li.is-short {
   opacity: 0.72;
+}
+
+/* Durability past this rotation — the one axis nextActions doesn't rank on. */
+.today-invest-badge {
+  margin-left: 0.4rem;
+  padding: 0.05rem 0.35rem;
+  border-radius: 0.4rem;
+  background: var(--panel-raised);
+  color: var(--cyan);
+  font-size: 0.68rem;
+  font-weight: 800;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
 }

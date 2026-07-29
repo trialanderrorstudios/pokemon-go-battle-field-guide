@@ -42,7 +42,7 @@ export function renderCollectionView(data = {}) {
   const rows = livingDexRows(forms, roster, { query, filter });
 
   return `<section class="collection-view" data-more-list-view="collection" aria-labelledby="collection-title">
-    <a class="safe-escape" href="./#more">Back to More</a>
+    <a class="safe-escape" href="./#more" data-route="more" data-view="">Back to More</a>
     <p class="status-kicker">Collection guide</p>
     <h2 id="collection-title">Living Dex Collection</h2>
     <p>Tracks only what you've marked owned, shiny, or lucky on this device — there's no shiny-odds or availability data here.</p>

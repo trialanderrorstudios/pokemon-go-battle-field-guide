@@ -7,7 +7,7 @@
 // counters this app can't back with real numbers.
 export function renderMaxBasics() {
   return `<div class="more-view">
-    <a class="safe-escape" href="./#basics">Back to Basics</a>
+    <a class="safe-escape" href="./#basics" data-route="basics" data-view="">Back to Basics</a>
     <section class="more-section" aria-labelledby="maxbasics-title">
       <p class="status-kicker">New to Max Battles?</p>
       <h2 id="maxbasics-title">Max Battles, plain and simple</h2>

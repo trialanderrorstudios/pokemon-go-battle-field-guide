@@ -2,7 +2,11 @@ import { ATTACK_TYPES, effectiveness } from "../raid-target.js";
 import { spriteHtml } from "../sprites.js";
 import { intersectRosterChanges, releaseDiffDismissedKey } from "../release-diff.js";
 import { renderCommunityDayBriefCard } from "../cd-brief.js";
-import { renderUpcomingSection, renderUpcomingTeaser } from "../upcoming.js";
+import { renderUpcomingSection } from "../upcoming.js";
+// Home absorbed Today and Weekly Coach. Both keep their own modules — this is
+// a consolidation of routes and entrances, not of capability.
+import { renderToday } from "./today.js";
+import { renderCoachSections } from "./coach.js";
 
 
 export function escapeHtml(value) {
@@ -13,6 +17,33 @@ export function escapeHtml(value) {
     '"': "&quot;",
     "'": "&#39;",
   })[character]);
+}
+
+
+// The one renderer for "why this ranks here". Raids, gyms, PvP and the invest
+// rows each used to style their own; the sentence that turns numbers into a
+// decision should look the same wherever the app makes a recommendation.
+export function whyLine(text, label = "") {
+  if (!text) return "";
+  const prefix = label ? `<strong>${escapeHtml(label)}</strong> ` : "";
+  return `<p class="why-line">${prefix}${escapeHtml(text)}</p>`;
+}
+
+
+// The one content switcher. A segment is a link to #route/view, so the router
+// owns history, scroll reset, the dex wipe and aria-current — the four steps
+// the old hand-rolled button groups each re-implemented a different subset of.
+// aria-current is stamped here as well as by markCurrent, because an in-view
+// rerender (a filter chip, a checkbox) calls the renderer directly and never
+// goes through router.render().
+export function viewSegments(label, route, segments, current = "") {
+  const links = segments.map(([view, text]) => {
+    const active = view === current ? ' aria-current="page"' : "";
+    return `<a href="./#${route}${view ? `/${view}` : ""}" data-route="${escapeHtml(route)}" data-view="${escapeHtml(view)}"${active}>${escapeHtml(text)}</a>`;
+  }).join("");
+  return `<div class="pvp-controls view-segments">
+    <fieldset><legend>${escapeHtml(label)}</legend>${links}</fieldset>
+  </div>`;
 }
 
 
@@ -66,49 +97,22 @@ function weatherChip(conditions) {
 }
 
 
-// Reuses the app's existing investment-tier vocabulary (see investment.py's
-// TIER_RULES) rather than inventing a new "worth it" scale: S+, S, and A
-// already mean "Build ASAP", "Strong Investment", and "Build for Coverage"
-// everywhere else raid rows show up.
-const PASS_WORTHY_TIERS = new Set(["S+", "S", "A"]);
-
-function bestInvestmentTier(formId, raids) {
-  const tierOrder = ["S+", "S", "A", "B", "C"];
-  let best = null;
-  for (const row of [...(raids?.regular ?? []), ...(raids?.shadow ?? [])]) {
-    if (row.formId !== formId || !row.investmentTier) continue;
-    if (best === null || tierOrder.indexOf(row.investmentTier) < tierOrder.indexOf(best)) best = row.investmentTier;
-  }
-  return best;
-}
-
-// "Worth your free daily pass" composes two signals this guide already
-// computes elsewhere, rather than a new ranking: the Legendary/Mega
-// headliner grouping below, and this form's own best raid investment tier
-// (a Legendary/Mega catch is often also a top attacker). Raids without
-// either signal get no hint — silence, not a "skip this" verdict, since
-// most Tier 1/3 bosses are simply undocumented here either way.
-function passWorthHint(tier, formId, raids) {
-  const headliner = tier === "Tier 5" || tier === "Mega";
-  const strongAttacker = PASS_WORTHY_TIERS.has(bestInvestmentTier(formId, raids));
-  return headliner || strongAttacker;
-}
-
-
+// No "worth your free daily pass" chip here. It was a second, independent
+// implementation of that verdict (tier + investmentTier) that could disagree
+// on screen with the checklist row above, which derives it from the raid
+// band. One producer only: today.js's VERDICT_BY_BAND.
 export function currentBossCard({ formId, tier, endsAt } = {}, {
-  target, forms, now = new Date(), raids = null,
+  target, forms, now = new Date(),
 } = {}) {
   const name = target?.boss ?? formId;
   const bossTypes = target?.bossTypes ?? [];
   const weaknesses = bossTypes.length ? topWeaknesses(bossTypes) : [];
   const stale = typeof endsAt === "string" && !Number.isNaN(Date.parse(endsAt)) && new Date(endsAt) < now;
-  const worthPass = passWorthHint(tier, formId, raids);
   return `<a class="fallback-section home-boss-card" href="./?boss=${encodeURIComponent(formId)}#raids" data-form-id="${escapeHtml(formId)}">
     <div class="home-boss-heading">${spriteHtml(formId, forms, name, bossTypes[0])}<h3>${escapeHtml(name)}</h3></div>
     <p class="boss-tier">${escapeHtml(tier || "Raid boss")}</p>
     ${weaknesses.length ? `<p class="boss-weaknesses">Weak to ${weaknesses.map(escapeHtml).join(", ")}</p>` : ""}
     ${weatherChip(target?.weatherBoostConditions)}
-    ${worthPass ? `<p class="boss-pass-worth">Worth your free daily pass</p>` : ""}
     ${stale ? `<p class="boss-stale">May be outdated — check in-game.</p>` : ""}
   </a>`;
 }
@@ -131,12 +135,12 @@ function bossTierRow(label, bosses, cardFor) {
 // against Niantic's Help Center ("I have an issue with a Raid Pass"),
 // cross-checked with the Pokemon GO Hub and Fandom wiki "Raid Passes" pages.
 export function renderCurrentBosses({
-  currentBosses, raidTargetTool, forms, now = new Date(), raids = null,
+  currentBosses, raidTargetTool, forms, now = new Date(),
 } = {}) {
   const bosses = currentBosses?.bosses ?? [];
   if (!bosses.length) return "";
   const targetsByFormId = new Map((raidTargetTool?.targets ?? []).map((target) => [target.bossFormId, target]));
-  const cardFor = (boss) => currentBossCard(boss, { target: targetsByFormId.get(boss.formId), forms, now, raids });
+  const cardFor = (boss) => currentBossCard(boss, { target: targetsByFormId.get(boss.formId), forms, now });
   const legendary = bosses.filter((boss) => boss.tier === "Tier 5");
   const mega = bosses.filter((boss) => boss.tier === "Mega");
   const minor = bosses.filter((boss) => boss.tier !== "Tier 5" && boss.tier !== "Mega");
@@ -204,30 +208,6 @@ export function formatEventWhen(startsAt, endsAt, now = new Date()) {
 }
 
 
-// Beginner one-liner per event TYPE — static, fact-checked teach copy, not
-// scraped per-event content. Shown once per type group, not per card.
-// Unknown/future types fall back to a generic blurb (forward-compat).
-const EVENT_TYPE_INFO = {
-  "pokemon-spotlight-hour": { badge: "Spotlight Hour", blurb: "One species gets a catch bonus for a single hour." },
-  "community-day": { badge: "Community Day", blurb: "Boosted spawns of one species for a few hours, often with an exclusive move if it evolves during the window." },
-  "raid-hour": { badge: "Raid Hour", blurb: "One raid boss gets an extra hour of raids in the evening." },
-  "max-battles": { badge: "Max Battles", blurb: "A featured Dynamax/Gigantamax boss at Power Spots for the day." },
-  "max-mondays": { badge: "Max Mondays", blurb: "A featured Dynamax boss at Power Spots all Monday." },
-  "raid-battles": { badge: "Raid Rotation", blurb: "The regular raid rotation window for a boss — not a special event, just when it's active." },
-  "raid-day": { badge: "Raid Day", blurb: "A themed day of extra-boosted raids for one boss, often with a costume or shiny bump." },
-  "go-battle-league": { badge: "GO Battle League", blurb: "The current PvP season's active league lineup." },
-  "go-pass": { badge: "GO Pass", blurb: "A monthly pass with timed research and rewards." },
-  "pokemon-go-fest": { badge: "GO Fest", blurb: "Niantic's flagship event — usually ticketed or global, with themed spawns and raids." },
-  "choose-your-path": { badge: "Choose Your Path", blurb: "A themed event where picking a path or team changes its bonuses." },
-  "season": { badge: "Season", blurb: "The multi-month season backdrop — sets ongoing spawns, bonuses, and research." },
-  "event": { badge: "Event", blurb: "A themed event — check the link for its specific bonuses." },
-};
-
-function eventTypeInfo(kind, fallbackLabel) {
-  return EVENT_TYPE_INFO[kind] ?? { badge: fallbackLabel ?? kind ?? "Event", blurb: "Check the link for details." };
-}
-
-
 function spawnsChip(hasSpawns) {
   return hasSpawns ? `<p class="event-spawns-chip">Boosted wild spawns during this event.</p>` : "";
 }
@@ -264,117 +244,10 @@ export function eventCard({ eventId, name, formId, startsAt, endsAt, action, has
 }
 
 
-// Groups by feed eventType so beginners see a type badge + one plain-language
-// line about what that TYPE of event is, once, above its cards — instead of
-// a flat list mixing raid hours with GO Fest with seasons.
-function eventTypeGroup(kind, events, { forms, now }) {
-  const info = eventTypeInfo(kind, events[0]?.typeLabel);
-  return `<div class="home-event-type-group">
-    <p class="event-type-heading"><span class="event-type-badge">${escapeHtml(info.badge)}</span></p>
-    <p class="event-type-blurb">${escapeHtml(info.blurb)}</p>
-    <div class="home-event-grid">${events.map((event) => eventCard(event, { forms, now })).join("")}</div>
-  </div>`;
-}
-
-
-// Collapsed by default: the week strip above already surfaces every one of
-// these within the next ~7 days, dated — this full listing (every event in
-// the release's feed, weeks out) is reference detail beginners open on
-// purpose, not a wall they scroll past by accident (the "football field"
-// the week strip exists to fix). Native <details>/<summary>, same pattern as
-// the app's other accordions (pvp-full-rankings, source-details).
-export function renderCurrentEvents({ currentEvents, forms, now = new Date() } = {}) {
-  const events = currentEvents?.events ?? [];
-  if (!events.length) return "";
-  const groups = new Map();
-  for (const event of events) {
-    const key = event.kind ?? "event";
-    if (!groups.has(key)) groups.set(key, []);
-    groups.get(key).push(event);
-  }
-  return `<section class="home-event-section" aria-labelledby="home-event-title">
-    <details id="home-event-details" class="home-event-details">
-      <summary id="home-event-title">Upcoming events</summary>
-      ${[...groups.entries()].map(([kind, group]) => eventTypeGroup(kind, group, { forms, now })).join("")}
-      <p class="home-event-tricks-seed"><a class="safe-escape" href="./#tricks">See community tricks →</a></p>
-    </details>
-  </section>`;
-}
-
-
-// ── At-a-glance week strip ──────────────────────────────────────────────
-// Same currentEvents data renderCurrentEvents groups below — this just
-// re-sorts it soonest-first and caps it, so the raid hour/spotlight
-// hour/Community Day the operator actually needs today doesn't require
-// scrolling past every multi-week backdrop event first.
-const WEEK_STRIP_WINDOW_DAYS = 7;
-const WEEK_STRIP_CAP = 6;
-
-// Always-on rotations/passes/seasons/multi-day themed backdrops aren't single
-// dated occurrences — the same distinction EVENT_TYPE_INFO already draws for
-// raid-battles ("not a special event, just when it's active") applies to
-// these other backdrop kinds too, so they'd otherwise crowd out the week's
-// actual occurrences (a Raid Hour, Community Day, or Spotlight Hour).
-const WEEK_STRIP_EXCLUDED_KINDS = new Set([
-  "season", "go-pass", "go-battle-league", "raid-battles", "choose-your-path",
-]);
-
-function daysUntil(date, now) {
-  return Math.round((startOfDay(date) - startOfDay(now)) / 86400000);
-}
-
-function weekStripEvents(events, now) {
-  return (events ?? [])
-    .filter((event) => {
-      if (WEEK_STRIP_EXCLUDED_KINDS.has(event.kind)) return false;
-      const start = new Date(event.startsAt);
-      if (Number.isNaN(start.valueOf())) return false;
-      const diff = daysUntil(start, now);
-      return diff >= 0 && diff <= WEEK_STRIP_WINDOW_DAYS;
-    })
-    .sort((left, right) => new Date(left.startsAt) - new Date(right.startsAt))
-    .slice(0, WEEK_STRIP_CAP);
-}
-
-// Boss target when the feed names one (raid hour, spotlight hour, most
-// Community Days) — same deep link currentBossCard/eventCard already use.
-// Otherwise the feed's own vetted leekduck link, same allowlist eventCard
-// validates against. Neither present -> no href; the row instead reveals
-// the full "Upcoming events" detail below (still this same data, just
-// ungrouped and undated further out).
-function weekStripHref(event) {
-  if (event.formId) return `./?boss=${encodeURIComponent(event.formId)}#raids`;
-  return safeEventLink(event.link);
-}
-
-function weekStripRow(event, { forms, now }) {
-  const info = eventTypeInfo(event.kind, event.typeLabel);
-  const name = forms?.[event.formId]?.name ?? event.name;
-  const when = formatEventWhen(event.startsAt, event.endsAt, now);
-  const href = weekStripHref(event);
-  const body = `<span class="week-strip-badge">${escapeHtml(info.badge)}</span>
-    <span class="week-strip-when">${escapeHtml(when)}</span>
-    <span class="week-strip-name">${escapeHtml(name)}</span>`;
-  return href
-    ? `<a class="week-strip-row" href="${escapeHtml(href)}"${href.startsWith("http") ? ' target="_blank" rel="noopener"' : ""} data-event-id="${escapeHtml(event.eventId)}">${body}</a>`
-    : `<button type="button" class="week-strip-row" data-action="reveal-events" data-event-id="${escapeHtml(event.eventId)}">${body}</button>`;
-}
-
-export function renderWeekStrip({ currentEvents, forms, now = new Date() } = {}) {
-  const rows = weekStripEvents(currentEvents?.events, now);
-  if (!rows.length) return "";
-  return `<section class="home-week-strip fallback-section" aria-labelledby="home-week-strip-title">
-    <h3 id="home-week-strip-title" class="home-section-title">This week at a glance</h3>
-    <div class="week-strip-list">${rows.map((event) => weekStripRow(event, { forms, now })).join("")}</div>
-    <button type="button" class="week-strip-all-link" data-action="reveal-events">All events →</button>
-  </section>`;
-}
-
-
 // "TODAY · 6-7 PM" / "WED JUL 29 · 6-7 PM" — shared by the Home Raid Hour
-// banner, the week strip, and Weekly Coach's/Today's fold-ins, so every
-// surface reads the same clock the same way and dates a Raid Hour instead of
-// leaving its weekday ambiguous between this week and next.
+// banner and the checklist's fold-ins, so every surface reads the same clock
+// the same way and dates a Raid Hour instead of leaving its weekday ambiguous
+// between this week and next.
 export function formatRaidHourWhen(startsAt, endsAt, now = new Date()) {
   const start = new Date(startsAt);
   if (Number.isNaN(start.valueOf())) return "";
@@ -448,7 +321,7 @@ function releaseDiffCard(diff, roster, storage) {
     <p><strong>What changed since your last visit</strong></p>
     ${yours.length ? `<ul>${yours.map((entry) => `<li>${escapeHtml(describeRosterChange(entry))}</li>`).join("")}</ul>` : ""}
     ${headline.length ? `<p>${escapeHtml(headline.join(" · "))}</p>` : ""}
-    <p><a href="./#delta">See everything that changed →</a></p>
+    <p><a href="./#more/delta" data-route="more" data-view="delta">See everything that changed →</a></p>
     <button type="button" data-action="dismiss-release-diff" data-release-id="${escapeHtml(diff.currentReleaseId)}">Dismiss</button>
   </div>`;
 }
@@ -463,60 +336,60 @@ export function renderHome({
   currentEvents = null,
   raidTargetTool = null,
   forms = {},
-  raids = null,
   whatsNew = null,
   releaseDiff = null,
   roster = null,
   storage = null,
   gapByFormId = null,
+  // Today + Weekly Coach fold-ins. `data` is the whole release state, the
+  // same shape buildCoachSummary/buildTodayItems already take.
+  data = {},
+  defenseLog = null,
+  investRows = [],
+  futureProof = null,
+  buddyPlan = null,
+  trainerLevel = null,
+  now = new Date(),
 } = {}) {
   const continueRoute = CONTINUE_ROUTES.has(continueTask?.route)
     ? continueTask.route
     : null;
   const continued = continueRoute
     ? taskCard({
-      href: `./#${continueRoute}`,
+      href: `./#${continueRoute}${continueTask.view ? `/${continueTask.view}` : ""}`,
       title: continueTask.label ?? "Continue",
       detail: continueTask.detail ?? "Resume your last task.",
     })
     : "";
-  return `<section class="home-view" aria-labelledby="home-view-title">
-    <h2 id="home-view-title">Ready for the next battle</h2>
+  return `<section class="home-view" aria-labelledby="today-view-title">
     <form class="fallback-section" role="search" data-global-search>
       <label for="global-search">Search Pokémon, move, type, or raid boss</label>
       <input id="global-search" name="q" type="search" autocomplete="off">
       <div class="search-recents" data-search-recents></div>
       <div data-search-results aria-live="polite"></div>
     </form>
-    ${renderWeekStrip({ currentEvents, forms })}
-    ${renderUpcomingTeaser({ currentEvents, forms })}
+    ${renderToday({
+    data, roster, defenseLog, storage, gapByFormId, investRows, futureProof, now, profile: { trainerLevel },
+  })}
+    ${renderCoachSections({ data, roster, now, trainerLevel, buddyPlan })}
+    ${renderUpcomingSection({ currentEvents, forms, gapByFormId, now })}
     ${releaseDiffCard(releaseDiff, roster, storage)}
-    ${renderCommunityDayBriefCard({ currentEvents, forms })}
-    <h3 class="home-section-title">What are you fighting?</h3>
-    <div class="home-task-grid">
-      ${taskCard({ href: "./#today", title: "Today", detail: "Raid/Spotlight Hour, gym status, and today's picks — one checklist." })}
-      ${continued}
-      ${taskCard({ href: "./#triage", title: "Triage My Box", detail: "Keep, invest, battle, or transfer — one safe decision per Pokémon." })}
-      ${taskCard({ href: "./#coach", title: "Weekly Coach", detail: "This week's raid picks, power-ups, buddy, and PvP team in one place." })}
-      ${taskCard({ href: "./#raids", title: "Raid Target", detail: "Check hundo CP and the best counters." })}
-      ${taskCard({ href: "./#gyms", title: "Gym Plan", detail: "Attack, stagger, or choose the next defender." })}
-      ${taskCard({ href: "./#leaderboard", title: "Gym Leaderboard", detail: "Track your longest defenses, compete with friends." })}
-      ${taskCard({ href: "./#pvp", title: "PvP", detail: "Great, Ultra, and Master League picks." })}
-      ${taskCard({ href: "./#swap", title: "Battle Swap", detail: "Facing someone now? Find your best lead." })}
-      ${taskCard({ href: "./#drill", title: "Type Drill", detail: "Flashcard practice on type matchups." })}
-    </div>
+    ${renderCommunityDayBriefCard({ currentEvents, forms, now })}
     ${whatsNewCard(whatsNew)}
-    ${renderCurrentBosses({ currentBosses, raidTargetTool, forms, raids })}
-    <div class="home-task-grid home-task-grid-secondary">
-      ${taskCard({ href: "./#more", title: "My Roster", detail: "Use the Pokémon you already own." })}
-      ${taskCard({ href: "./#basics", title: "Battle Basics", detail: "New here? Start with the plain-language basics." })}
-      ${taskCard({ href: "./#types", title: "Type Chart", detail: "Every type's strengths and weaknesses." })}
+    ${renderCurrentBosses({ currentBosses, raidTargetTool, forms, now })}
+    <h3 class="home-section-title">Where to next?</h3>
+    <div class="home-task-grid">
+      ${continued}
+      ${taskCard({ href: "./#raids", title: "Raids", detail: "Counters, hundo CP, and which bosses are worth a pass." })}
+      ${taskCard({ href: "./#gyms", title: "Gyms", detail: "Attack, stagger, or choose the next defender." })}
+      ${taskCard({ href: "./#pvp", title: "PvP", detail: "League picks, anti-meta, and your best lead right now." })}
+      ${taskCard({ href: "./#triage", title: "My Box", detail: "Keep, invest, battle, or transfer — one decision per Pokémon." })}
+      ${taskCard({ href: "./#basics", title: "Learn", detail: "Plain-language basics, type chart, glossary, and drills." })}
+      ${taskCard({ href: "./#leaderboard", title: "Gym Leaderboard", detail: "Track your longest defenses, compete with friends." })}
+      ${taskCard({ href: "./#rocket", title: "Team GO Rocket", detail: "Shadow Raid bosses, Rocket events, and grunt lineups." })}
       ${taskCard({ href: "./#eggs", title: "Egg Pool", detail: "What can hatch from each egg distance." })}
-      ${taskCard({ href: "./#rocket", title: "Team GO Rocket", detail: "Shadow Raid bosses, Rocket-flavored events, and who each grunt and leader can bring." })}
-      ${taskCard({ href: "./#hundo", title: "Hundo Priority", detail: "Which hundos are worth chasing right now, and which aren't." })}
+      ${taskCard({ href: "./#more", title: "More", detail: "Your roster, settings, attacker lists, and this build." })}
     </div>
-    ${renderUpcomingSection({ currentEvents, forms, gapByFormId })}
-    ${renderCurrentEvents({ currentEvents, forms })}
     <footer class="home-status-chips" aria-label="Field status">
       <span class="status-chip" aria-label="Data cutoff">Data through ${escapeHtml(cutoff ?? "unknown")}</span>
       <span class="status-chip" aria-label="Offline status">${escapeHtml(offlineStatus)}</span>

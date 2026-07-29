@@ -1,5 +1,5 @@
 import { ATTACK_TYPES } from "../raid-target.js";
-import { escapeHtml } from "./home.js";
+import { escapeHtml, whyLine } from "./home.js";
 import { spriteHtml } from "../sprites.js";
 import { PVP_LEAGUES } from "./pvp.js";
 
@@ -134,7 +134,7 @@ function rankCard(row, lane, forms, pvp) {
         <div><dt>Budget value</dt><dd>${escapeHtml(row.budgetValue ?? "—")}</dd></div>
         <div><dt>Future-proof</dt><dd>${escapeHtml(row.futureProof ?? "—")}</dd></div>
       </dl>
-      ${row.whyRanked ? `<p class="raid-why-line">${escapeHtml(row.whyRanked)}</p>` : ""}
+      ${whyLine(row.whyRanked)}
       ${shadowAdvisorLine(row, lane, pvp)}
       <details><summary>Availability and notes</summary>
         <p>${notes.length ? notes.map(escapeHtml).join(" · ") : "No additional notes."}</p>

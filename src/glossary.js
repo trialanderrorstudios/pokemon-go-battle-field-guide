@@ -1,4 +1,4 @@
-// Plain-language jargon glossary. Single source of truth for the #glossary
+// Plain-language jargon glossary. Single source of truth for the #basics/glossary
 // page and the tap-any-jargon helper used at high-traffic render sites.
 export const GLOSSARY = Object.freeze([
   {

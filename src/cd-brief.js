@@ -116,6 +116,6 @@ export function communityDayTodayItem(events, forms, now = new Date()) {
     id: `cd-brief-${event.eventId}`,
     title: `Community Day: ${featuredName(event, forms)}`,
     detail: `${formatEventWhen(event.startsAt, event.endsAt, now)} — ${event.action ?? "Boosted spawns today."}`,
-    href: event.formId ? `./?boss=${encodeURIComponent(event.formId)}#raids` : "./#today",
+    href: event.formId ? `./?boss=${encodeURIComponent(event.formId)}#raids` : "./#home",
   };
 }

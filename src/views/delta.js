@@ -78,7 +78,7 @@ export function renderDelta({ diff, roster } = {}) {
       ? `${rosterSection(diff, roster)}${allPvpSection(diff)}${bossRotationSection(diff)}${newSpeciesSection(diff)}`
       : `<p class="fallback-section">Nothing changed for PvP rankings, raid bosses, or species since the last release.</p>`;
   return `<div class="more-view">
-    <a class="safe-escape" href="./#home">Back to Home</a>
+    <a class="safe-escape" href="./#more" data-route="more" data-view="">Back to More</a>
     <section class="more-section" aria-labelledby="delta-title">
       <p class="status-kicker">Reference</p>
       <h2 id="delta-title">What changed</h2>

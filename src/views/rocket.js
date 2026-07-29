@@ -94,7 +94,7 @@ function lineupGroup(entry, forms) {
 }
 
 export function renderRocket({
-  currentBosses = null, currentEvents = null, raidTargetTool = null, forms = {}, raids = null,
+  currentBosses = null, currentEvents = null, raidTargetTool = null, forms = {},
   rocketLineups = null, now = new Date(),
 } = {}) {
   const bosses = shadowRaidBosses(currentBosses);
@@ -103,7 +103,7 @@ export function renderRocket({
 
   const bossSection = bosses.length
     ? `<div class="home-boss-grid">${bosses
-      .map((boss) => currentBossCard(boss, { target: targetsByFormId.get(boss.formId), forms, now, raids }))
+      .map((boss) => currentBossCard(boss, { target: targetsByFormId.get(boss.formId), forms, now }))
       .join("")}</div>`
     : `<p class="gym-empty">No Shadow Raid bosses in this release's rotation.</p>`;
 
@@ -148,7 +148,7 @@ export function renderRocket({
     <section class="more-section" aria-labelledby="rocket-learn-title">
       <h2 id="rocket-learn-title">Shadow &amp; Purified, explained</h2>
       <p>Beating a Shadow Raid boss gives you a shot at catching a Shadow Pokémon. See the Glossary for what Shadow and Purified mean, and Triage My Box for a keep-or-purify call on ones you already own.</p>
-      <a class="safe-escape" href="./#glossary">Shadow &amp; Purified in the Glossary</a>
+      <a class="safe-escape" href="./#basics/glossary" data-route="basics" data-view="glossary">Shadow &amp; Purified in the Glossary</a>
       <a class="safe-escape" href="./#triage" data-route="triage">Keep-or-purify in Triage My Box</a>
     </section>
     <p class="gym-empty">Lineups are the pool of Pokémon a Rocket battle can open with in each slot, synced from LeekDuck at this app's data cutoff — not a live read of your game. The feed gives the possible Pokémon and their catch and shiny flags; it does not give per-battle odds, a guaranteed roster, CP, levels, or movesets, so this page doesn't claim any of those. Counter types come from this app's type chart applied to a grunt's declared type, not from a battle simulation.</p>

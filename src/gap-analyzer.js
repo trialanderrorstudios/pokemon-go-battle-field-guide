@@ -136,7 +136,7 @@ export function buildGapByFormId({
     const bossTypes = bossTypesFor(formId, forms);
     if (!bossTypes.length) continue;
     const weakType = bestWeakTypeForBoss(bossTypes, weakTypes);
-    if (weakType) gap[formId] = { headline: `You lack strong ${weakType} counters`, href: "#buildnext" };
+    if (weakType) gap[formId] = { headline: `You lack strong ${weakType} counters`, href: "./#triage/gaps" };
   }
   return gap;
 }

@@ -6,7 +6,7 @@ export function renderGlossary() {
     `<div class="glossary-entry"><dt>${escapeHtml(entry.term)}</dt><dd>${escapeHtml(entry.definition)}</dd></div>`
   )).join("");
   return `<div class="more-view">
-    <a class="safe-escape" href="./#home">Back to Home</a>
+    <a class="safe-escape" href="./#basics" data-route="basics" data-view="">Back to Basics</a>
     <section class="more-section" aria-labelledby="glossary-title">
       <p class="status-kicker">Plain-language terms</p>
       <h2 id="glossary-title">Glossary</h2>

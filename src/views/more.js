@@ -117,13 +117,18 @@ function coverageListCard(row) {
 }
 
 
+// Every More sub-view is a real route now, so its escape link is an ordinary
+// router link — no string-matched back handler, no manual scroll reset.
+const BACK_TO_MORE = '<a class="safe-escape" href="./#more" data-route="more" data-view="">Back to More</a>';
+
+
 export function renderMoreList(listId, data = {}) {
   if (listId === "collection") return renderCollectionView(data);
   const definition = MORE_LISTS[listId];
   if (!definition) return renderMore(data);
   const rows = listRows(listId, data);
   return `<section class="more-list-view" data-more-list-view="${escapeHtml(listId)}" aria-labelledby="more-list-title">
-    <a class="safe-escape" href="./#more">Back to More</a>
+    ${BACK_TO_MORE}
     <p class="status-kicker">${escapeHtml(definition.group)} guide · ${rows.length} entries</p>
     <h2 id="more-list-title">${escapeHtml(definition.title)}</h2>
     ${listId === "future" ? '<p class="pvp-summary">Priority order favors S+ investment, multi-type coverage, and practical type rank. It does not compare raw DPS across unrelated types.</p>' : ""}
@@ -137,11 +142,19 @@ export function renderMoreList(listId, data = {}) {
 }
 
 
-function routeCard(listId) {
-  const definition = MORE_LISTS[listId];
-  return `<a class="more-route-card" href="./?list=${escapeHtml(listId)}#more" data-more-list="${escapeHtml(listId)}">
-    <span>${escapeHtml(definition.group)}</span><strong>${escapeHtml(definition.title)}</strong><small>Open full list</small>
-  </a>`;
+// route/view come straight off the hash so the router owns the click, the
+// scroll reset and aria-current without every row hand-writing the attributes.
+function menuLink(href, label) {
+  const [route, view = ""] = href.slice("./#".length).split("/");
+  return `<li><a href="${href}" data-route="${route}" data-view="${view}">${escapeHtml(label)}</a></li>`;
+}
+
+
+function menuSection({ id, kicker, title, links }) {
+  return `<section class="more-section" aria-labelledby="more-menu-${id}-title">
+    <p class="status-kicker">${escapeHtml(kicker)}</p><h2 id="more-menu-${id}-title">${escapeHtml(title)}</h2>
+    <ul class="more-menu-list">${links.map(([href, label]) => menuLink(href, label)).join("")}</ul>
+  </section>`;
 }
 
 
@@ -223,18 +236,26 @@ function appSection(data) {
       <button type="button" data-action="check-update">Check for update</button>
       ${updateAction}${rollbackAction}
     </div>
-    <h3>Roster import and export</h3>
+    <h3>Feedback</h3>
+    <p>Every "Helpful?" thumbs tap is stored on this device only, never sent anywhere. Export the raw list if you want to review or share it yourself.</p>
+    <button type="button" data-action="feedback-export">Export feedback JSON</button>
+    <h3>Release notes</h3>
+    ${releaseNotes.length ? `<ul>${releaseNotes.map((note) => `<li>${escapeHtml(note)}</li>`).join("")}</ul>` : "<p>No release notes loaded.</p>"}
+  </section>`;
+}
+
+
+// Lives with the roster, not with the app/release plumbing: importing a Poke
+// Genie CSV is a roster edit, and it belongs where the roster is edited.
+function rosterTransferSection(data) {
+  return `<section class="more-section" aria-labelledby="more-transfer-title">
+    <p class="status-kicker">Bulk edits, still local</p><h2 id="more-transfer-title">Roster import and export</h2>
     <p>Roster JSON stays on this device. Imports are strictly validated before replacing your local roster.</p>
     <label class="file-action">Choose roster JSON<input type="file" accept="application/json,.json" data-action="roster-import"></label>
     <button type="button" data-action="roster-export">Export roster JSON</button>
     <p>Import a Poke Genie CSV export to bulk-add ownership, CP, and IVs. This app doesn't import moves yet, so add those afterward via "Add details" on My Roster.</p>
     <p><strong>${escapeHtml(pokeGenieImportStatus(data.roster?.preferences?.pokeGenieImport))}</strong></p>
     <label class="file-action">Choose Poke Genie CSV<input type="file" accept="text/csv,.csv" data-action="poke-genie-import"></label>
-    <h3>Feedback</h3>
-    <p>Every "Helpful?" thumbs tap is stored on this device only, never sent anywhere. Export the raw list if you want to review or share it yourself.</p>
-    <button type="button" data-action="feedback-export">Export feedback JSON</button>
-    <h3>Release notes</h3>
-    ${releaseNotes.length ? `<ul>${releaseNotes.map((note) => `<li>${escapeHtml(note)}</li>`).join("")}</ul>` : "<p>No release notes loaded.</p>"}
   </section>`;
 }
 
@@ -492,7 +513,7 @@ function friendCodesSection(data) {
     ${friends.length
       ? `<ul class="instance-list">${friends.map(friendRow).join("")}</ul>`
       : `<p class="pvp-empty">No friends saved yet.</p>`}
-    <p><a class="safe-escape" href="./#trades" data-route="trades">See a dex gap with a friend &rarr;</a></p>
+    <p><a class="safe-escape" href="./#more/trades" data-route="more" data-view="trades">See a dex gap with a friend &rarr;</a></p>
     <h3>${draft.editingId ? "Edit" : "Add"} a friend</h3>
     <label class="defense-log-player-name">Name
       <input type="text" maxlength="40" data-friend-draft-name value="${escapeHtml(draft.name ?? "")}">
@@ -584,44 +605,86 @@ function rosterSection(data) {
 }
 
 
-export function renderMore(data = {}) {
-  if (MORE_LISTS[data.listId]) return renderMoreList(data.listId, data);
-  return `<div class="more-view">
-    <a class="safe-escape" href="./#more">Back to More</a>
-    <section class="more-section" aria-labelledby="more-basics-title">
-      <p class="status-kicker">New to Pokémon GO battles?</p><h2 id="more-basics-title">Battle Basics</h2>
-      <a class="safe-escape" href="./#basics">Read the plain-language basics</a>
-      <a class="safe-escape" href="./#glossary">See every term in the Glossary</a>
-      <a class="safe-escape" href="./#tricks">Tips &amp; Tricks</a>
-    </section>
-    ${trainerProfileSection(data)}
-    ${displaySection(data)}
-    ${pushSection(data)}
-    ${rosterSection(data)}
-    <section class="more-section triage-route-callout" aria-labelledby="more-triage-title">
-      <p class="status-kicker">Turn your roster into decisions</p><h2 id="more-triage-title">Triage My Box</h2>
-      <p>See what to keep, power up, use in leagues, or review for transfer.</p>
-      <a class="safe-escape" href="./#triage" data-route="triage">Open Triage My Box</a>
-    </section>
-    <section class="more-section candyplan-route-callout" aria-labelledby="more-candyplan-title">
-      <p class="status-kicker">Spend Candy on the right evolution</p><h2 id="more-candyplan-title">Candy Planner</h2>
-      <p>See which owned species are worth evolving next, and which just need Candy recorded.</p>
-      <a class="safe-escape" href="./#candyplan" data-route="candyplan">Open Candy Planner</a>
-    </section>
-    ${rosterShareSection(data)}
-    ${friendCodesSection(data)}
-    <section class="more-section" aria-labelledby="more-investment-title">
-      <p class="status-kicker">Spend ${jargonTerm("stardust", "Stardust")} and ${jargonTerm("candy", "Candy")} deliberately</p><h2 id="more-investment-title">Investment</h2>
-      <div class="more-route-grid">${routeCard("budget")}${routeCard("future")}</div>
-    </section>
-    <section class="more-section" aria-labelledby="more-collection-title">
-      <p class="status-kicker">Build broad practical coverage</p><h2 id="more-collection-title">Collection</h2>
-      <div class="more-route-grid">${routeCard("megas")}${routeCard("coverage")}${routeCard("collection")}</div>
-    </section>
-    ${dataSection(data)}
-    ${appSection(data)}
-    ${backupSection(data)}
-    ${diagnosticsSection(data)}
-    ${shareSection()}
+// #more is a menu, not a page: one screen of links. Everything it used to
+// render inline lives at its own route now, so the 13.9-screen scroll — and
+// the ?list= content swap that never hit the router's scroll reset — are gone.
+function renderMoreMenu() {
+  return `<div class="more-view more-menu">
+    ${menuSection({
+      id: "you",
+      kicker: "Your data, on this device",
+      title: "Your stuff",
+      links: [
+        ["./#more/roster", "My Roster"],
+        ["./#more/settings", "Settings"],
+        ["./#triage", "My Box"],
+        ["./#triage/candy", "Candy Planner"],
+        ["./#basics", "Learn"],
+      ],
+    })}
+    ${menuSection({
+      // Leaderboard, Rocket and Eggs are surviving routes the nav has no slot
+      // for. Without a row here their only entrance is a launcher card ~10
+      // screens down Home, which is the buried-route problem this menu exists
+      // to end.
+      id: "surfaces",
+      kicker: "Routes the bottom nav has no room for",
+      title: "Also here",
+      links: [
+        ["./#leaderboard", "Gym Leaderboard"],
+        ["./#rocket", "Team GO Rocket"],
+        ["./#eggs", "Egg Pool"],
+      ],
+    })}
+    ${menuSection({
+      id: "library",
+      kicker: "Spend Stardust and Candy deliberately",
+      title: "Library",
+      links: ["budget", "future", "megas", "coverage", "collection"]
+        .map((listId) => [`./#more/${listId}`, MORE_LISTS[listId].title]),
+    })}
+    ${menuSection({
+      id: "build",
+      kicker: "Where this data came from",
+      title: "This build",
+      links: [
+        ["./#more/delta", "What changed"],
+        ["./#more/about", "About this build"],
+      ],
+    })}
   </div>`;
+}
+
+
+export function renderMore(data = {}) {
+  const view = data.view ?? "";
+  if (MORE_LISTS[view]) return renderMoreList(view, data);
+  if (view === "roster") {
+    return `<div class="more-view">
+      ${BACK_TO_MORE}
+      ${rosterSection(data)}
+      ${rosterTransferSection(data)}
+      ${rosterShareSection(data)}
+      ${friendCodesSection(data)}
+    </div>`;
+  }
+  if (view === "settings") {
+    return `<div class="more-view">
+      ${BACK_TO_MORE}
+      ${trainerProfileSection(data)}
+      ${displaySection(data)}
+      ${pushSection(data)}
+    </div>`;
+  }
+  if (view === "about") {
+    return `<div class="more-view">
+      ${BACK_TO_MORE}
+      ${dataSection(data)}
+      ${appSection(data)}
+      ${backupSection(data)}
+      ${diagnosticsSection(data)}
+      ${shareSection()}
+    </div>`;
+  }
+  return renderMoreMenu();
 }

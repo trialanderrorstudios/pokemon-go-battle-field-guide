@@ -25,7 +25,7 @@ function laneSection(lane, context) {
   </li>`;
 }
 
-// Full weak-lanes + Build-Next list (#buildnext route). Composes
+// Full weak-lanes + Build-Next list (#triage/gaps view). Composes
 // gap-analyzer.js only — no new ranking/evolution/cost math here.
 export function renderBuildNext({
   forms = {}, roster = {}, raids, candyInventory = {}, triageResult = null, trainerLevel = null,
@@ -40,8 +40,8 @@ export function renderBuildNext({
     ? `<ul class="buildnext-lane-list">${weak.map((lane) => laneSection(lane, context)).join("")}</ul>`
     : '<p class="buildnext-empty fallback-section">Your box covers the meta — nothing urgent. Every attacking type already has a solid owned counter.</p>';
   return `<section class="buildnext-view" aria-labelledby="buildnext-title">
-    <p class="status-kicker">Roster gaps</p>
-    <h2 id="buildnext-title">Build Next</h2>
+    <p class="status-kicker">What to power up next</p>
+    <h2 id="buildnext-title">Roster Gaps</h2>
     <p class="buildnext-intro">Attacking types your owned roster doesn't have a strong counter for yet, and the best Pokémon you already own to fix each one.</p>
     ${body}
   </section>`;

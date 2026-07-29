@@ -76,7 +76,7 @@ function opponentStep({ state, forms }) {
   return `<section class="swap-step" aria-labelledby="swap-opponent-title">
     <p class="status-kicker">Step 2 of 3</p>
     <h2 id="swap-opponent-title">Who are you facing?</h2>
-    <a class="safe-escape" href="./#swap" data-action="swap-back-team">Back to team</a>
+    <a class="safe-escape" href="./#pvp/swap" data-action="swap-back-team">Back to team</a>
     <label class="swap-search">Search by name
       <input type="search" data-swap-opponent-query value="${escapeHtml(state.opponentQuery)}" autocomplete="off">
     </label>
@@ -122,8 +122,8 @@ function resultStep({ state, resolved, forms, pvp, moveCatalog, pvpMoveCatalog }
     <h2 id="swap-result-title">Best lead vs ${escapeHtml(opponent.name)}</h2>
     <ol class="swap-result-list">${ranked.map((row, index) => resultCard(row, index + 1, state.league, instanceByFormId, pvpRows, pvpMoveCatalog)).join("")}</ol>
     <div class="swap-actions">
-      <a class="safe-escape" href="./#swap" data-action="swap-back-opponent">Change opponent</a>
-      <a class="safe-escape" href="./#swap" data-action="swap-reset">Start over</a>
+      <a class="safe-escape" href="./#pvp/swap" data-action="swap-back-opponent">Change opponent</a>
+      <a class="safe-escape" href="./#pvp/swap" data-action="swap-reset">Start over</a>
     </div>
   </section>`;
 }
@@ -143,7 +143,7 @@ export function renderSwap({ pvp = {}, pvpTeams = [], forms = {}, roster = {}, s
       : teamStep({ state, resolved, roster, forms, pvp });
 
   return `<div class="swap-view">
-    <a class="safe-escape" href="./#home">Back to Home</a>
+    <a class="safe-escape" href="./#pvp" data-route="pvp" data-view="">Back to PvP</a>
     ${body}
   </div>`;
 }

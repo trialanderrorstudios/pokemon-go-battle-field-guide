@@ -54,7 +54,7 @@ export function renderTrades(data = {}) {
   const friends = data.friends ?? [];
   const exportText = data.exportText ?? "";
   return `<div class="more-view">
-    <a class="safe-escape" href="./#more">Back to More</a>
+    <a class="safe-escape" href="./#more" data-route="more" data-view="">Back to More</a>
     <section class="more-section" aria-labelledby="trades-title">
       <p class="status-kicker">Trade &amp; Dex Gap</p>
       <h2 id="trades-title">Trade &amp; Dex Gap</h2>

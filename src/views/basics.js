@@ -52,7 +52,8 @@ export function renderBasics() {
       <p class="status-kicker">New to Pokémon GO battles?</p>
       <h2 id="basics-title">Battle Basics</h2>
       <p>Quick things to know before you raid, defend a gym, or fight another trainer.</p>
-      <a class="safe-escape" href="./#glossary">See every term in the Glossary</a>
+      <a class="safe-escape" href="./#basics/glossary" data-route="basics" data-view="glossary">See every term in the Glossary</a>
+      <a class="safe-escape" href="./#basics/tricks" data-route="basics" data-view="tricks">Tips &amp; Tricks</a>
     </section>
     <section class="more-section" aria-labelledby="basics-raids-title">
       <h2 id="basics-raids-title">Raids</h2>
@@ -61,7 +62,7 @@ export function renderBasics() {
     <section class="more-section" aria-labelledby="basics-maxbattles-title">
       <h2 id="basics-maxbattles-title">Max Battles</h2>
       <p>A separate kind of team battle: instead of a gym, you fight a Dynamax or Gigantamax Pokémon at a Power Spot, spending Max Particles to enter and unleashing Max Moves once your meter fills mid-fight.</p>
-      <a class="safe-escape" href="./#maxbasics">Learn how Max Battles work</a>
+      <a class="safe-escape" href="./#basics/max" data-route="basics" data-view="max">Learn how Max Battles work</a>
     </section>
     <section class="more-section" aria-labelledby="basics-gyms-title">
       <h2 id="basics-gyms-title">Gyms</h2>
@@ -90,8 +91,8 @@ export function renderBasics() {
     <section class="more-section" aria-labelledby="basics-types-title">
       <h2 id="basics-types-title">Why type matchups matter</h2>
       <p>Every move has a type, and every Pokémon has one or two types. Attacking a type your target is weak to does much more damage, and attacking a type it resists does much less — matching your moves to the enemy's type is the single biggest damage lever you have.</p>
-      <a class="safe-escape" href="./#types">See the full type chart</a>
-      <p><a class="safe-escape" href="./#drill">Practice type matchups →</a></p>
+      <a class="safe-escape" href="./#basics/types" data-route="basics" data-view="types">See the full type chart</a>
+      <p><a class="safe-escape" href="./#basics/drill" data-route="basics" data-view="drill">Practice type matchups →</a></p>
     </section>
     <section class="more-section" aria-labelledby="basics-shadow-title">
       <h2 id="basics-shadow-title">Shadow and Purified Pokémon</h2>

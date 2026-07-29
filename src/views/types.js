@@ -32,7 +32,7 @@ function typeRow(type) {
 
 export function renderTypes() {
   return `<div class="more-view">
-    <a class="safe-escape" href="./#home">Back to Home</a>
+    <a class="safe-escape" href="./#basics" data-route="basics" data-view="">Back to Basics</a>
     <section class="more-section" aria-labelledby="types-title">
       <p class="status-kicker">Type chart</p>
       <h2 id="types-title">Type Matchups</h2>
