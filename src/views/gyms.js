@@ -88,6 +88,9 @@ function lineupSection(gym, forms) {
       <p class="gym-moves">${moveLink(member.bestFastMove, { kind: "Fast" })} + ${moveLink(member.bestChargedMove, { kind: "Charged" })}</p>
       ${whyLine(member.whyRanked)}
     </li>`).join("")}</ol>
+    ${(lineup.chainBreaks ?? []).map((brk) => `<p class="gym-move-note">${escapeHtml(
+      `${brk.breaker} breaks the ${brk.type} chain between ${brk.between[0]} and ${brk.between[1]} — an attacker cannot walk straight through.`
+    )}</p>`).join("")}
     <p><strong>Shared weakness:</strong> ${lineup.sharedWeaknesses.length
       ? `${escapeHtml(lineup.sharedWeaknesses.join(", "))} — one attacker type pressures more than one slot`
       : "none — no single attacking type is super-effective against more than one member"}</p>
