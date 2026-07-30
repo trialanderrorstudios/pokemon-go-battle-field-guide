@@ -74,6 +74,25 @@ function staggerSection(gym) {
 // The point of showing lineups (not just a ranking) is that a lineup answers a
 // different question: what should a coordinated group actually place, and
 // therefore what is worth investing in next.
+// Per-move numbers for a defender. basePower is the move's own power and power is
+// the STAB-adjusted product; show the base one so a reader can look it up in the
+// game, with the bonus called out separately rather than folded in silently.
+function defenderMoveNumbers(row) {
+  const fast = row.moves?.fast;
+  const charged = row.moves?.charged;
+  if (!fast || !charged) return "";
+  const bonus = (move) => (move.stab ? " ×1.2 same-type" : "");
+  const threat = row.topThreats?.[0];
+  return `<dl class="gym-move-dps" aria-label="Move numbers for ${escapeHtml(row.pokemon)}">
+    <div><dt>Fast DPS</dt><dd>${fast.dps} <span class="gym-dps-sub">${fast.basePower ?? fast.power} power${bonus(fast)} / ${fast.durationS}s</span></dd></div>
+    <div><dt>Energy</dt><dd>${fast.energyPerSecond}/s</dd></div>
+    <div><dt>Charged</dt><dd>${charged.basePower ?? charged.power} power${bonus(charged)} <span class="gym-dps-sub">${charged.energyCost} energy, fires every ${charged.firesEverySeconds}s</span></dd></div>
+    ${Number.isFinite(row.cycleDps)
+      ? `<div><dt>Cycle DPS</dt><dd>${row.cycleDps}${threat ? ` <span class="gym-dps-sub">into ${escapeHtml(threat)}</span>` : ""}</dd></div>`
+      : ""}
+  </dl>`;
+}
+
 function lineupSection(gym, forms, lineupShape = "clean") {
   // Two strategies, not one ranked list. "Clean" is stronger when you can
   // build it; "chain breakers" is what a second account or a friend's thinner
@@ -111,6 +130,25 @@ function lineupSection(gym, forms, lineupShape = "clean") {
       : "none — no single attacking type is super-effective against more than one member"}</p>
   </article></li>`).join("");
 
+  // The two selection rules, stated once for the section rather than repeated on
+  // fifty rows. The per-row lines below show the numbers that instantiate them,
+  // which is the part that transfers: learn the rule, read any defender yourself.
+  const defenderRules = `<details class="gym-rules">
+    <summary>How a defending moveset is chosen</summary>
+    <p><strong>Fast move — highest DPS whose type answers your worst weakness.</strong>
+    DPS is power ÷ duration, times 1.2 if the move matches the Pokémon's own type.
+    Where two are close, the one that is super-effective against the attackers who
+    actually come for this defender wins: Snorlax's only weakness is Fighting, and
+    Psychic hits Fighting for 1.6x, which is why Zen Headbutt beats Lick.</p>
+    <p><strong>Charged move — damage per second of real time, not per energy.</strong>
+    Divide the move's power by how long a full cycle takes: the fast moves needed
+    to pay for it, plus its own animation. A big move that costs 100 energy and
+    animates for 4s does less over time than a cheap one landing every ~6s, which
+    is why Body Slam beats Outrage despite Outrage having more raw power.</p>
+    <p>Both figures assume a Level 40 defender with 15 attack IV, and neither
+    models berry feeding, motivation decay, or dodging.</p>
+  </details>`;
+
   // 50, not 25: a second account or a friend's roster rarely has the top 25,
   // and a ranking that stops before the Pokemon you actually own is a ranking
   // you cannot act on.
@@ -119,7 +157,10 @@ function lineupSection(gym, forms, lineupShape = "clean") {
     <strong>${escapeHtml(row.pokemon)}</strong>
     <span class="gym-rank-score">${row.score}</span></p>
     <p class="gym-moves">${moveLink(row.bestFastMove, { kind: "Fast" })} + ${moveLink(row.bestChargedMove, { kind: "Charged" })}</p>
+    ${defenderMoveNumbers(row)}
     ${whyLine(row.whyRanked)}
+    ${row.fastWhy ? `<p class="gym-move-why"><strong>Fast:</strong> ${escapeHtml(row.fastWhy)}</p>` : ""}
+    ${row.chargedWhy ? `<p class="gym-move-why"><strong>Charged:</strong> ${escapeHtml(row.chargedWhy)}</p>` : ""}
     ${row.moveNote ? `<p class="gym-move-note">${escapeHtml(row.moveNote)}</p>` : ""}
     ${whyLine(row.placementValue, "Placement:")}
   </li>`).join("");
@@ -131,6 +172,7 @@ function lineupSection(gym, forms, lineupShape = "clean") {
     <ul class="gym-card-list">${lineupCards}</ul>
     ${sectionHeading("Computed, not curated", "Defender ranking", "gym-ranking-title")}
     <p class="gym-intro">${escapeHtml(gym.rankingMethodology ?? "")}</p>
+    ${defenderRules}
     <ol class="gym-rank-list">${rankRows}</ol>
     <p class="gym-iv-note">${escapeHtml(gym.defenderLevelNote ?? "")}</p>
   </section>`;

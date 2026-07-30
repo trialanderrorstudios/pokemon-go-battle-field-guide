@@ -3896,6 +3896,71 @@ select {
   color: var(--cyan);
 }
 
+/* Why each slot was picked. Same voice as .why-line, but these two carry the
+   comparison that decided it, so they stay full-contrast rather than muted. */
+.gym-move-why {
+  margin: 0.35rem 0 0;
+  font-size: 0.82rem;
+  line-height: 1.45;
+  color: var(--text);
+}
+
+/* Move numbers on a defender row. Two columns rather than the raid card's three:
+   these sit inside a list row rather than a card, and three wrapped badly at
+   375px. */
+.gym-move-dps {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.4rem;
+  margin: 0.6rem 0 0;
+}
+
+.gym-move-dps div {
+  min-width: 0;
+  padding: 0.45rem 0.5rem;
+  border-radius: 0.65rem;
+  background: var(--screen-bg);
+}
+
+.gym-move-dps dt {
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+}
+
+.gym-move-dps dd {
+  margin: 0.15rem 0 0;
+  font-size: 0.85rem;
+  font-weight: 750;
+}
+
+/* The derivation — "50 power ×1.2 same-type / 2s" — is the part that teaches, so
+   it is present but subordinate to the figure it explains. */
+.gym-move-dps .gym-dps-sub {
+  display: block;
+  font-size: 0.72rem;
+  font-weight: 500;
+  color: var(--muted);
+}
+
+.gym-rules {
+  margin: 0.5rem 0 0.75rem;
+  font-size: 0.85rem;
+  line-height: 1.5;
+}
+
+.gym-rules summary {
+  cursor: pointer;
+  color: var(--cyan);
+  font-weight: 700;
+}
+
+.gym-rules p {
+  margin: 0.5rem 0 0;
+  color: var(--muted);
+}
+
 /* "Spend resources here" — the one ranked answer on Today. */
 .today-invest-list {
   margin: 0;
