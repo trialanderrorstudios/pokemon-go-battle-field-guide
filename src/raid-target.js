@@ -97,6 +97,12 @@ export function becauseLine(attackingType, bossTypes) {
 // Beginner-mode grouping: rows are already sorted best-first within a type
 // (counterLane sorts by effectiveness desc, then rank asc), so grouping by
 // attackingType and slicing preserves that order — no re-sort needed.
+// The grouped view is the DEFAULT one (showAll is off until tapped), so this
+// number — not the flat lane's limit — is what most readers actually see. Three
+// per type meant a two-weakness boss showed six options in total.
+const BEGINNER_PER_TYPE = 5;
+
+
 export function groupCountersByType(rows, perType = 3) {
   const order = [];
   const byType = new Map();
@@ -564,7 +570,14 @@ export function buildRaidPlan({
     .filter((row) => row.effectiveness > 1)
     .sort((left, right) => (right.effectiveness - left.effectiveness)
       || left.attackingType.localeCompare(right.attackingType));
-  const limit = Number.isInteger(tool.counterLimit) && tool.counterLimit > 0 ? tool.counterLimit : 12;
+  // 20, not 12. Measured on the shipped data, rank 20 still does 52-77% of the
+  // top counter's DPS and the curve past 12 is a slope, not a cliff — and the
+  // list is ordered by PRACTICAL rank (cost, availability), not raw DPS, so a
+  // deeper row is not reliably a weaker one: Solgaleo's #10 out-damages its #1.
+  // Same reason the defender ranking went to 50: a second account owns none of
+  // the top twelve, and a list that stops above everything you have is a list
+  // you cannot act on.
+  const limit = Number.isInteger(tool.counterLimit) && tool.counterLimit > 0 ? tool.counterLimit : 20;
   const regularRows = raids.regular ?? [];
   const shadowRows = raids.shadow ?? [];
   const owned = new Set((ownedFormIds ?? []).filter((formId) => typeof formId === "string"));
@@ -597,16 +610,16 @@ export function buildRaidPlan({
     // dedupeAcrossTypes: false — a form ranked in multiple attacking-type lists
     // must survive under each type's own top-3, not just its single best type.
     beginnerRegularGroups: groupCountersByType(
-      counterCandidates(regularRows, bossTypes, { dedupeAcrossTypes: false, boostedTypeSet }), 3,
+      counterCandidates(regularRows, bossTypes, { dedupeAcrossTypes: false, boostedTypeSet }), BEGINNER_PER_TYPE,
     ),
     beginnerBuildableGroups: groupCountersByType(
-      counterCandidates(withoutMegasOrPrimals(regularRows, forms), bossTypes, { dedupeAcrossTypes: false, boostedTypeSet }), 3,
+      counterCandidates(withoutMegasOrPrimals(regularRows, forms), bossTypes, { dedupeAcrossTypes: false, boostedTypeSet }), BEGINNER_PER_TYPE,
     ),
     beginnerShadowGroups: groupCountersByType(
-      counterCandidates(shadowRows, bossTypes, { dedupeAcrossTypes: false, boostedTypeSet }), 3,
+      counterCandidates(shadowRows, bossTypes, { dedupeAcrossTypes: false, boostedTypeSet }), BEGINNER_PER_TYPE,
     ),
     beginnerOwnedGroups: groupCountersByType(
-      counterCandidates([...regularRows, ...shadowRows], bossTypes, { owned, dedupeAcrossTypes: false, boostedTypeSet }), 3,
+      counterCandidates([...regularRows, ...shadowRows], bossTypes, { owned, dedupeAcrossTypes: false, boostedTypeSet }), BEGINNER_PER_TYPE,
     ),
     caveat: tool.caveat ?? "Counter order is a quick practical guide; live battle conditions can change results.",
   };
