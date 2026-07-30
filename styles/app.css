@@ -3898,6 +3898,18 @@ select {
 
 /* Why each slot was picked. Same voice as .why-line, but these two carry the
    comparison that decided it, so they stay full-contrast rather than muted. */
+/* How long the egg pool is good for. Sits under the intro rather than in a
+   details block: "should I hunt this now" is the question the page is for. */
+.egg-season {
+  margin: 0.6rem 0 0;
+  padding: 0.6rem 0.7rem;
+  border-radius: 0.65rem;
+  background: var(--screen-bg);
+  font-size: 0.82rem;
+  line-height: 1.5;
+  color: var(--muted);
+}
+
 /* What to catch. Sits with the recommendation rather than in a details block:
    the base form is the actionable half of "build Metagross". */
 .origin-line {

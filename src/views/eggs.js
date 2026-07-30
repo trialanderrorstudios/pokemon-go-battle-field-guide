@@ -52,7 +52,25 @@ function eggGroup(eggType, eggs, forms) {
   </section>`;
 }
 
-export function renderEggs({ currentEggs, forms } = {}) {
+// How long this pool is good for. Neither ScrapedDuck's egg feed nor LeekDuck
+// behind it carries a date — the rows are a snapshot with no validity window —
+// so the season boundary from the events lane is the answer, and the honest
+// framing is "guaranteed to change then, may change sooner".
+function seasonWindow(season, now) {
+  if (!season?.endsAt) return "";
+  const ends = new Date(season.endsAt);
+  if (Number.isNaN(ends.getTime())) return "";
+  const days = Math.ceil((ends.getTime() - now) / 86400000);
+  const when = ends.toLocaleDateString(undefined, { day: "numeric", month: "long", year: "numeric" });
+  const left = days > 0 ? ` — about ${days} ${days === 1 ? "day" : "days"} left` : " — that date has passed, so this pool is likely stale";
+  return `<p class="egg-season"><strong>Pool rotates:</strong> egg pools are set per season. The
+    ${escapeHtml(season.name || "current")} season ends ${escapeHtml(when)}${escapeHtml(left)}. Events can swap
+    parts of the pool sooner — a Hatch Day or an event with its own 2 km eggs — so treat the season end as the
+    date this list is guaranteed to change, not the only date it can.</p>`;
+}
+
+
+export function renderEggs({ currentEggs, forms, now = Date.now() } = {}) {
   const eggs = currentEggs?.eggs ?? [];
   const knownTypes = new Set(eggs.map((egg) => egg.eggType));
   const orderedTypes = [...EGG_TYPE_ORDER, ...[...knownTypes].filter((type) => !EGG_TYPE_ORDER.includes(type)).sort()];
@@ -65,6 +83,7 @@ export function renderEggs({ currentEggs, forms } = {}) {
       <p class="status-kicker">Reference</p>
       <h2 id="eggs-title">Egg Pool</h2>
       <p>What can hatch from each egg distance, with shiny eligibility and hatch CP. Hatches are always level 20 with a 10/10/10 IV floor, so the top of each range is the 15/15/15 CP — if the hatch reads that number, it's a hundo. Data credit: LeekDuck.com, synced at this app's data cutoff — not live from the game.</p>
+      ${seasonWindow(currentEggs?.season, now)}
     </section>
     ${body}
   </div>`;
