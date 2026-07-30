@@ -1,4 +1,4 @@
-import { escapeHtml, ownedStarButton, viewSegments, whyLine } from "./home.js";
+import { escapeHtml, originLine, ownedStarButton, viewSegments, whyLine } from "./home.js";
 import { spriteHtml } from "../sprites.js";
 import { moveLink } from "./move-sheet.js";
 import { jargonTerm } from "../glossary.js";
@@ -41,6 +41,7 @@ function buildCard(row, index, forms) {
          so the card face showed what it covers but never why it is cheap
          enough to be on a low-resource list at all. -->
     ${whyLine(row.whyRanked)}
+    ${originLine(row.origin)}
     <details><summary>Low-resource build</summary><p>${escapeHtml(row.build)}</p></details>
   </article></li>`;
 }
@@ -158,6 +159,7 @@ function lineupSection(gym, forms, lineupShape = "clean") {
     <span class="gym-rank-score">${row.score}</span></p>
     <p class="gym-moves">${moveLink(row.bestFastMove, { kind: "Fast" })} + ${moveLink(row.bestChargedMove, { kind: "Charged" })}</p>
     ${defenderMoveNumbers(row)}
+    ${originLine(row.origin)}
     ${whyLine(row.whyRanked)}
     ${row.fastWhy ? `<p class="gym-move-why"><strong>Fast:</strong> ${escapeHtml(row.fastWhy)}</p>` : ""}
     ${row.chargedWhy ? `<p class="gym-move-why"><strong>Charged:</strong> ${escapeHtml(row.chargedWhy)}</p>` : ""}

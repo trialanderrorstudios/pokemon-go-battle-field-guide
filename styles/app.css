@@ -3898,6 +3898,15 @@ select {
 
 /* Why each slot was picked. Same voice as .why-line, but these two carry the
    comparison that decided it, so they stay full-contrast rather than muted. */
+/* What to catch. Sits with the recommendation rather than in a details block:
+   the base form is the actionable half of "build Metagross". */
+.origin-line {
+  margin: 0.35rem 0 0;
+  font-size: 0.8rem;
+  line-height: 1.45;
+  color: var(--muted);
+}
+
 .gym-move-why {
   margin: 0.35rem 0 0;
   font-size: 0.82rem;

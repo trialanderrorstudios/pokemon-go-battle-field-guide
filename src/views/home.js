@@ -30,6 +30,28 @@ export function whyLine(text, label = "") {
 }
 
 
+// Where a recommendation comes from: what you actually catch, and what the climb
+// costs. Every ranked list names the final evolution, which is the one form you
+// cannot go out and find — and Candy is shared across the family, so the base
+// form is the shopping-list entry. Shared by the raid, gym-attacker and defender
+// lists, because the question does not change between them.
+// Returns "" for a Pokemon that does not evolve; there is nothing to say.
+export function originLine(origin) {
+  if (!origin?.base) return "";
+  const chain = [origin.base, ...(origin.steps ?? []).map((step) => step.to)];
+  const parts = [chain.join(" → ")];
+  if (origin.totalCandy) parts.push(`${origin.totalCandy} Candy total`);
+  if (origin.items?.length) parts.push(`needs ${origin.items.join(" and ")}`);
+  // A Lure is not spent from your bag — you have to be standing at an active one,
+  // possibly someone else's — so it is worded as a place, not a purchase.
+  if (origin.lures?.length) parts.push(`only at a ${origin.lures.join(" and ")}`);
+  // "one step" rather than the whole climb: Machop → Machoke still costs 25 even
+  // though the Machoke → Machamp half is free when it happens in a trade.
+  if (origin.freeViaTrade) parts.push("one step free if traded");
+  return `<p class="origin-line"><strong>Catch:</strong> ${escapeHtml(parts.join(" · "))}</p>`;
+}
+
+
 // The one content switcher. A segment is a link to #route/view, so the router
 // owns history, scroll reset, the dex wipe and aria-current — the four steps
 // the old hand-rolled button groups each re-implemented a different subset of.
