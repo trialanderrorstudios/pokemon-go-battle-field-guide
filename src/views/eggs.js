@@ -10,7 +10,14 @@ import { spriteHtml } from "../sprites.js";
 
 const EGG_TYPE_ORDER = ["1 km", "2 km", "5 km", "7 km", "10 km", "12 km"];
 
+// Hatches are level 20 with a 10/10/10 IV floor, so the top of the range is
+// always the hundo — lead with that number, because it is the one you check the
+// moment the egg cracks. cpFloor/cpHundo are computed in assemble.py; the feed's
+// own cpMin/cpMax are the fallback for rows with no resolvable form.
 function cpRange(egg) {
+  if (Number.isFinite(egg.cpHundo) && Number.isFinite(egg.cpFloor)) {
+    return `Hundo ${egg.cpHundo} CP · hatches ${egg.cpFloor}–${egg.cpHundo}`;
+  }
   if (!Number.isFinite(egg.cpMin)) return "";
   return egg.cpMin === egg.cpMax ? `${egg.cpMin} CP` : `${egg.cpMin}–${egg.cpMax} CP`;
 }
@@ -57,7 +64,7 @@ export function renderEggs({ currentEggs, forms } = {}) {
     <section class="more-section" aria-labelledby="eggs-title">
       <p class="status-kicker">Reference</p>
       <h2 id="eggs-title">Egg Pool</h2>
-      <p>What can hatch from each egg distance, with shiny eligibility and hatch CP. Data credit: LeekDuck.com, synced at this app's data cutoff — not live from the game.</p>
+      <p>What can hatch from each egg distance, with shiny eligibility and hatch CP. Hatches are always level 20 with a 10/10/10 IV floor, so the top of each range is the 15/15/15 CP — if the hatch reads that number, it's a hundo. Data credit: LeekDuck.com, synced at this app's data cutoff — not live from the game.</p>
     </section>
     ${body}
   </div>`;
