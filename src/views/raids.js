@@ -134,7 +134,7 @@ function rankCard(row, lane, forms, pvp) {
         <div><dt>Budget value</dt><dd>${escapeHtml(row.budgetValue ?? "—")}</dd></div>
         <div><dt>Future-proof</dt><dd>${escapeHtml(row.futureProof ?? "—")}</dd></div>
       </dl>
-      ${originLine(row.origin)}
+      ${originLine(row.origin, row.acquisition)}
       ${whyLine(row.whyRanked)}
       ${shadowAdvisorLine(row, lane, pvp)}
       <details><summary>Availability and notes</summary>

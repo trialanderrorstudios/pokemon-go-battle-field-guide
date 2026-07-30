@@ -36,8 +36,14 @@ export function whyLine(text, label = "") {
 // form is the shopping-list entry. Shared by the raid, gym-attacker and defender
 // lists, because the question does not change between them.
 // Returns "" for a Pokemon that does not evolve; there is nothing to say.
-export function originLine(origin) {
-  if (!origin?.base) return "";
+export function originLine(origin, acquisition = null) {
+  // Where it comes from when there is no chain to walk: a legendary is a raid, a
+  // Mega is an energy grind. A Mega gets BOTH — the chain that produced the
+  // Pokemon it Mega-evolves from, and the energy that does the Mega-evolving.
+  const sourceLines = (acquisition ?? [])
+    .map((note) => `<p class="origin-line"><strong>Source:</strong> ${escapeHtml(note)}</p>`)
+    .join("");
+  if (!origin?.base) return sourceLines;
   const chain = [origin.base, ...(origin.steps ?? []).map((step) => step.to)];
   const parts = [chain.join(" → ")];
   if (origin.totalCandy) parts.push(`${origin.totalCandy} Candy total`);
@@ -48,7 +54,7 @@ export function originLine(origin) {
   // "one step" rather than the whole climb: Machop → Machoke still costs 25 even
   // though the Machoke → Machamp half is free when it happens in a trade.
   if (origin.freeViaTrade) parts.push("one step free if traded");
-  return `<p class="origin-line"><strong>Catch:</strong> ${escapeHtml(parts.join(" · "))}</p>`;
+  return `<p class="origin-line"><strong>Catch:</strong> ${escapeHtml(parts.join(" · "))}</p>${sourceLines}`;
 }
 
 
