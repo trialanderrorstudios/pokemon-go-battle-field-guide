@@ -70,7 +70,33 @@ function seasonWindow(season, now) {
 }
 
 
-export function renderEggs({ currentEggs, forms, now = Date.now() } = {}) {
+// Where Eggs come from. The page tagged rows "Adventure Sync" and "Gift
+// exchange" and explained neither, which is the one thing a reader cannot look
+// up from the list itself. Claims that cite a frozen official page are shown
+// plainly; hand-researched ones are marked, because presenting both at the same
+// confidence is how a guide quietly becomes folklore.
+function eggSources(guide) {
+  const sources = guide?.eggs?.sources ?? [];
+  if (!sources.length) return "";
+  const rows = sources.map((source) => {
+    const flag = source.confidence === "handResearched"
+      ? ` <span class="acq-flag">hand-researched</span>`
+      : "";
+    return `<li><strong>${escapeHtml(source.label)}</strong>${flag}
+      <p>${escapeHtml(source.detail)}</p></li>`;
+  }).join("");
+  const rarity = guide?.eggs?.rarity?.detail
+    ? `<p class="egg-rarity-note">${escapeHtml(guide.eggs.rarity.detail)}</p>` : "";
+  return `<section class="more-section" aria-labelledby="egg-sources-title">
+    <h3 id="egg-sources-title">Where Eggs come from</h3>
+    <p>${escapeHtml(guide?.eggs?.intro ?? "")}</p>
+    <ul class="egg-source-list">${rows}</ul>
+    ${rarity}
+  </section>`;
+}
+
+
+export function renderEggs({ currentEggs, forms, acquisitionGuide, now = Date.now() } = {}) {
   const eggs = currentEggs?.eggs ?? [];
   const knownTypes = new Set(eggs.map((egg) => egg.eggType));
   const orderedTypes = [...EGG_TYPE_ORDER, ...[...knownTypes].filter((type) => !EGG_TYPE_ORDER.includes(type)).sort()];
@@ -85,6 +111,7 @@ export function renderEggs({ currentEggs, forms, now = Date.now() } = {}) {
       <p>What can hatch from each egg distance, with shiny eligibility and hatch CP. Hatches are always level 20 with a 10/10/10 IV floor, so the top of each range is the 15/15/15 CP — if the hatch reads that number, it's a hundo. Data credit: LeekDuck.com, synced at this app's data cutoff — not live from the game.</p>
       ${seasonWindow(currentEggs?.season, now)}
     </section>
+    ${eggSources(acquisitionGuide)}
     ${body}
   </div>`;
 }

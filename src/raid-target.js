@@ -294,6 +294,23 @@ function counterCandidates(rows, bossTypes, {
 }
 
 
+// A Mega or Primal is not something a reader can go and build: it costs Mega
+// Energy every time it is used, only one can be active at once, and the energy
+// comes from raiding the very thing they wanted help beating. Six of Mega
+// Aggron's top eight counters are Megas, which makes the default list unusable
+// for anyone who does not already own them.
+//
+// Filtered here rather than at the display layer so the lane's limit applies to
+// the filtered ranking — filtering afterwards left four rows where twelve were
+// asked for.
+export function withoutMegasOrPrimals(rows, forms) {
+  return rows.filter((row) => {
+    const form = String(forms?.[row.formId]?.form ?? "").toUpperCase();
+    return !form.startsWith("MEGA") && form !== "PRIMAL";
+  });
+}
+
+
 function counterLane(rows, bossTypes, { limit, owned = null, boostedTypeSet = null }) {
   return counterCandidates(rows, bossTypes, { owned, boostedTypeSet }).slice(0, limit);
 }
@@ -567,6 +584,9 @@ export function buildRaidPlan({
     bossBoostedNow,
     weaknesses,
     regularCounters: counterLane(regularRows, bossTypes, { limit, boostedTypeSet }),
+    buildableCounters: counterLane(
+      withoutMegasOrPrimals(regularRows, forms), bossTypes, { limit, boostedTypeSet },
+    ),
     shadowCounters: counterLane(shadowRows, bossTypes, { limit, boostedTypeSet }),
     ownedCounters,
     beatability: beatability({
@@ -578,6 +598,9 @@ export function buildRaidPlan({
     // must survive under each type's own top-3, not just its single best type.
     beginnerRegularGroups: groupCountersByType(
       counterCandidates(regularRows, bossTypes, { dedupeAcrossTypes: false, boostedTypeSet }), 3,
+    ),
+    beginnerBuildableGroups: groupCountersByType(
+      counterCandidates(withoutMegasOrPrimals(regularRows, forms), bossTypes, { dedupeAcrossTypes: false, boostedTypeSet }), 3,
     ),
     beginnerShadowGroups: groupCountersByType(
       counterCandidates(shadowRows, bossTypes, { dedupeAcrossTypes: false, boostedTypeSet }), 3,

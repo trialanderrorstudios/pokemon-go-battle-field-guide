@@ -54,6 +54,7 @@ export function renderBasics() {
       <p>Quick things to know before you raid, defend a gym, or fight another trainer.</p>
       <a class="safe-escape" href="./#basics/glossary" data-route="basics" data-view="glossary">See every term in the Glossary</a>
       <a class="safe-escape" href="./#basics/tricks" data-route="basics" data-view="tricks">Tips &amp; Tricks</a>
+      <a class="safe-escape" href="./#basics/items" data-route="basics" data-view="items">Evolution items — and how to get them</a>
     </section>
     <section class="more-section" aria-labelledby="basics-raids-title">
       <h2 id="basics-raids-title">Raids</h2>

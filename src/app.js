@@ -139,6 +139,7 @@ import { renderDelta } from "./views/delta.js";
 import { nextActions } from "./next-action.js";
 import { loadCachedReleaseDiff, refreshReleaseDiff, releaseDiffDismissedKey } from "./release-diff.js";
 import { renderTricks } from "./views/tricks.js";
+import { renderEvolutionItems } from "./views/evolution-items.js";
 import { renderCandyPlan } from "./views/candyplan.js";
 import { buildGapByFormId, typeCoverage, weakLanes } from "./gap-analyzer.js";
 import { renderBuildNext } from "./views/buildnext.js";
@@ -195,7 +196,10 @@ export const ROUTE_CHUNKS = Object.freeze({
   // scores candidates against the bosses actually in rotation.
   triage: ["raids.json", "pvp.json", "extras.json", "gyms.json", "current-bosses.json", "current-events.json"],
   more: ["extras.json"],
-  eggs: ["current-eggs.json"],
+  // acquisition.json: where Eggs come from, and what the "Adventure Sync" tag
+  // on a row actually means — the page tagged rows and explained neither.
+  eggs: ["current-eggs.json", "acquisition.json"],
+  basics: ["acquisition.json"],
   rocket: ["raid-targets.json", "current-bosses.json", "current-events.json", "rocket-lineups.json"],
 });
 
@@ -216,6 +220,7 @@ const CHUNK_FIELDS = Object.freeze({
   "gyms.json": ["gym", "placement"],
   "pvp.json": ["pvp", "pvpTeams", "pvpAlternatives"],
   "extras.json": ["budgets", "megasPrimals", "futureProof", "coveragePlanner"],
+  "acquisition.json": ["acquisitionGuide"],
   "current-bosses.json": ["currentBosses"],
   "current-events.json": ["currentEvents"],
   "current-eggs.json": ["currentEggs"],
@@ -720,7 +725,8 @@ function downloadFile(filename, payload, { documentObject, windowObject }) {
 
 
 const TASK_ROUTES = new Set(["raids", "gyms", "pvp"]);
-const RAID_LANES = new Set(["regular", "shadow", "owned"]);
+const RAID_LANES = new Set(["regular", "buildable", "shadow", "owned"]);
+
 const RAID_LEVELS = new Set(["normal", "weatherBoosted"]);
 const RAID_TARGET_CATEGORIES = Object.freeze([
   ["all", "All targets"],
@@ -2625,8 +2631,10 @@ function raidCounterCard(row, roster, forms, {
 }
 
 
-// Beginner card: name + availability only, no DPS/move breakdown — the because-line
-// lives once on the group header since it's identical for every row in a type group.
+// Beginner card: name, moveset and availability. The DPS breakdown still lives
+// on the detailed view, but the moveset does not belong there — "bring Machamp"
+// without "Counter + Dynamic Punch" is not something a reader can act on, and
+// the moves are the thing they have to TM for.
 function beginnerCounterCard(row, roster) {
   const owned = (roster.ownedFormIds ?? []).includes(row.formId);
   const ownedCount = owned
@@ -2635,6 +2643,7 @@ function beginnerCounterCard(row, roster) {
   return `<li class="raid-card${owned ? " is-owned" : ""}" data-form-id="${escapeHtml(row.formId)}">
     <p class="raid-rank">#${escapeHtml(row.typeRank ?? row.rank)}${row.weatherBoosted ? ` · <span class="weather-boosted-badge">Boosted today</span>` : ""}</p>
     <h4>${escapeHtml(row.pokemon)}</h4>
+    <p class="raid-beginner-moves">${moveWithElite(row.optimalFastMove, row.optimalEliteFastTM, "Fast")} + ${moveWithElite(row.optimalChargedMove, row.optimalEliteChargedTM, "Charged")}</p>
     <p><strong>Availability:</strong> ${escapeHtml(row.availability ?? "Availability not documented")}</p>
     ${ownedStarButton({ formId: row.formId, name: row.pokemon, owned, route: "raids" })}
     <span class="owned-count">${owned ? `Owned ×${ownedCount}` : "Not owned"}</span>
@@ -2673,6 +2682,7 @@ function raidTargetSurface(state, ui, roster) {
   }, state);
   const lanes = {
     regular: ["Regular, Mega & Primal", plan.regularCounters, plan.beginnerRegularGroups],
+    buildable: ["No Megas", plan.buildableCounters, plan.beginnerBuildableGroups],
     shadow: ["Shadows", plan.shadowCounters, plan.beginnerShadowGroups],
     owned: ["Owned counters", plan.ownedCounters, plan.beginnerOwnedGroups],
   };
@@ -3001,6 +3011,7 @@ export function bootstrap({
     drill: () => renderDrill(ui.drill),
     tricks: () => renderTricks(),
     max: () => renderMaxBasics(),
+    items: () => renderEvolutionItems({ acquisitionGuide: state.acquisitionGuide, forms: state.core.forms }),
   };
   const deltaView = () => renderDelta({
     diff: loadCachedReleaseDiff(storage, releaseState.manifest?.releaseId ?? null),
@@ -3066,7 +3077,7 @@ export function bootstrap({
     },
     eggs() {
       app.innerHTML = interactionNotice(ui) + (state.currentEggs
-        ? renderEggs({ currentEggs: state.currentEggs, forms: state.core.forms })
+        ? renderEggs({ currentEggs: state.currentEggs, forms: state.core.forms, acquisitionGuide: state.acquisitionGuide })
         : chunkLoadingNotice("Egg Pool"));
     },
     rocket() {

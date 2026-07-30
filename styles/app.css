@@ -3971,6 +3971,100 @@ select {
   font-size: 0.78rem;
 }
 
+/* Provenance marker. A guide that presents hand-researched prose at the same
+   confidence as a cited fact is how a reference quietly becomes folklore. */
+.acq-flag {
+  display: inline-block;
+  margin-left: 0.35rem;
+  padding: 0.1rem 0.4rem;
+  border-radius: 999px;
+  background: var(--screen-bg);
+  font-size: 0.66rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: var(--muted);
+  vertical-align: middle;
+}
+
+.acq-provenance {
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+
+.acq-list,
+.egg-source-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 0.6rem;
+}
+
+.acq-item {
+  padding: 0.75rem;
+  border-radius: 0.9rem;
+  background: var(--card-bg, var(--screen-bg));
+  border: 1px solid var(--border, rgba(255, 255, 255, 0.08));
+}
+
+.acq-item h3 {
+  margin: 0 0 0.35rem;
+}
+
+.acq-level,
+.acq-needed-label {
+  margin: 0.35rem 0 0;
+  font-size: 0.78rem;
+  color: var(--muted);
+}
+
+/* Who needs it, with sprites: the point of the page is deciding whether the
+   grind is worth it, and that is a question about the Pokemon, not the item. */
+.acq-needers {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin-top: 0.4rem;
+}
+
+.acq-needer {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.2rem 0.45rem 0.2rem 0.2rem;
+  border-radius: 999px;
+  background: var(--screen-bg);
+  font-size: 0.75rem;
+}
+
+.acq-needer .sprite img {
+  width: 24px;
+  height: 24px;
+}
+
+.egg-source-list li {
+  padding: 0.6rem 0.7rem;
+  border-radius: 0.75rem;
+  background: var(--screen-bg);
+}
+
+.egg-source-list p {
+  margin: 0.25rem 0 0;
+  font-size: 0.82rem;
+  color: var(--muted);
+}
+
+.egg-rarity-note {
+  margin-top: 0.6rem;
+  font-size: 0.82rem;
+  color: var(--muted);
+}
+
+.origin-item-help {
+  white-space: nowrap;
+}
+
 /* How long the egg pool is good for. Sits under the intro rather than in a
    details block: "should I hunt this now" is the question the page is for. */
 .egg-season {

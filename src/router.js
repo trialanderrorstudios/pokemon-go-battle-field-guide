@@ -10,7 +10,7 @@ const ROUTE_VIEWS = Object.freeze({
   gyms: ["defend"],
   pvp: ["rankings", "antimeta", "swap"],
   triage: ["gaps", "candy"],
-  basics: ["types", "glossary", "drill", "tricks", "max"],
+  basics: ["types", "glossary", "drill", "tricks", "max", "items"],
   more: ["roster", "settings", "about", "trades", "delta", "budget", "future", "megas", "coverage", "collection"],
 });
 

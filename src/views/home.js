@@ -61,7 +61,12 @@ export function originLine(origin, acquisition = null) {
   // "one step" rather than the whole climb: Machop → Machoke still costs 25 even
   // though the Machoke → Machamp half is free when it happens in a trade.
   if (origin.freeViaTrade) parts.push("one step free if traded");
-  return `<p class="origin-line"><strong>Start from:</strong> ${escapeHtml(parts.join(" · "))}</p>${sourceLines}`;
+  // Naming an item the reader may not have, without saying how to get one, is
+  // half an instruction. Link the page that finishes it.
+  const itemHelp = (origin.items?.length || origin.lures?.length)
+    ? ` <a class="origin-item-help" href="./#basics/items" data-route="basics" data-view="items">how to get it</a>`
+    : "";
+  return `<p class="origin-line"><strong>Start from:</strong> ${escapeHtml(parts.join(" · "))}${itemHelp}</p>${sourceLines}`;
 }
 
 

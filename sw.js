@@ -108,6 +108,7 @@ const SHELL_CODE_FILES = Object.freeze([
   "./src/views/today.js",
   "./src/views/trades.js",
   "./src/views/triage.js",
+  "./src/views/evolution-items.js",
   "./src/views/tricks.js",
   "./src/views/types.js",
 ]);
