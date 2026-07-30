@@ -44,7 +44,14 @@ export function originLine(origin, acquisition = null) {
     .map((note) => `<p class="origin-line"><strong>Source:</strong> ${escapeHtml(note)}</p>`)
     .join("");
   if (!origin?.base) return sourceLines;
-  const chain = [origin.base, ...(origin.steps ?? []).map((step) => step.to)];
+  // "Catch" was wrong for a third of these: Happiny only comes out of an egg, and
+  // the app syncs the egg pool, so the base form's real route is a lookup. The
+  // hatch note is additive rather than exclusive — Gible hatches from 10 km AND
+  // spawns wild, and this app has no wild-spawn data to rank the two.
+  const base = origin.baseHatchesFrom
+    ? `${origin.base} (${origin.baseHatchesFrom} eggs)`
+    : origin.base;
+  const chain = [base, ...(origin.steps ?? []).map((step) => step.to)];
   const parts = [chain.join(" → ")];
   if (origin.totalCandy) parts.push(`${origin.totalCandy} Candy total`);
   if (origin.items?.length) parts.push(`needs ${origin.items.join(" and ")}`);
@@ -54,7 +61,7 @@ export function originLine(origin, acquisition = null) {
   // "one step" rather than the whole climb: Machop → Machoke still costs 25 even
   // though the Machoke → Machamp half is free when it happens in a trade.
   if (origin.freeViaTrade) parts.push("one step free if traded");
-  return `<p class="origin-line"><strong>Catch:</strong> ${escapeHtml(parts.join(" · "))}</p>${sourceLines}`;
+  return `<p class="origin-line"><strong>Start from:</strong> ${escapeHtml(parts.join(" · "))}</p>${sourceLines}`;
 }
 
 

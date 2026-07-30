@@ -3898,6 +3898,79 @@ select {
 
 /* Why each slot was picked. Same voice as .why-line, but these two carry the
    comparison that decided it, so they stay full-contrast rather than muted. */
+/* Defender ranking rows became cards: fifty entries each carrying a sprite, two
+   move numbers and two lines of reasoning need a boundary, or they read as one
+   undifferentiated wall. */
+.gym-rank-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 0.6rem;
+}
+
+.gym-rank-card {
+  padding: 0.75rem;
+  border-radius: 0.9rem;
+  background: var(--card-bg, var(--screen-bg));
+  border: 1px solid var(--border, rgba(255, 255, 255, 0.08));
+}
+
+.gym-rank-head {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.gym-rank-head .sprite {
+  flex: 0 0 auto;
+}
+
+.gym-rank-n {
+  font-weight: 750;
+  color: var(--muted);
+}
+
+.gym-rank-head strong {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+/* The score is the ranking's own number, so it reads as a figure, not a label. */
+.gym-rank-score {
+  margin-left: auto;
+  font-variant-numeric: tabular-nums;
+  font-weight: 750;
+  color: var(--cyan);
+}
+
+/* Jump links. The Defending view is five long sections; a reader forty
+   defenders down should not have to scroll back by hand. */
+.gym-section-nav ul {
+  list-style: none;
+  margin: 0 0 0.75rem;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.gym-section-nav a {
+  display: inline-block;
+  padding: 0.3rem 0.6rem;
+  border-radius: 999px;
+  background: var(--screen-bg);
+  font-size: 0.78rem;
+  text-decoration: none;
+}
+
+.gym-back-to-top {
+  margin: 0.75rem 0 0;
+  text-align: right;
+  font-size: 0.78rem;
+}
+
 /* How long the egg pool is good for. Sits under the intro rather than in a
    details block: "should I hunt this now" is the question the page is for. */
 .egg-season {

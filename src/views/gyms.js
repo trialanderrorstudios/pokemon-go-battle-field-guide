@@ -94,6 +94,35 @@ function defenderMoveNumbers(row) {
   </dl>`;
 }
 
+// Jump links for the Defending view, which is five long sections deep. Plain
+// in-page anchors, not JS scroll handlers: the browser already does this, and a
+// hash link keeps working if the script fails — the failure mode this app has
+// been bitten by twice. Each section gets a matching "Back to top" so a reader
+// forty defenders down is one tap from the list of sections.
+const DEFEND_SECTIONS = Object.freeze([
+  ["gym-lineups-title", "Starting lineups"],
+  ["gym-ranking-title", "Defender ranking"],
+  ["gym-defense-title", "Top defenders"],
+  ["gym-motivation-title", "Motivation"],
+  ["gym-owned-defenders-title", "What you own"],
+]);
+
+
+function sectionNav() {
+  const links = DEFEND_SECTIONS
+    .map(([id, label]) => `<li><a href="#${id}">${escapeHtml(label)}</a></li>`)
+    .join("");
+  return `<nav class="gym-section-nav" id="gym-top" aria-label="Jump to a section">
+    <ul>${links}</ul>
+  </nav>`;
+}
+
+
+export function backToTop() {
+  return `<p class="gym-back-to-top"><a href="#gym-top">↑ Back to top</a></p>`;
+}
+
+
 function lineupSection(gym, forms, lineupShape = "clean") {
   // Two strategies, not one ranked list. "Clean" is stronger when you can
   // build it; "chain breakers" is what a second account or a friend's thinner
@@ -153,10 +182,13 @@ function lineupSection(gym, forms, lineupShape = "clean") {
   // 50, not 25: a second account or a friend's roster rarely has the top 25,
   // and a ranking that stops before the Pokemon you actually own is a ranking
   // you cannot act on.
-  const rankRows = ranking.slice(0, 50).map((row) => `<li class="gym-rank-row">
-    <p class="gym-rank-head"><span class="gym-rank-n">#${row.rank}</span>
-    <strong>${escapeHtml(row.pokemon)}</strong>
-    <span class="gym-rank-score">${row.score}</span></p>
+  const rankRows = ranking.slice(0, 50).map((row) => `<li class="gym-rank-row gym-rank-card"><article aria-labelledby="gym-rank-${row.rank}">
+    <div class="gym-rank-head">
+      ${spriteHtml(row.formId, forms, row.pokemon, forms?.[row.formId]?.primary_type)}
+      <span class="gym-rank-n">#${row.rank}</span>
+      <strong id="gym-rank-${row.rank}">${escapeHtml(row.pokemon)}</strong>
+      <span class="gym-rank-score">${row.score}</span>
+    </div>
     <p class="gym-moves">${moveLink(row.bestFastMove, { kind: "Fast" })} + ${moveLink(row.bestChargedMove, { kind: "Charged" })}</p>
     ${defenderMoveNumbers(row)}
     ${originLine(row.origin, row.acquisition)}
@@ -165,7 +197,7 @@ function lineupSection(gym, forms, lineupShape = "clean") {
     ${row.chargedWhy ? `<p class="gym-move-why"><strong>Charged:</strong> ${escapeHtml(row.chargedWhy)}</p>` : ""}
     ${row.moveNote ? `<p class="gym-move-note">${escapeHtml(row.moveNote)}</p>` : ""}
     ${whyLine(row.placementValue, "Placement:")}
-  </li>`).join("");
+  </article></li>`).join("");
 
   return `<section class="gym-section" aria-labelledby="gym-lineups-title">
     ${sectionHeading("Coordinated opening", "Starting lineups", "gym-lineups-title")}
@@ -177,6 +209,7 @@ function lineupSection(gym, forms, lineupShape = "clean") {
     ${defenderRules}
     <ol class="gym-rank-list">${rankRows}</ol>
     <p class="gym-iv-note">${escapeHtml(gym.defenderLevelNote ?? "")}</p>
+  ${backToTop()}
   </section>`;
 }
 
@@ -214,6 +247,7 @@ function motivationSection() {
     <p>Every defender has ${jargonTerm("motivation", "motivation")} — a meter that falls both from time passing and from losing battles. As it falls, ${jargonTerm("cp-decay", "CP decay")} makes the defender easier for attackers to beat. At zero motivation, the defender leaves the gym the next time it loses a battle.</p>
     <p>Feeding a defending Pokémon a Berry restores motivation. Razz, Nanab, and Pinap Berries all restore the same amount; a Golden Razz Berry fully restores motivation in one feed.</p>
     <p>Defending pays PokéCoins: 1 coin per 10 minutes a Pokémon holds a gym, capped at 50 coins per day account-wide. Coins are paid out when a defender is knocked out and returns to you.</p>
+  ${backToTop()}
   </section>`;
 }
 
@@ -239,6 +273,7 @@ function defenseSection(gym, forms, ownedFormIds, trainerTeam) {
     ${warnings}
     <p class="gym-empty">Heads up: these tiers are a hand-curated shortlist, not a computed ranking over every eligible defender. The raid attacker ranks come out of the DPS engine; this list does not.</p>
     <ul class="gym-card-list">${(gym.defenders ?? []).map((row) => defenderCard(row, forms, ownedFormIds)).join("")}</ul>
+  ${backToTop()}
   </section>`;
 }
 
@@ -293,6 +328,7 @@ function ownedDefenderEditor(defenders, ownedFormIds) {
         return `<button type="button" class="owned-star${isOwned ? " is-owned" : ""}" data-owned-form-id="${escapeHtml(row.formId)}" data-owned-route="gyms" aria-pressed="${isOwned}" aria-label="I own ${escapeHtml(row.pokemon)}"><span aria-hidden="true">${isOwned ? "★" : "☆"}</span> ${escapeHtml(row.pokemon)} · ${escapeHtml(row.formId)}</button>`;
       }).join("")}
     </fieldset>
+  ${backToTop()}
   </section>`;
 }
 
@@ -379,7 +415,8 @@ export function renderGyms({
     ["defend", "Defending"],
   ], defending ? "defend" : "");
   const body = defending
-    ? `${lineupControls}
+    ? `${sectionNav()}
+    ${lineupControls}
     ${renderPlacementCoach({ placementResult, ownedIndex, overallIndex, rosterInstances, deploymentMap })}
     ${lineupSection(gym, forms, lineupShape)}
     ${defenseSection(gym, forms, ownedFormIds, trainerTeam)}
