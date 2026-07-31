@@ -333,11 +333,18 @@ function basePathFrom(location) {
 }
 
 
-// Reuses the same static "fallback section" styling the pre-JS index.html
-// sections already use (see fallbackSections) for the brief window between
-// a route's first visit and its release chunk finishing its fetch+parse.
+// The window between a route's first visit and its release chunk finishing its
+// fetch+parse. This used to render a clone of the pre-JS static section for the
+// route, which looks like a real card — so a loading screen read as a stale
+// half-loaded app ("it briefly loads with some old cards visible"). Same markup
+// as the boot state in index.html, so loading looks like loading wherever it
+// happens, and never like content.
 function chunkLoadingNotice(label) {
-  return `<p class="status-kicker">Loading ${escapeHtml(label)} data…</p>`;
+  return `<div class="boot-state" role="status" aria-live="polite">
+    <p class="boot-state-kicker">Loading</p>
+    <p class="boot-state-title">${escapeHtml(label)}</p>
+    <span class="boot-bar" aria-hidden="true"><span class="boot-bar-fill"></span></span>
+  </div>`;
 }
 
 
@@ -2973,10 +2980,6 @@ export function bootstrap({
     return { status: "fallback", router: null };
   }
 
-  const fallbackSections = Object.fromEntries(ROUTES.map((route) => {
-    const section = documentObject.getElementById(route);
-    return [route, section?.outerHTML ?? ""];
-  }));
   const index = buildSearchIndex({
     ...state.core,
     raidTargetTool: state.raidTargetTool,
@@ -3165,7 +3168,7 @@ export function bootstrap({
       }
       app.innerHTML = interactionNotice(ui) + tabs + (state.raids && state.raidTargetTool
         ? renderRaidSurface(state, ui, roster, activeView)
-        : fallbackSections.raids);
+        : chunkLoadingNotice("Raids"));
     },
     gyms(view) {
       const placementState = { ...state, lineupFormIds: ui.gym.lineupFormIds };
@@ -3190,7 +3193,7 @@ export function bootstrap({
           trainerTeam: ui.trainerProfile.team,
           view,
         })}`
-        : fallbackSections.gyms);
+        : chunkLoadingNotice("Gyms"));
     },
     leaderboard() {
       // Smart default: prefill a blank drop-form Pokémon field with the top
@@ -3259,7 +3262,7 @@ export function bootstrap({
           pvpAlternatives: state.pvpAlternatives, forms: state.core.forms,
           roster, state: ui.pvp, view, trainerLevel: ui.trainerProfile.level, pvpMoveCatalog,
         })
-        : fallbackSections.pvp);
+        : chunkLoadingNotice("PvP"));
     },
     triage(view) {
       // Every view here is a verdict about the roster, and one computed from
@@ -3392,7 +3395,7 @@ export function bootstrap({
             loadedChunks: [...loadedChunkPaths].sort(),
           },
         })
-        : fallbackSections.more) + interactionNotice(ui);
+        : chunkLoadingNotice("More")) + interactionNotice(ui);
     },
   };
   for (const route of Object.keys(renderers)) {

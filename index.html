@@ -55,6 +55,18 @@
 
     <div class="bezelwrap">
       <main id="app" aria-live="polite">
+        <!-- Boot state. Shown while the app starts; replaced wholesale the moment
+             the router renders. It exists because the static reference sections
+             below were doing this job and reading as stale content instead —
+             they look like real cards, so a loading screen looked like a
+             half-loaded app. Those sections are still the JS-off / failed-boot
+             safety net, and now only appear once the boot has plainly failed. -->
+        <div class="boot-state" role="status" aria-live="polite">
+          <p class="boot-state-kicker">Validated data</p>
+          <p class="boot-state-title">Loading your field guide</p>
+          <span class="boot-bar" aria-hidden="true"><span class="boot-bar-fill"></span></span>
+          <p class="boot-state-note">Rankings, counters and your roster are coming up.</p>
+        </div>
         <section id="home" class="fallback-section shell-status" aria-labelledby="home-title">
           <p class="status-kicker">Validated data</p>
           <h2 id="home-title">Preparing your field guide</h2>

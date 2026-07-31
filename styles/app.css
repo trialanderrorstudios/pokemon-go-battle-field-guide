@@ -3996,30 +3996,106 @@ select {
   font-size: 0.78rem;
 }
 
-/* The pre-JS shell inside #app is a real safety net — it is what a reader sees
-   with JavaScript off, and what the boot-watchdog leaves behind if the app never
-   starts. But on a normal boot it is on screen for about half a second and then
-   replaced, and it reads as stale content rather than as a loading state:
-   reported as "it still briefly loads with some old cards visible".
+/* Boot state, and what happens to the old static shell.
+   ------------------------------------------------------
+   The five static reference sections inside #app used to paint on every load
+   for about half a second before being replaced. They look like real cards, so
+   that read as stale content rather than as loading — reported as "it briefly
+   loads with some old cards visible", with a screenshot.
 
-   So: hold it back for a second. A boot that completes normally (measured ~1.0s
-   on the live site) never paints it at all. A boot that is genuinely slow, or
-   never happens, still gets it — the attribute below is only ever set once the
-   router has actually rendered, so JS-off and failed-boot both fall through to
-   the reveal. Opacity, not display, so layout does not jump when it appears. */
+   They are still the safety net for JavaScript-off and for a boot that never
+   completes, so they are not deleted. Instead the honest loading state comes
+   first, and the reference sections hold back until a boot has plainly failed.
+   Both are keyed on :not([data-app-booted]) — an attribute only ever set once
+   the router has actually rendered — so a failed boot still reveals everything
+   rather than hiding the fallback forever. */
+
+.boot-state {
+  display: grid;
+  gap: 0.5rem;
+  padding: 1.25rem 1rem 1.5rem;
+  text-align: center;
+}
+
+/* Once the app has rendered this element is gone from the DOM anyway (the
+   router replaces #app wholesale); this is belt-and-braces for the frame in
+   between, so the boot state never overlaps real content. */
+html[data-app-booted] .boot-state {
+  display: none;
+}
+
+.boot-state-kicker {
+  margin: 0;
+  font-size: 0.7rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--green);
+}
+
+.boot-state-title {
+  margin: 0;
+  font-size: 1.15rem;
+  font-weight: 750;
+  color: var(--text);
+}
+
+.boot-state-note {
+  margin: 0;
+  font-size: 0.82rem;
+  color: var(--muted);
+}
+
+/* An indeterminate sweep, not a percentage: the app cannot know how far along
+   it is, and a fake progress bar that jumps to 100% is a small lie. */
+.boot-bar {
+  display: block;
+  overflow: hidden;
+  width: min(220px, 60%);
+  height: 4px;
+  margin: 0.35rem auto 0.15rem;
+  border-radius: 999px;
+  background: var(--screen-bg);
+}
+
+.boot-bar-fill {
+  display: block;
+  width: 40%;
+  height: 100%;
+  border-radius: 999px;
+  background: var(--cyan);
+  animation: boot-bar-sweep 1.1s ease-in-out infinite;
+}
+
+@keyframes boot-bar-sweep {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(350%); }
+}
+
+/* The reference sections are the failed-boot fallback now, not the loading
+   screen. 8s is well past a normal boot (~1.0s measured live) and past the
+   boot-watchdog's own 9s repair window is deliberately NOT waited for — if the
+   watchdog is about to reload, showing the reference a moment earlier costs
+   nothing, and if it never fires the reader still gets something usable. */
+html:not([data-app-booted]) #app .fallback-section {
+  opacity: 0;
+  animation: shell-fallback-reveal 0s linear 8000ms forwards;
+}
+
 @keyframes shell-fallback-reveal {
   to { opacity: 1; }
 }
 
-html:not([data-app-booted]) #app {
-  opacity: 0;
-  animation: shell-fallback-reveal 0s linear 1000ms forwards;
-}
-
-/* Someone who asked not to see motion still needs the safety net, and a delayed
-   reveal is not motion — but honour the intent by not animating at all. */
+/* Reduced motion: no sweep, no timed reveal — show the honest text immediately
+   and let the reference sections stand. A delayed reveal is not motion, but the
+   sweeping bar is, and someone who asked for stillness should not get either. */
 @media (prefers-reduced-motion: reduce) {
-  html:not([data-app-booted]) #app {
+  .boot-bar-fill {
+    animation: none;
+    width: 100%;
+    opacity: 0.5;
+  }
+
+  html:not([data-app-booted]) #app .fallback-section {
     opacity: 1;
     animation: none;
   }
