@@ -495,25 +495,36 @@ async function installShell(environment = {}) {
   // Atomic on purpose: these 82 files ARE the app, and a partial shell is a
   // broken boot. Small enough that all-or-nothing is affordable.
   await cache.addAll(SHELL_CODE_FILES);
-  // NOT awaited. Warming is 1,135 fetches; blocking install on it keeps the
-  // worker in "installing" for minutes on a phone, which is its own outage —
-  // the app has no active worker and every sprite misses. Kick it off and let
-  // install finish. Sprites resolve from the network meanwhile.
+  // NOT awaited. Even the bounded warm below is several fetches; blocking
+  // install on it keeps the worker in "installing" for minutes on a flaky
+  // phone connection, which is its own outage — the app has no active worker
+  // meanwhile. Kick it off and let install finish.
   void warmSpriteCache(env).catch(function () {});
 }
 
 
-// Batched rather than sequential: 1,135 serial round-trips is minutes of
-// warming on mobile. Small batches keep it off the critical path without
-// opening 1,135 sockets at once.
+// Batched rather than sequential: keeps the bounded warm below off the
+// critical path without opening a pile of sockets at once.
 const SPRITE_WARM_BATCH = 12;
+
+// Warming all 1,135 sprites (7.1MB) on every install cost background network
+// and device storage most installs never redeemed — most users only ever
+// look at a handful of Pokémon. fetchSpriteCacheFirst (below) already caches
+// any sprite the instant it's actually requested, so every sprite a user
+// browses to is offline-ready from then on with no extra warming at all.
+// This eager pass just pre-seeds a small, bounded starter set so a
+// brand-new install has something available before the user has browsed
+// anywhere. Raise only if product wants a bigger guaranteed-offline set;
+// this is not meant to approach the full sprite count again.
+const SPRITE_EAGER_WARM_COUNT = 60;
 
 export async function warmSpriteCache(environment = {}) {
   const env = runtime(environment);
   const cache = await env.caches.open(SPRITE_CACHE);
+  const targets = SPRITE_FILES.slice(0, SPRITE_EAGER_WARM_COUNT);
   let added = 0;
-  for (let index = 0; index < SPRITE_FILES.length; index += SPRITE_WARM_BATCH) {
-    const batch = SPRITE_FILES.slice(index, index + SPRITE_WARM_BATCH);
+  for (let index = 0; index < targets.length; index += SPRITE_WARM_BATCH) {
+    const batch = targets.slice(index, index + SPRITE_WARM_BATCH);
     const results = await Promise.all(batch.map(async (path) => {
       try {
         if (await cache.match(path)) return 0; // survives shell bumps

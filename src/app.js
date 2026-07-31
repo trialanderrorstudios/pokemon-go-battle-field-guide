@@ -175,12 +175,26 @@ function usableState(state) {
 //
 // A route's entry is the union of every sub-view it renders — chunk loading is
 // keyed on the route, so #raids/hundo's data has to be declared by raids.
+//
+// Not a route key any URL resolves to — see the comment on ROUTE_CHUNKS.home
+// below for why raids.json is fetched under this key instead of eagerly with
+// Home's other chunks.
+export const HOME_DEFERRED_CHUNK_KEY = "home:gap-teaser";
+
 export const ROUTE_CHUNKS = Object.freeze({
-  // raids.json: gap-analyzer.js's roster-gap teaser (getGapByFormId below)
-  // reads state.raids and is gated on raids.json actually being loaded —
-  // without it here, Home never fetches the chunk its own teaser depends on.
-  // extras.json: the future-proof badge on the "spend resources here" rows.
-  home: ["raid-targets.json", "current-bosses.json", "current-events.json", "raids.json", "extras.json"],
+  // raid-targets/current-bosses/current-events/extras are what Home's actual
+  // content (Coming Up, invest-here rows, future-proof badges) is built
+  // from, so those stay eager. raids.json is deliberately NOT here: Home's
+  // only use of it is the roster-gap teaser (getGapByFormId below), and
+  // raids.json alone is 1.09MB raw (92KB gzip) — the single biggest file
+  // Home was parsing on every visit for a teaser most sessions never look
+  // at. It's fetched separately, only after the four chunks above have
+  // landed, under HOME_DEFERRED_CHUNK_KEY below — see the home renderer's
+  // onRouteVisit chaining for the fetch trigger. getGapByFormId's gate
+  // (loadedChunkPaths.has("raids.json")) doesn't care which key fetched it,
+  // so the teaser still renders honestly once it lands and stays a no-op
+  // (never a guessed gap) until then.
+  home: ["raid-targets.json", "current-bosses.json", "current-events.json", "extras.json"],
   // current-bosses/current-events/pvp belong to the Hundo Priority sub-view:
   // a chase/don't-chase verdict built from partial raid+PvP data would be
   // wrong, not just incomplete.
@@ -201,6 +215,11 @@ export const ROUTE_CHUNKS = Object.freeze({
   eggs: ["current-eggs.json", "acquisition.json"],
   basics: ["acquisition.json"],
   rocket: ["raid-targets.json", "current-bosses.json", "current-events.json", "rocket-lineups.json"],
+  // Not a real route — no URL ever resolves here. It exists so the deferred
+  // raids.json fetch (see ROUTE_CHUNKS.home above) can go through the exact
+  // same claim/load/merge machinery as a real route instead of a bespoke
+  // fetch call.
+  [HOME_DEFERRED_CHUNK_KEY]: ["raids.json"],
 });
 
 export function chunksNeededFor(route, loadedChunkPaths) {
@@ -882,6 +901,7 @@ function gymState(
     ownedIndex: safeIndex(filters.ownedIndex),
     overallIndex: safeIndex(filters.overallIndex),
     lineupShape: filters.lineupShape === "breaker" ? "breaker" : "clean",
+    ownedOnly: Boolean(filters.ownedOnly),
   };
 }
 
@@ -1947,6 +1967,17 @@ export function createInteractionController({
         // task state so it survives a route change, like the lane indexes.
         const nextUi = structuredClone(ui);
         nextUi.gym.lineupShape = shapeToggle.dataset.lineupShape === "breaker" ? "breaker" : "clean";
+        await persistTask("gyms", nextUi);
+        rerender("gyms");
+        return;
+      }
+      const gymOwnedOnly = target?.closest?.("[data-gym-owned-only]");
+      if (gymOwnedOnly) {
+        // Same disposable per-task-filter shape as the raid show-all toggle:
+        // persisted with the rest of the gym task state so it survives a
+        // route change, but a plain boolean flip, not a re-derive.
+        const nextUi = structuredClone(ui);
+        nextUi.gym.ownedOnly = !nextUi.gym.ownedOnly;
         await persistTask("gyms", nextUi);
         rerender("gyms");
         return;
@@ -3147,6 +3178,7 @@ export function bootstrap({
         ? `${renderGyms({
           lineupControls: view === "defend" ? gymLineupControls(state, ui) : "",
           lineupShape: ui.gym.lineupShape,
+          ownedOnly: ui.gym.ownedOnly,
           gym: state.gym,
           forms: state.core.forms,
           placementResult,
@@ -3399,7 +3431,17 @@ export function bootstrap({
       // first would make routeChunksReady lie to base() about data that
       // hasn't landed yet. onRouteVisit re-bootstraps once the fetch lands
       // so the loading notice/fallback above swaps for the real view.
-      onRouteVisit?.(route);
+      const chunkVisit = onRouteVisit?.(route);
+      // Home's roster-gap teaser needs raids.json but it's deliberately not
+      // in ROUTE_CHUNKS.home (see that comment) — chain its fetch to start
+      // only once Home's own chunk visit has settled (immediately, on a
+      // cached visit), so its ~1MB parse never competes with the chunks
+      // Home's actual first-quality render depends on. Promise.resolve
+      // tolerates onRouteVisit being undefined or a test stub that returns
+      // nothing.
+      if (route === "home") {
+        Promise.resolve(chunkVisit).then(() => onRouteVisit?.(HOME_DEFERRED_CHUNK_KEY));
+      }
       // Prepend into #app so the guide scrolls with the view instead of
       // sitting in fixed chrome above the bezel. insertAdjacentHTML (not a
       // second innerHTML assignment) only parses the new fragment, so it

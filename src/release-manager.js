@@ -1,5 +1,5 @@
 export const APP_VERSION = 1;
-export const APP_SHELL_REVISION = "r74";
+export const APP_SHELL_REVISION = "r75";
 export const MANIFEST_SCHEMA_VERSION = 1;
 export const DATA_SCHEMA_VERSION = 1;
 export const RELEASE_STATES = Object.freeze([
@@ -130,6 +130,12 @@ function releaseFileUrl(baseUrl, releaseId, path) {
   }
   return url.href;
 }
+
+
+// Long enough that a slow-but-working worker still wins the race on a cold
+// device; short enough that a browser which will never activate one does not
+// hold the whole app hostage.
+const SERVICE_WORKER_HANDSHAKE_MS = 5000;
 
 
 async function defaultRegister() {
@@ -416,10 +422,70 @@ export class ReleaseManager {
     }
   }
 
-  async initialize() {
+  // The service-worker handshake has to be time-bounded, not just try/catch'd.
+  // Registration RESOLVES even where workers never activate — measured under
+  // WebKit with service workers blocked, register() came back in 0ms — and the
+  // hang lands later, on navigator.serviceWorker.ready inside status(), which
+  // waits for a controller that is never coming. A try/catch around register()
+  // therefore catches nothing and the boot still stalls forever, which is
+  // exactly what it looked like in the wild: no error, no failed request, just
+  // "Preparing your field guide" until the user gives up.
+  async #handshake(work) {
+    let timer;
     try {
-      await this.register("./sw.js", { scope: "./", type: "module" });
-      const stored = await this.status();
+      return await Promise.race([
+        work,
+        new Promise((_, reject) => {
+          timer = setTimeout(
+            () => reject(new Error("Service worker handshake timed out.")),
+            SERVICE_WORKER_HANDSHAKE_MS,
+          );
+        }),
+      ]);
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+  async initialize() {
+    let stored;
+    try {
+      await this.#handshake(this.register("./sw.js", { scope: "./", type: "module" }));
+      stored = await this.#handshake(this.status());
+    } catch {
+      // No service worker (iOS Safari Private Browsing disables them
+      // outright). Offline caching and the durable STAGE/ACTIVATE state
+      // machine both live behind the SW, so neither is available — but a
+      // plain fetch of the manifest + core chunk still boots the app.
+      // Previously this branch didn't exist: registration failure threw out
+      // of initialize(), startFieldGuide caught it, releaseState stayed
+      // null, and the "Preparing your field guide" fallback never resolved
+      // (reproduced with Playwright serviceWorkers:"block": 79 DOM nodes,
+      // zero console errors, zero failed requests — a silent boot failure).
+      try {
+        const candidate = await this.fetchCurrentManifest();
+        const data = await this.loadReleaseFiles(candidate, ["core.json"]);
+        return this.transition("ready", {
+          currentReleaseId: candidate.releaseId,
+          previousReleaseId: null,
+          offlineReady: false,
+          generation: 0,
+          manifest: candidate,
+          data,
+          candidate: null,
+          error: null,
+        });
+      } catch (fetchError) {
+        return this.transition("failed", {
+          currentReleaseId: null,
+          previousReleaseId: null,
+          offlineReady: false,
+          generation: 0,
+          error: String(fetchError?.message ?? fetchError),
+        });
+      }
+    }
+    try {
       const durable = stateFromStatus(stored);
       let activeManifest = stored?.manifest ?? null;
       let activeData = null;

@@ -1438,9 +1438,14 @@ h1 {
   margin-block: 0;
 }
 
-.gym-intro,
+/* Section-level framing: methodology, caveats and game rules that apply to
+   a whole list rather than one card. gym-intro, gym-iv-note and gym-team-note
+   used to name this same paragraph three different ways depending on where
+   it sat in a section — team-note carried no color rule at all, so it
+   rendered full-contrast sitting right between two muted lines above and
+   below it in Defender placement. One class, one look. */
+.gym-note,
 .gym-caveat,
-.gym-iv-note,
 .gym-card details,
 .gym-empty,
 .coach-empty,
@@ -3867,37 +3872,46 @@ select {
   content: "Hide ▴";
 }
 
-/* Lane jump for the raid rankings: the Shadow list starts ~14 screens down. */
-.raid-jump {
+/* Section jump nav, shared by raids.js and pvp.js: both views are long
+   enough (raids' Shadow lane starts ~14 screens down; pvp's Teams view
+   stacks three My-Team leagues plus example teams) that a reader needs a way
+   to skip ahead. Buttons + data-action="scroll-to" (app.js), not <a href="#id">
+   — an in-page hash anchor fires the router's hashchange handler, which
+   treats the fragment as an unknown route and re-renders Home. */
+.jump-nav {
   display: flex;
   flex-wrap: wrap;
   gap: 0.5rem;
   margin: 0 0 0.75rem;
 }
 
-.raid-jump button {
+.jump-nav button {
   min-height: 44px;
   padding: 0.4rem 0.75rem;
   font-size: 0.82rem;
   font-weight: 700;
 }
 
+/* Single "Back to top" button at the end of a long section — same button
+   styling as the jump-down nav above, right-aligned per row instead of
+   left-aligned per view. */
+.jump-nav-end {
+  justify-content: flex-end;
+  margin: 0.75rem 0 0;
+}
+
 /* Why a card sits where it does. The cards were already dense with numbers;
-   these lines are the sentence that turns the numbers into a decision. */
-.why-line,
-.gym-move-note {
+   these lines are the sentence that turns the numbers into a decision. Used
+   for both the top-level pick (why-line via home.js) and the labeled
+   sub-reasons inside a card's details (fast/charged/motivation/solo-counter
+   lines, and chain-break/move notes) — same job, so one class. */
+.why-line {
   margin: 0.4rem 0 0;
   font-size: 0.82rem;
   line-height: 1.45;
   color: var(--muted);
 }
 
-.gym-move-note {
-  color: var(--cyan);
-}
-
-/* Why each slot was picked. Same voice as .why-line, but these two carry the
-   comparison that decided it, so they stay full-contrast rather than muted. */
 /* Defender ranking rows became cards: fifty entries each carrying a sprite, two
    move numbers and two lines of reasoning need a boundary, or they read as one
    undifferentiated wall. */
@@ -3937,6 +3951,17 @@ select {
   min-width: 0;
 }
 
+/* Rank, sprite, moveset and whyRanked are the only things visible by default —
+   the move-number grid, origin line, per-move reasoning and placement note all
+   move behind this so fifty cards read as a scannable list, not a wall of text.
+   Nothing is deleted; it is one tap away. */
+.gym-rank-more summary {
+  min-height: 48px;
+  padding-block: 0.65rem;
+  color: var(--cyan);
+  cursor: pointer;
+}
+
 /* The score is the ranking's own number, so it reads as a figure, not a label. */
 .gym-rank-score {
   margin-left: auto;
@@ -3969,6 +3994,21 @@ select {
   margin: 0.75rem 0 0;
   text-align: right;
   font-size: 0.78rem;
+}
+
+/* Hand-curated annotation living inside a section headed "Computed, not
+   curated". Losing this label is a provenance regression, not a style nit: the
+   editorial tiers read as model output without it. */
+.gym-curated-note,
+.gym-curated-label {
+  margin: 0.4rem 0 0;
+  font-size: 0.78rem;
+  line-height: 1.45;
+  color: var(--muted);
+}
+
+.gym-curated-label {
+  font-weight: 700;
 }
 
 /* Provenance marker. A guide that presents hand-researched prose at the same
@@ -4084,13 +4124,6 @@ select {
   font-size: 0.8rem;
   line-height: 1.45;
   color: var(--muted);
-}
-
-.gym-move-why {
-  margin: 0.35rem 0 0;
-  font-size: 0.82rem;
-  line-height: 1.45;
-  color: var(--text);
 }
 
 /* Move numbers on a defender row. Two columns rather than the raid card's three:

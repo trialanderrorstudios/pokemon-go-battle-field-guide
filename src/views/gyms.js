@@ -50,7 +50,7 @@ function buildCard(row, index, forms) {
 function offenseSection(gym, forms) {
   return `<section class="gym-section" aria-labelledby="gym-offense-title">
     ${sectionHeading("Low stardust and Candy", "Build These Six", "gym-offense-title")}
-    <p class="gym-intro">Solid Level 35–40 gym attackers with broad coverage; no second charged move is required.</p>
+    <p class="gym-note">Solid Level 35–40 gym attackers with broad coverage; no second charged move is required.</p>
     <ol class="gym-card-list">${(gym.buildTheseSix ?? []).map((row, index) => buildCard(row, index, forms)).join("")}</ol>
     <div class="gym-subsection" aria-labelledby="solo-offense-title">
       <h3 id="solo-offense-title">Solo gym offense</h3>
@@ -102,7 +102,7 @@ function defenderMoveNumbers(row) {
 const DEFEND_SECTIONS = Object.freeze([
   ["gym-lineups-title", "Starting lineups"],
   ["gym-ranking-title", "Defender ranking"],
-  ["gym-defense-title", "Top defenders"],
+  ["gym-defense-title", "Placement notes"],
   ["gym-motivation-title", "Motivation"],
   ["gym-owned-defenders-title", "What you own"],
 ]);
@@ -123,7 +123,7 @@ export function backToTop() {
 }
 
 
-function lineupSection(gym, forms, lineupShape = "clean") {
+function lineupSection(gym, forms, lineupShape = "clean", ownedFormIds = [], ownedOnly = false) {
   // Two strategies, not one ranked list. "Clean" is stronger when you can
   // build it; "chain breakers" is what a second account or a friend's thinner
   // roster can actually field, and burying it below five clean options hides
@@ -139,7 +139,7 @@ function lineupSection(gym, forms, lineupShape = "clean") {
       <button type="button" data-lineup-shape="breaker" aria-pressed="${breaker}">Chain breakers</button>
     </fieldset>
   </div>
-  <p class="gym-intro">${breaker
+  <p class="gym-note">${breaker
     ? "Two walls that share a weakness, with something between them that resists it — the attacker cannot walk straight through. Use these when you do not have three unrelated walls to hand."
     : "Nothing here is super-effective against more than one member, so no single attacker gets a free run. Strongest when you can build it."}</p>`;
 
@@ -148,13 +148,13 @@ function lineupSection(gym, forms, lineupShape = "clean") {
     <ol class="gym-lineup-order">${lineup.members.map((member) => `<li>
       ${spriteHtml(member.formId, forms, member.pokemon, forms?.[member.formId]?.primary_type)}
       <strong>${escapeHtml(member.pokemon)}</strong>
-      <span class="gym-lineup-rank">#${member.rank}</span>
+      <span class="gym-rank-n">#${member.rank}</span>
       <p class="gym-moves">${moveLink(member.bestFastMove, { kind: "Fast" })} + ${moveLink(member.bestChargedMove, { kind: "Charged" })}</p>
       ${whyLine(member.whyRanked)}
     </li>`).join("")}</ol>
-    ${(lineup.chainBreaks ?? []).map((brk) => `<p class="gym-move-note">${escapeHtml(
+    ${(lineup.chainBreaks ?? []).map((brk) => whyLine(
       `${brk.breaker} breaks the ${brk.type} chain between ${brk.between[0]} and ${brk.between[1]} — an attacker cannot walk straight through.`
-    )}</p>`).join("")}
+    )).join("")}
     <p><strong>Shared weakness:</strong> ${lineup.sharedWeaknesses.length
       ? `${escapeHtml(lineup.sharedWeaknesses.join(", "))} — one attacker type pressures more than one slot`
       : "none — no single attacking type is super-effective against more than one member"}</p>
@@ -182,55 +182,70 @@ function lineupSection(gym, forms, lineupShape = "clean") {
   // 50, not 25: a second account or a friend's roster rarely has the top 25,
   // and a ranking that stops before the Pokemon you actually own is a ranking
   // you cannot act on.
-  const rankRows = ranking.slice(0, 50).map((row) => `<li class="gym-rank-row gym-rank-card"><article aria-labelledby="gym-rank-${row.rank}">
+  const ownedSet = new Set(ownedFormIds ?? []);
+  // Owned-only filters the full ranking, not the display-capped top 50: the
+  // whole reason the cap went from 25 to 50 (see above) was that owned
+  // Pokemon land past a shallow cutoff, so a filter that only searched the
+  // already-truncated slice would defeat its own purpose.
+  const displayRanking = ownedOnly ? ranking.filter((row) => ownedSet.has(row.formId)) : ranking.slice(0, 50);
+  const ownedOnlyToggle = `<div class="placement-controls" aria-label="Defender ranking filter">
+    <button type="button" data-gym-owned-only aria-pressed="${ownedOnly}">Owned only</button>
+  </div>`;
+  // Tier, placement value, motivation and solo counters used to live on a
+  // separate curated card list rendered below the ranking (defenderCard, now
+  // removed) — the same Pokemon shown twice with different framing. assemble.py
+  // already attaches those curated fields onto the matching ranked row
+  // (curated_by_form loop in assemble.py), so render them here instead.
+  const rankRows = displayRanking.map((row) => {
+    const owned = ownedSet.has(row.formId);
+    return `<li class="gym-rank-row gym-rank-card${owned ? " is-owned" : ""}"><article aria-labelledby="gym-rank-${row.rank}">
     <div class="gym-rank-head">
       ${spriteHtml(row.formId, forms, row.pokemon, forms?.[row.formId]?.primary_type)}
       <span class="gym-rank-n">#${row.rank}</span>
       <strong id="gym-rank-${row.rank}">${escapeHtml(row.pokemon)}</strong>
       <span class="gym-rank-score">${row.score}</span>
+      ${row.curatedTier ? `<span class="gym-rank-tier" title="Hand-curated tier, not computed">${escapeHtml(row.curatedTier)}-tier <span class="acq-flag">curated</span></span>` : ""}
+      ${ownedStarButton({ formId: row.formId, name: row.pokemon, owned, route: "gyms" })}
     </div>
     <p class="gym-moves">${moveLink(row.bestFastMove, { kind: "Fast" })} + ${moveLink(row.bestChargedMove, { kind: "Charged" })}</p>
-    ${defenderMoveNumbers(row)}
-    ${originLine(row.origin, row.acquisition)}
+    ${row.weaknesses?.length ? `<p><strong>Weak to:</strong> ${escapeHtml(row.weaknesses.join(", "))}</p>` : ""}
     ${whyLine(row.whyRanked)}
-    ${row.fastWhy ? `<p class="gym-move-why"><strong>Fast:</strong> ${escapeHtml(row.fastWhy)}</p>` : ""}
-    ${row.chargedWhy ? `<p class="gym-move-why"><strong>Charged:</strong> ${escapeHtml(row.chargedWhy)}</p>` : ""}
-    ${row.moveNote ? `<p class="gym-move-note">${escapeHtml(row.moveNote)}</p>` : ""}
-    ${whyLine(row.placementValue, "Placement:")}
-  </article></li>`).join("");
+    <details class="gym-rank-more">
+      <summary>Move numbers, origin and full reasoning</summary>
+      ${defenderMoveNumbers(row)}
+      ${originLine(row.origin, row.acquisition)}
+      ${whyLine(row.fastWhy, "Fast:")}
+      ${whyLine(row.chargedWhy, "Charged:")}
+      ${whyLine(row.moveNote)}
+      ${(row.placementValue || row.motivationNote || row.soloCounters?.length) ? `
+        <p class="gym-curated-label">Hand-curated notes <span class="acq-flag">not computed</span></p>
+        ${whyLine(row.placementValue, "Placement:")}
+        ${whyLine(row.motivationNote, "Motivation:")}
+        ${row.soloCounters?.length ? `<p class="why-line"><strong>Solo counters:</strong> ${row.soloCounters.map((counter) => `${escapeHtml(counter.pokemon)} (${movePair(counter, forms)})`).join(", ")}</p>` : ""}
+      ` : ""}
+    </details>
+  </article></li>`;
+  }).join("");
 
   return `<section class="gym-section" aria-labelledby="gym-lineups-title">
     ${sectionHeading("Coordinated opening", "Starting lineups", "gym-lineups-title")}
     ${shapeTabs}
-    <p class="gym-intro">Three accounts dropping one each. Each option avoids a single attacking type sweeping the whole set, and no Pokémon anchors more than two options — so these are genuinely different things to invest toward, not one answer reshuffled.</p>
+    <p class="gym-note">Three accounts dropping one each. Each option avoids a single attacking type sweeping the whole set, and no Pokémon anchors more than two options — so these are genuinely different things to invest toward, not one answer reshuffled.</p>
     <ul class="gym-card-list">${lineupCards}</ul>
     ${sectionHeading("Computed, not curated", "Defender ranking", "gym-ranking-title")}
-    <p class="gym-intro">${escapeHtml(gym.rankingMethodology ?? "")}</p>
+    <p class="gym-curated-note">Who is on this list and in what order is computed over every eligible
+      Pokémon. A dozen rows also carry hand-researched notes — tier, placement, motivation, solo counters —
+      marked <span class="acq-flag">curated</span> where they appear. Those are editorial judgement, not
+      output of the model.</p>
+    <p class="gym-note">${escapeHtml(gym.rankingMethodology ?? "")}</p>
     ${defenderRules}
-    <ol class="gym-rank-list">${rankRows}</ol>
-    <p class="gym-iv-note">${escapeHtml(gym.defenderLevelNote ?? "")}</p>
+    ${ownedOnlyToggle}
+    ${displayRanking.length
+      ? `<ol class="gym-rank-list">${rankRows}</ol>`
+      : `<p class="gym-empty">No ranked defender is marked owned yet. <button type="button" data-gym-owned-only aria-pressed="${ownedOnly}">Show all defenders</button></p>`}
+    <p class="gym-note">${escapeHtml(gym.defenderLevelNote ?? "")}</p>
   ${backToTop()}
   </section>`;
-}
-
-
-function defenderCard(row, forms, ownedFormIds) {
-  const owned = new Set(ownedFormIds ?? []).has(row.formId);
-  return `<li class="gym-card${owned ? " is-owned" : ""}"><article>
-    ${spriteHtml(row.formId, forms, row.pokemon, forms?.[row.formId]?.primary_type)}
-    <p class="gym-rank">${escapeHtml(row.defenseTier)}-tier defender</p>
-    <h3>${escapeHtml(row.pokemon)}</h3>
-    <p><strong>${movePair(row, forms)}</strong></p>
-    <p><strong>Weak to:</strong> ${escapeHtml((row.weaknesses ?? []).join(", "))}</p>
-    <p>${escapeHtml(row.placementValue)}</p>
-    ${whyLine(row.whyRanked)}
-    ${ownedStarButton({ formId: row.formId, name: row.pokemon, owned, route: "gyms" })}
-    <span class="owned-count">${owned ? "Owned" : "Not owned"}</span>
-    <details><summary>Motivation and solo counters</summary>
-      <p><strong>Motivation:</strong> ${escapeHtml(row.motivationNote)}</p>
-      ${(row.soloCounters ?? []).map((counter) => `<p>${escapeHtml(counter.pokemon)} · ${movePair(counter, forms)}</p>`).join("")}
-    </details>
-  </article></li>`;
 }
 
 
@@ -261,18 +276,20 @@ function ownTeamGymNote(trainerTeam) {
     : `You can only deploy a defender into a gym your own team already controls (or an open, neutral one) — a rival-team gym has to be knocked to neutral first.`;
 }
 
-function defenseSection(gym, forms, ownedFormIds, trainerTeam) {
+// Per-Pokemon detail (tier, placement value, motivation, solo counters) lives
+// on the defender ranking rows now — see lineupSection — so this section is
+// just the placement guidance that applies across every defender, not a
+// second list of the same Pokemon with different framing.
+function defenseSection(gym, trainerTeam) {
   const warnings = (gym.placementWarnings ?? []).map((warning) => `<aside class="gym-warning">
     <strong>${escapeHtml(warning.message)}</strong><p>${escapeHtml(warning.recommendation)}</p>
   </aside>`).join("");
   return `<section class="gym-section" aria-labelledby="gym-defense-title">
     ${sectionHeading("Break the attacker's flow", "Defender placement", "gym-defense-title")}
-    <p class="gym-intro">Alternate weaknesses and consider motivation decay; defense delays attackers but cannot guarantee a hold.</p>
-    <p class="gym-team-note">${ownTeamGymNote(trainerTeam)}</p>
-    <p class="gym-iv-note">IV spread for a defender: favor Defense and Stamina over Attack. There's no CP cap to work around here, but higher Attack IV only inflates CP — and higher CP decays motivation faster — without adding any staying power.</p>
+    <p class="gym-note">Alternate weaknesses and consider motivation decay; defense delays attackers but cannot guarantee a hold.</p>
+    <p class="gym-note">${ownTeamGymNote(trainerTeam)}</p>
+    <p class="gym-note">IV spread for a defender: favor Defense and Stamina over Attack. There's no CP cap to work around here, but higher Attack IV only inflates CP — and higher CP decays motivation faster — without adding any staying power.</p>
     ${warnings}
-    <p class="gym-empty">Heads up: these tiers are a hand-curated shortlist, not a computed ranking over every eligible defender. The raid attacker ranks come out of the DPS engine; this list does not.</p>
-    <ul class="gym-card-list">${(gym.defenders ?? []).map((row) => defenderCard(row, forms, ownedFormIds)).join("")}</ul>
   ${backToTop()}
   </section>`;
 }
@@ -385,7 +402,7 @@ export function formatDefenseDuration(ms) {
 function leaderboardPointerCard() {
   return `<section class="gym-section" aria-labelledby="gym-leaderboard-pointer-title">
     ${sectionHeading("Manual, honest tracking", "Gym Defense Leaderboard", "gym-leaderboard-pointer-title")}
-    <p class="gym-intro">Track your gym defenses — longest hold, total time, and a friend leaderboard — on its own page.</p>
+    <p class="gym-note">Track your gym defenses — longest hold, total time, and a friend leaderboard — on its own page.</p>
     <p><a class="safe-escape" href="./#leaderboard">Go to Leaderboard →</a></p>
   </section>`;
 }
@@ -405,6 +422,7 @@ export function renderGyms({
   view = "attack",
   lineupControls = "",
   lineupShape = "clean",
+  ownedOnly = false,
 } = {}) {
   const deploymentMap = buildDeploymentMap(defenseLog, now);
   const defending = view === "defend";
@@ -418,8 +436,8 @@ export function renderGyms({
     ? `${sectionNav()}
     ${lineupControls}
     ${renderPlacementCoach({ placementResult, ownedIndex, overallIndex, rosterInstances, deploymentMap })}
-    ${lineupSection(gym, forms, lineupShape)}
-    ${defenseSection(gym, forms, ownedFormIds, trainerTeam)}
+    ${lineupSection(gym, forms, lineupShape, ownedFormIds, ownedOnly)}
+    ${defenseSection(gym, trainerTeam)}
     ${motivationSection()}
     ${ownedDefenderEditor(gym.defenders, ownedFormIds)}`
     : `${offenseSection(gym, forms)}

@@ -147,17 +147,25 @@ function rankCard(row, lane, forms, pvp) {
 }
 
 
+// Each lane is 15 cards deep; a reader who jumped straight to Shadow via the
+// nav below has no way back to Regular except scrolling by hand.
+function backToTop(targetId) {
+  return `<div class="jump-nav jump-nav-end"><button type="button" data-action="scroll-to" data-scroll-target="${escapeHtml(targetId)}">↑ Back to top</button></div>`;
+}
+
+
 export function renderRaidRankings({ attackingType = "Bug", raids = {}, forms = {}, pvp = {} } = {}) {
   const selectedType = ATTACK_TYPES.includes(attackingType) ? attackingType : attackingType;
   const lane = (name, rows) => `<section class="raid-lane" aria-labelledby="${name}-raid-title">
     <h3 id="${name}-raid-title">${name === "shadow" ? "Shadow" : "Regular, Mega & Primal"}</h3>
     <ol class="raid-card-list">${raidSlots(rows, selectedType).map((row) => rankCard(row, name, forms, pvp)).join("")}</ol>
+    ${backToTop("raid-rankings-title")}
   </section>`;
   return `<section class="raid-rankings" aria-labelledby="raid-rankings-title">
     <p class="status-kicker">Level 40 practical performance</p>
     <h2 id="raid-rankings-title">${escapeHtml(selectedType)} raid attackers</h2>
     <p class="raid-method-note">Practical rank and points are distinct from standardized move-cycle DPS.</p>
-    <nav class="raid-jump" aria-label="Jump to a lane">
+    <nav class="jump-nav" aria-label="Jump to a lane">
       <button type="button" data-action="scroll-to" data-scroll-target="regular-raid-title">Regular, Mega &amp; Primal</button>
       <button type="button" data-action="scroll-to" data-scroll-target="shadow-raid-title">Shadow</button>
     </nav>

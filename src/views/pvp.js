@@ -143,6 +143,29 @@ function moveCountText(fastMove, chargedMoves, pvpMoveCatalog) {
 }
 
 
+// Jump nav across the sections a long PvP view actually renders (My Team per
+// league, example teams, alternatives) — skipped entirely for a single
+// section, where a nav pointing at the section you're already reading is
+// noise, not navigation.
+function jumpNav(links) {
+  if (links.length < 2) return "";
+  return `<nav class="jump-nav" aria-label="Jump to a section">
+    ${links.map(([id, label]) => `<button type="button" data-action="scroll-to" data-scroll-target="${escapeHtml(id)}">${escapeHtml(label)}</button>`).join("")}
+  </nav>`;
+}
+
+// Every long section ends with one of these, all pointing at the same
+// #pvp-top id on the view's outer wrapper (renderPvp) — same fixed target
+// gyms.js's backToTop() uses, so a reader forty cards down is one tap from
+// the filters. Buttons + data-action="scroll-to", not <a href="#id">: an
+// in-page hash anchor fires the router's hashchange handler, which treats
+// the fragment as an unknown route and re-renders Home (see router.js
+// resolveRoute — only registered routes survive; raids.js hit this first).
+function backToTop(targetId = "pvp-top") {
+  return `<div class="jump-nav jump-nav-end"><button type="button" data-action="scroll-to" data-scroll-target="${escapeHtml(targetId)}">↑ Back to top</button></div>`;
+}
+
+
 function filterSelect(name, label, value, choices) {
   return `<label>${escapeHtml(label)}<select name="${escapeHtml(name)}" data-pvp-filter="${escapeHtml(name)}">
     ${choices.map(([choice, text]) => `<option value="${escapeHtml(choice)}"${choice === value ? " selected" : ""}>${escapeHtml(text)}</option>`).join("")}
@@ -289,7 +312,7 @@ function rankingsView(pvp, forms, state, trainerLevel = null, pvpMoveCatalog = {
     ${state.antiMeta === "countersMeta" ? `<p class="pvp-antimeta-teach">Showing Top 50 picks with a favorable PvPoke matchup against ${jargonTerm("meta-leaders", "the meta")} (top ${META_LEADER_COUNT} by rank in this league).</p>` : ""}
     ${leaguesShown.map((league) => metaPressureSection(league, pvp, forms)).join("")}
     ${rows.length
-      ? `<ol class="pvp-card-list">${rows.map((row) => pvpCard(row, forms, { showLeague: state.league === "all", trainerLevel, pvpMoveCatalog, showMatchups })).join("")}</ol>`
+      ? `<ol class="pvp-card-list">${rows.map((row) => pvpCard(row, forms, { showLeague: state.league === "all", trainerLevel, pvpMoveCatalog, showMatchups })).join("")}</ol>${backToTop()}`
       : `<p class="pvp-empty">No entries match these filters. Change Form, Investment, or Meta to continue.</p>`}
   </section>`;
 }
@@ -340,6 +363,7 @@ function antiMetaLeagueSection(pvp, forms, league) {
     </div>
     <p class="pvp-summary">Best picks ranked ${escapeHtml(candidates.length)} of ${escapeHtml(rows.length)} — everyone outside the meta group above, grouped by which role they fit best.</p>
     <div class="pvp-antimeta-roles">${ANTI_META_ROLE_CATEGORIES.map((role) => antiMetaRoleSection(role, candidates, forms)).join("")}</div>
+    ${backToTop()}
   </section>`;
 }
 
@@ -347,7 +371,11 @@ function antiMetaLeagueSection(pvp, forms, league) {
 function antiMetaView(pvp, forms, state) {
   const leagues = state.league === "all" ? PVP_LEAGUES : [state.league];
   const sections = leagues.map((league) => antiMetaLeagueSection(pvp, forms, league)).filter(Boolean);
-  return sections.length ? sections.join("") : `<p class="pvp-empty">No PvP rankings are available yet for the anti-meta board.</p>`;
+  if (!sections.length) return `<p class="pvp-empty">No PvP rankings are available yet for the anti-meta board.</p>`;
+  const links = leagues
+    .filter((league) => (pvp?.[league] ?? []).length)
+    .map((league) => [`pvp-antimeta-title-${league}`, leagueName(league)]);
+  return `${jumpNav(links)}${sections.join("")}`;
 }
 
 
@@ -418,6 +446,7 @@ function alternativesView(alternatives, forms, state, trainerLevel = null, pvpMo
       trainerLevel,
       pvpMoveCatalog,
     })).join("")}</ol>
+    ${backToTop()}
   </section>`;
 }
 
@@ -529,6 +558,7 @@ function myTeamSection(league, team, roster, forms, pvpMoveCatalog = {}) {
       ? `<p class="pvp-empty">${escapeHtml(team.fallbackMessage)}</p>${myTeamFallback(league, team.fallbackTeam, forms)}`
       : `<ol class="pvp-myteam-slots">${MY_TEAM_SLOTS.map((slot, index) => myTeamMemberCard(league, slot, team.members[index], options, pvpMoveCatalog)).join("")}</ol>
       ${team.coverageNote ? `<p class="pvp-myteam-coverage">${escapeHtml(team.coverageNote)}</p>` : ""}`}
+    ${backToTop()}
   </section>`;
 }
 
@@ -557,7 +587,14 @@ function teamsView(pvp, teams, alternatives, forms, roster, state, trainerLevel 
     }),
   ]));
   const conflicts = detectInstanceConflicts(teamsByLeague);
-  return `<p class="pvp-attack-iv-note">Why low Attack IV shows up so often: a lower Attack IV keeps CP under the league cap while leaving room for more Defense and HP — same cap, more bulk.</p>
+  const alternativeRows = state.league === "all" ? (alternatives ?? []) : (alternatives ?? []).filter((row) => row.league === state.league);
+  const sectionLinks = [
+    ...myTeamLeagues.map((league) => [`pvp-myteam-title-${league}`, `My Team · ${leagueName(league)}`]),
+    ["pvp-teams-title", "Example teams"],
+    ...(alternativeRows.length ? [["pvp-alternatives-title", "Alternatives"]] : []),
+  ];
+  return `${jumpNav(sectionLinks)}
+  <p class="pvp-attack-iv-note">Why low Attack IV shows up so often: a lower Attack IV keeps CP under the league cap while leaving room for more Defense and HP — same cap, more bulk.</p>
   ${instanceConflictWarnings(conflicts)}
   ${myTeamLeagues.map((league) => myTeamSection(league, teamsByLeague[league], roster, forms, pvpMoveCatalog)).join("")}
   <section class="pvp-section" aria-labelledby="pvp-teams-title">
@@ -565,6 +602,7 @@ function teamsView(pvp, teams, alternatives, forms, roster, state, trainerLevel 
     <h2 id="pvp-teams-title">${escapeHtml(leagueName(state.league))} team suggestions</h2>
     <p class="pvp-summary">Example teams are plans, not guaranteed wins. Shared and acknowledged weaknesses stay visible.</p>
     <ul class="pvp-team-list">${leagueTeams.map((team) => teamCard(team, pvp, forms, pvpMoveCatalog)).join("")}</ul>
+    ${backToTop()}
   </section>${alternativesView(alternatives, forms, state, trainerLevel, pvpMoveCatalog)}
   <details class="pvp-full-rankings">
     <summary>Full rankings</summary>
@@ -583,7 +621,7 @@ export function renderPvp({
 } = {}) {
   const normalized = createPvpState({ filters: state });
   const activeView = allowed(view, VIEWS, "teams");
-  return `<div class="pvp-view">
+  return `<div class="pvp-view" id="pvp-top">
     ${controls(normalized, activeView)}
     ${activeView === "teams"
       ? teamsView(pvp, pvpTeams, pvpAlternatives, forms, roster, normalized, trainerLevel, pvpMoveCatalog)
