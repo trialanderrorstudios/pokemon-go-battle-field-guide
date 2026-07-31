@@ -3996,6 +3996,35 @@ select {
   font-size: 0.78rem;
 }
 
+/* The pre-JS shell inside #app is a real safety net — it is what a reader sees
+   with JavaScript off, and what the boot-watchdog leaves behind if the app never
+   starts. But on a normal boot it is on screen for about half a second and then
+   replaced, and it reads as stale content rather than as a loading state:
+   reported as "it still briefly loads with some old cards visible".
+
+   So: hold it back for a second. A boot that completes normally (measured ~1.0s
+   on the live site) never paints it at all. A boot that is genuinely slow, or
+   never happens, still gets it — the attribute below is only ever set once the
+   router has actually rendered, so JS-off and failed-boot both fall through to
+   the reveal. Opacity, not display, so layout does not jump when it appears. */
+@keyframes shell-fallback-reveal {
+  to { opacity: 1; }
+}
+
+html:not([data-app-booted]) #app {
+  opacity: 0;
+  animation: shell-fallback-reveal 0s linear 1000ms forwards;
+}
+
+/* Someone who asked not to see motion still needs the safety net, and a delayed
+   reveal is not motion — but honour the intent by not animating at all. */
+@media (prefers-reduced-motion: reduce) {
+  html:not([data-app-booted]) #app {
+    opacity: 1;
+    animation: none;
+  }
+}
+
 /* Hand-curated annotation living inside a section headed "Computed, not
    curated". Losing this label is a provenance regression, not a style nit: the
    editorial tiers read as model output without it. */
