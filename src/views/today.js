@@ -12,9 +12,30 @@ import { buildCoachSummary } from "../coach.js";
 import { durationMs } from "../gym-defense-log.js";
 import { communityDayTodayItem } from "../cd-brief.js";
 
-const HOUR_EVENT_KINDS = new Set(["raid-hour", "pokemon-spotlight-hour"]);
-const HOUR_EVENT_LABEL = Object.freeze({ "raid-hour": "Raid Hour", "pokemon-spotlight-hour": "Spotlight Hour" });
-const HOUR_EVENT_SUFFIX = Object.freeze({ "raid-hour": / Raid Hour$/, "pokemon-spotlight-hour": / Spotlight Hour$/ });
+// Time-boxed events worth a row on Today. max-battles/max-mondays were added to
+// the SYNC lane when Max Battles shipped (docs/max-battles-spike.md) and to the
+// Upcoming calendar, but never here — so a Gigantamax Max Battle Day starting in
+// 25 minutes showed up in "upcoming" and never on the surface that answers "what
+// do I do right now". Reported on the day of Gigantamax Rillaboom.
+const HOUR_EVENT_KINDS = new Set([
+  "raid-hour", "pokemon-spotlight-hour", "max-battles", "max-mondays",
+]);
+const HOUR_EVENT_LABEL = Object.freeze({
+  "raid-hour": "Raid Hour",
+  "pokemon-spotlight-hour": "Spotlight Hour",
+  "max-battles": "Max Battle",
+  "max-mondays": "Max Monday",
+});
+const HOUR_EVENT_SUFFIX = Object.freeze({
+  "raid-hour": / Raid Hour$/,
+  "pokemon-spotlight-hour": / Spotlight Hour$/,
+  "max-battles": / Max Battle Day$/,
+  "max-mondays": / during Max Monday$/,
+});
+// For a Max Battle the Gigantamax/Dynamax qualifier IS the subject — the dex has
+// no Gmax form, so resolving the formId would render a plain "Rillaboom" and
+// quietly drop the only word that says which fight this is.
+const KEEP_EVENT_NAME_KINDS = new Set(["max-battles", "max-mondays"]);
 
 const VERDICT_BY_BAND = Object.freeze({
   "solo-able": "Yes — solo-able",
@@ -43,17 +64,32 @@ function todayWhen(startsAt, endsAt, now) {
   const full = formatRaidHourWhen(startsAt, endsAt, now);
   if (!full) return "";
   const rest = full.replace(/^\S+ · /, "");
-  return `${rest} ${/PM$/.test(rest) ? "tonight" : "today"}`;
+  // "tonight" was keyed on the string ending in PM, which called a 2 PM Max
+  // Battle Day "2-5 PM tonight". Key it on the actual hour instead: Raid Hour at
+  // 6 PM is tonight, an afternoon window is not.
+  const startHour = new Date(startsAt).getHours();
+  return `${rest} ${Number.isFinite(startHour) && startHour >= 17 ? "tonight" : "today"}`;
 }
 
 function todaysHourEvents(events, now) {
   return (events ?? [])
-    .filter((event) => HOUR_EVENT_KINDS.has(event.kind) && sameDay(new Date(event.startsAt), now))
+    // Same day AND not already over. Filtering on the start date alone left a
+    // finished three-hour window sitting on Today until midnight, telling you to
+    // go and do something you can no longer do.
+    .filter((event) => {
+      if (!HOUR_EVENT_KINDS.has(event.kind)) return false;
+      if (!sameDay(new Date(event.startsAt), now)) return false;
+      const ends = new Date(event.endsAt);
+      return Number.isNaN(ends.valueOf()) || ends > now;
+    })
     .sort((left, right) => new Date(left.startsAt) - new Date(right.startsAt));
 }
 
 function hourEventItem(event, forms, now) {
-  const name = forms?.[event.formId]?.name ?? event.name.replace(HOUR_EVENT_SUFFIX[event.kind] ?? "", "");
+  const fromName = event.name.replace(HOUR_EVENT_SUFFIX[event.kind] ?? "", "");
+  const name = KEEP_EVENT_NAME_KINDS.has(event.kind)
+    ? fromName
+    : forms?.[event.formId]?.name ?? fromName;
   return {
     id: `event-${event.eventId}`,
     title: `${HOUR_EVENT_LABEL[event.kind] ?? "Event"}: ${name}`,
