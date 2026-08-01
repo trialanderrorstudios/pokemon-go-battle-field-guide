@@ -3996,6 +3996,55 @@ select {
   font-size: 0.78rem;
 }
 
+/* Search suggestions. One tappable line each: what it is, and enough to decide
+   whether to tap. The raid CP band, boost note, counters and movesets used to
+   render here and made the dropdown unreadable — they live on the Raid Target
+   page, which is built to show them. */
+.search-suggestions {
+  list-style: none;
+  margin: 0.4rem 0 0;
+  padding: 0;
+  display: grid;
+  gap: 0.3rem;
+}
+
+.search-suggestion {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.45rem 0.55rem;
+  border-radius: 0.7rem;
+  background: var(--screen-bg);
+  text-decoration: none;
+  color: inherit;
+}
+
+.search-suggestion-body {
+  display: grid;
+  gap: 0.1rem;
+  min-width: 0;
+}
+
+.search-suggestion-meta {
+  font-size: 0.72rem;
+  color: var(--muted);
+}
+
+/* The hundo is the number most raid searches are after, so it reads as a figure
+   on the row rather than as a table cell in a box. */
+.search-suggestion-figure {
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+  color: var(--cyan);
+}
+
+.search-more,
+.search-empty {
+  padding: 0.4rem 0.55rem;
+  font-size: 0.78rem;
+  color: var(--muted);
+}
+
 /* Boot state, and what happens to the old static shell.
    ------------------------------------------------------
    The five static reference sections inside #app used to paint on every load

@@ -377,53 +377,74 @@ function tipSearchResultCard(result, rawQuery) {
 // had to tap through to learn the one thing you are usually searching for,
 // which is whether the CP in front of you is a hundo. All of this already
 // existed on raidTargetTool; the card simply was not given it.
-function bossSearchResultCard(result, forms, rawQuery, target = null, counters = []) {
+// One suggestion row. Compact on purpose: the full CP band, counters and
+// movesets used to render inline here, which put a wall of raid detail inside a
+// dropdown — "displaying raid information is hard to read". All of it already
+// lives on the Raid Target page, which is built to display it, so the row links
+// there instead of reproducing it badly in a smaller box. Weak-to chips stay
+// because they are the one thing you want BEFORE deciding to tap.
+function bossSuggestionRow(result, forms, rawQuery, target = null) {
   const weak = weaknessesOf(result.types).slice(0, 4);
   const weakChips = weak.map((row) => (
     `<span class="type-weak-badge${row.multiplier >= 2.56 ? " is-double" : ""}">${typeChip(row.type)}${row.multiplier >= 2.56 ? "4x" : "2x"}</span>`
   )).join("");
-
-  const cp = target ? `<dl class="search-boss-cp">
-    <div><dt>Hundo CP</dt><dd>${target.normal?.hundoCP ?? "—"}</dd></div>
-    <div><dt>Weather boosted</dt><dd>${target.weatherBoosted?.hundoCP ?? "—"}</dd></div>
-    <div><dt>Lowest raid IV</dt><dd>${target.normal?.minimumRaidIVCP ?? "—"}</dd></div>
-  </dl>` : "";
-
-  const boostNote = target?.weatherBoostConditions?.length
-    ? `<p class="search-boss-note">Boosted in ${target.weatherBoostConditions.map(escapeHtml).join(" or ")} — a boosted catch reads ${target.weatherBoosted?.hundoCP ?? "higher"} at hundo.</p>`
+  // The hundo is the single number most searches are actually after, so it rides
+  // along as one glanceable figure rather than a three-cell table.
+  const hundo = target?.normal?.hundoCP
+    ? `<span class="search-suggestion-figure">${target.normal.hundoCP} hundo</span>`
     : "";
-
-  // Top counters with the moveset to actually build, not just a species name.
-  const counterList = counters.length ? `<ul class="search-boss-counters">${counters.slice(0, 3).map((counter) => (
-    `<li>${spriteHtml(counter.formId, forms, counter.pokemon, forms?.[counter.formId]?.primary_type)}<strong>${escapeHtml(counter.pokemon)}</strong>
-      <span class="gym-moves">${moveLink(counter.optimalFastMove ?? counter.fastMove, { kind: "Fast" })} + ${moveLink(counter.optimalChargedMove ?? counter.chargedMove, { kind: "Charged" })}</span></li>`
-  )).join("")}</ul>` : "";
-
-  return `<li class="search-result-card search-result-boss">
-    <a class="safe-escape" href="./?boss=${encodeURIComponent(result.formId)}#raids">${spriteHtml(result.formId, forms, result.name, forms?.[result.formId]?.primary_type)}<strong>${highlightMatch(result.name, rawQuery)}</strong> <span>Raid boss</span>${weakChips ? `<span class="type-chip-list" aria-label="Weak to">Weak to: ${weakChips}</span>` : ""}</a>
-    ${cp}
-    ${boostNote}
-    ${counterList ? `<p class="search-boss-label">Bring</p>${counterList}` : ""}
-    ${target?.hundoRule ? `<p class="search-boss-note">${escapeHtml(target.hundoRule)}</p>` : ""}
+  return `<li class="search-result-card search-result-boss" role="option">
+    <a class="safe-escape search-suggestion" href="./?boss=${encodeURIComponent(result.formId)}#raids">
+      ${spriteHtml(result.formId, forms, result.name, forms?.[result.formId]?.primary_type)}
+      <span class="search-suggestion-body">
+        <strong>${highlightMatch(result.name, rawQuery)}</strong>
+        <span class="search-suggestion-meta">Raid boss${hundo ? " · " : ""}${hundo}</span>
+        ${weakChips ? `<span class="type-chip-list" aria-label="Weak to">${weakChips}</span>` : ""}
+      </span>
+    </a>
   </li>`;
 }
 
 
+// An autocomplete list, not a results page. Every row is one tappable line that
+// says what the thing is and sends you to the surface that shows it properly.
+// Ten dense cards inside a dropdown was the old shape, and a full raid CP band
+// plus counters rendered in that box is what "hard to read" meant.
 function renderSearchResults(results, forms, roster, rawQuery = "", raidData = {}) {
-  if (!results.length) return "<p>No local matches.</p>";
+  if (!results.length) return `<p class="search-empty">No local matches.</p>`;
   const owned = new Set(roster?.ownedFormIds ?? []);
   const targetsByForm = new Map(
     (raidData.raidTargetTool?.targets ?? []).map((target) => [target.bossFormId, target]),
   );
-  return `<ul>${results.slice(0, 10).map((result) => (
-    result.resultCategory === "tip" ? tipSearchResultCard(result, rawQuery)
-      : result.resultCategory === "raid-boss"
-        ? bossSearchResultCard(
-          result, forms, rawQuery, targetsByForm.get(result.formId) ?? null,
-          countersForBoss(result, raidData),
-        )
-        : `<li class="search-result-card${owned.has(result.formId) ? " is-owned" : ""}">${spriteHtml(result.formId, forms, result.name, forms?.[result.formId]?.primary_type)}<strong>${highlightMatch(result.name, rawQuery)}</strong> <span>${escapeHtml(result.resultCategory)}</span>${ownedStarButton({ formId: result.formId, name: result.name, owned: owned.has(result.formId), route: "search" })}</li>`
-  )).join("")}</ul>`;
+  const rows = results.slice(0, 8).map((result) => {
+    if (result.resultCategory === "tip") return tipSearchResultCard(result, rawQuery);
+    if (result.resultCategory === "reference") {
+      return `<li class="search-result-card search-result-reference" role="option">
+        <a class="safe-escape search-suggestion" href="./#${escapeHtml(result.route)}${result.view ? `/${escapeHtml(result.view)}` : ""}" data-route="${escapeHtml(result.route)}" data-view="${escapeHtml(result.view ?? "")}">
+          <span class="search-suggestion-body">
+            <strong>${highlightMatch(result.name, rawQuery)}</strong>
+            <span class="search-suggestion-meta">Reference — how it works</span>
+          </span>
+        </a>
+      </li>`;
+    }
+    if (result.resultCategory === "raid-boss") {
+      return bossSuggestionRow(result, forms, rawQuery, targetsByForm.get(result.formId) ?? null);
+    }
+    // A species that is also a raid target gets the same destination. One that is
+    // not has no detail page to send anyone to, so it stays an owned-toggle row
+    // rather than becoming a dead link.
+    const target = targetsByForm.get(result.formId) ?? null;
+    const isOwned = owned.has(result.formId);
+    const label = `${spriteHtml(result.formId, forms, result.name, forms?.[result.formId]?.primary_type)}<span class="search-suggestion-body"><strong>${highlightMatch(result.name, rawQuery)}</strong><span class="search-suggestion-meta">Pokémon${target ? " · raid target" : ""}</span></span>`;
+    return `<li class="search-result-card${isOwned ? " is-owned" : ""}" role="option">${target
+      ? `<a class="safe-escape search-suggestion" href="./?boss=${encodeURIComponent(result.formId)}#raids">${label}</a>`
+      : `<span class="search-suggestion">${label}</span>`}${ownedStarButton({ formId: result.formId, name: result.name, owned: isOwned, route: "search" })}</li>`;
+  }).join("");
+  const more = results.length > 8
+    ? `<li class="search-more">${results.length - 8} more — keep typing to narrow it down</li>`
+    : "";
+  return `<ul class="search-suggestions" role="listbox" aria-label="Search suggestions">${rows}${more}</ul>`;
 }
 
 

@@ -80,6 +80,55 @@ function bossEntries(core) {
 // included rather than derived from the `core` argument like forms/bosses.
 // Body text is stripped of the jargon-term markup (see glossary.js's
 // jargonTerm) before indexing so search fields hold plain words, not HTML.
+// Reference pages that answer a search on their own. Max Battles is the case
+// that forced this: a Gigantamax Rillaboom event day, and searching
+// "gigantamax", "gmax", "dynamax" or "max battle" returned "No local matches" —
+// the species name was the only route in, and it is the one word a player
+// looking for the event is least likely to type. These carry a destination
+// rather than a formId, so the renderer links them instead of showing a sprite.
+const REFERENCE_PAGES = Object.freeze([
+  {
+    id: "reference-max-battles",
+    title: "Max Battles",
+    route: "basics",
+    view: "max",
+    // Aliases, not prose: what someone would actually type. Gigantamax and
+    // Dynamax bosses are Max Battles, so both land here.
+    terms: [
+      "max battles", "max battle", "gigantamax", "gmax", "dynamax", "dmax",
+      "power spot", "power spots", "max particles", "max moves", "max monday",
+    ],
+  },
+  {
+    id: "reference-evolution-items",
+    title: "Evolution items",
+    route: "basics",
+    view: "items",
+    terms: [
+      "evolution item", "evolution items", "sinnoh stone", "unova stone",
+      "metal coat", "dragon scale", "kings rock", "sun stone", "up-grade",
+      "lure module", "special item",
+    ],
+  },
+]);
+
+
+function referenceEntries() {
+  return REFERENCE_PAGES.map((page) => ({
+    formId: page.id,
+    name: page.title,
+    resultCategory: "reference",
+    route: page.route,
+    view: page.view,
+    types: [],
+    moves: [],
+    _name: normalizeSearchText(page.title),
+    _formId: normalizeSearchText(page.id),
+    _fields: normalizedParts([page.title, ...page.terms]),
+  }));
+}
+
+
 function tipEntries() {
   return TIPS.map((tip) => ({
     formId: tip.id,
@@ -108,6 +157,7 @@ export function buildSearchIndex(core) {
     ...formRows(core?.forms).map(formEntry).filter(Boolean),
     ...bossEntries(core),
     ...tipEntries(),
+    ...referenceEntries(),
   ];
   const unique = new Map();
   for (const entry of candidates) {
