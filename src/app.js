@@ -3173,6 +3173,10 @@ export function bootstrap({
         ["target", "Raid Target"],
         ["hundo", "Hundo Priority"],
       ], activeView);
+      // Budget Attackers lives under #more/budget and is a good page nobody could
+      // find — reported as a missing section when it had shipped long before.
+      // Point at it from the route where you would go looking.
+      const budgetPointer = `<p class="raid-budget-pointer"><a class="safe-escape" href="./#more/budget" data-route="more" data-view="budget">Building on a budget? See Budget Attackers →</a></p>`;
       if (activeView === "hundo") {
         // Same honesty gate as Triage: a chase/don't-chase verdict built
         // from partial raid+PvP data would be wrong, not just incomplete.
@@ -3187,7 +3191,7 @@ export function bootstrap({
           : chunkLoadingNotice("Hundo Priority"));
         return;
       }
-      app.innerHTML = interactionNotice(ui) + tabs + (state.raids && state.raidTargetTool
+      app.innerHTML = interactionNotice(ui) + tabs + budgetPointer + (state.raids && state.raidTargetTool
         ? renderRaidSurface(state, ui, roster, activeView)
         : chunkLoadingNotice("Raids"));
     },

@@ -100,6 +100,18 @@ const REFERENCE_PAGES = Object.freeze([
     ],
   },
   {
+    id: "reference-budget-attackers",
+    title: "Budget Attackers",
+    route: "more",
+    view: "budget",
+    // The page existed and answered the question well; nobody could find it.
+    // Reported as "do we have a section for budget raid attackers?" — we did.
+    terms: [
+      "budget attackers", "budget raid", "cheap attackers", "cheap raid",
+      "low stardust", "low candy", "best value", "value attackers", "on a budget",
+    ],
+  },
+  {
     id: "reference-evolution-items",
     title: "Evolution items",
     route: "basics",

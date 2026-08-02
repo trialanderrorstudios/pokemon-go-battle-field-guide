@@ -25,6 +25,32 @@ export function renderMaxBasics() {
       <h2 id="maxbasics-moves-title">Max Moves</h2>
       <p>A Dynamaxed Pokémon still uses its usual Fast and Charged Attacks — but once its Max Meter fills, it gets a three-turn window to unleash Max Moves instead: <strong>Max Attack</strong> (a damaging move whose name and type vary by Pokémon — Max Geyser for Water types, Max Flare for Fire types, and so on), <strong>Max Guard</strong> (cuts incoming damage), and <strong>Max Spirit</strong> (heals your team). Spend Max Particles and Candy (or Candy XL) on the Pokémon's info screen before battle to power these up.</p>
     </section>
+    <section class="more-section" aria-labelledby="maxbasics-roles-title">
+      <h2 id="maxbasics-roles-title">Roles: who to bring, and why</h2>
+      <p>The three Max Moves are what make a Max Battle a team fight rather than a
+      damage race. Because <strong>Max Attack</strong>, <strong>Max Guard</strong>
+      and <strong>Max Spirit</strong> are three different jobs, a group that brings
+      only attackers loses fights a mixed group wins — the healing and the damage
+      reduction have to come from somewhere, and every Pokémon spends its own Max
+      window on exactly one of the three.</p>
+      <p>That gives three roles worth filling:</p>
+      <ul class="max-role-list">
+        <li><strong>Attacker</strong> — spends its window on Max Attack. What you
+        bring if the boss is going down comfortably, and what a group needs most of.</li>
+        <li><strong>Tank</strong> — spends it on Max Guard to blunt an incoming hit.
+        Wants bulk, because it has to survive long enough to reach its window.</li>
+        <li><strong>Healer</strong> — spends it on Max Spirit to keep the team up.
+        The role that turns an unwinnable fight into a slow one; a high-HP Pokémon
+        that can take hits while it works is the usual choice.</li>
+      </ul>
+      <p class="max-role-caveat"><strong>Which Pokémon can do this is not something
+      this app can tell you</strong> <span class="acq-flag">no data</span> — the
+      frozen game data carries no Dynamax or Gigantamax roster at all, so there is
+      no list here of who is eligible, and no per-boss ranking (see the same call
+      about counters below). Choosing bulk for the support roles and raw damage for
+      the attacking one follows from the mechanics above; the specific names are
+      yours to check in game.</p>
+    </section>
     <section class="more-section" aria-labelledby="maxbasics-party-title">
       <h2 id="maxbasics-party-title">Party size and trainers</h2>
       <p>Each trainer brings up to three Pokémon. A Dynamax Max Battle can be fought solo or with up to four trainers total. A Gigantamax Max Battle scales up further — up to 40 trainers, split into groups of four or fewer, can all pile onto the same boss.</p>

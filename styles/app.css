@@ -3996,6 +3996,27 @@ select {
   font-size: 0.78rem;
 }
 
+.max-role-list {
+  margin: 0.5rem 0 0;
+  padding-left: 1.1rem;
+  display: grid;
+  gap: 0.4rem;
+  font-size: 0.88rem;
+  line-height: 1.5;
+}
+
+/* The app cannot verify Dynamax eligibility from any source it ingests, so the
+   caveat sits with the advice rather than in a footnote nobody reads. */
+.max-role-caveat {
+  margin: 0.6rem 0 0;
+  padding: 0.6rem 0.7rem;
+  border-radius: 0.65rem;
+  background: var(--screen-bg);
+  font-size: 0.82rem;
+  line-height: 1.5;
+  color: var(--muted);
+}
+
 /* Shiny odds. Always rendered with provenance attached — see shinyOddsLine.
    A bare "~1 in 50" beside computed CP values borrows credibility it has not
    earned, and a wrong rate costs someone an afternoon of walking. */
