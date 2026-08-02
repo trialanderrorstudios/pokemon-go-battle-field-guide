@@ -5,7 +5,7 @@
 // ScrapedDuck's eggs.json (a maintained LeekDuck.com mirror) via
 // scripts/sync-eggs.mjs; rows without a resolvable form (formId: null) still
 // render by name with a type-colored fallback circle instead of a sprite.
-import { escapeHtml } from "./home.js";
+import { escapeHtml, shinyOddsLine } from "./home.js";
 import { spriteHtml } from "../sprites.js";
 
 const EGG_TYPE_ORDER = ["1 km", "2 km", "5 km", "7 km", "10 km", "12 km"];
@@ -96,7 +96,22 @@ function eggSources(guide) {
 }
 
 
-export function renderEggs({ currentEggs, forms, acquisitionGuide, now = Date.now() } = {}) {
+// One band for the page, not one per row: the estimate is the same for every
+// shiny-eligible hatch, and repeating it 72 times would read as 72 separate
+// measurements rather than one community estimate.
+function eggShinySection(shinyOdds) {
+  const band = (shinyOdds?.bands ?? []).find((row) => row.id === "egg");
+  if (!band) return "";
+  return `<section class="more-section" aria-labelledby="egg-shiny-title">
+    <h3 id="egg-shiny-title">Shiny odds from eggs</h3>
+    ${shinyOddsLine(band)}
+    <p class="egg-shiny-note">${escapeHtml(band.detail)}</p>
+    <p class="egg-shiny-note">${escapeHtml(shinyOdds.disclaimer ?? "")}</p>
+  </section>`;
+}
+
+
+export function renderEggs({ currentEggs, forms, acquisitionGuide, shinyOdds, now = Date.now() } = {}) {
   const eggs = currentEggs?.eggs ?? [];
   const knownTypes = new Set(eggs.map((egg) => egg.eggType));
   const orderedTypes = [...EGG_TYPE_ORDER, ...[...knownTypes].filter((type) => !EGG_TYPE_ORDER.includes(type)).sort()];
@@ -112,6 +127,7 @@ export function renderEggs({ currentEggs, forms, acquisitionGuide, now = Date.no
       ${seasonWindow(currentEggs?.season, now)}
     </section>
     ${eggSources(acquisitionGuide)}
+    ${eggShinySection(shinyOdds)}
     ${body}
   </div>`;
 }

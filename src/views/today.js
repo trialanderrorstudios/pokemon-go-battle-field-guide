@@ -85,6 +85,30 @@ function todaysHourEvents(events, now) {
     .sort((left, right) => new Date(left.startsAt) - new Date(right.startsAt));
 }
 
+// A live boosted shiny window, on the surface that says what to do now. This is
+// the one shiny claim backed by real data: the ODDS are a community estimate, but
+// "Community Day is running right now" comes from the synced calendar. It earns a
+// row because it is the band that should change what you do with an afternoon.
+function shinyBoostItem(shinyOdds, events, now) {
+  const live = (shinyOdds?.boostedEvents ?? []).find((event) => {
+    const start = new Date(event.startsAt);
+    const end = new Date(event.endsAt);
+    return !Number.isNaN(start.valueOf()) && start <= now
+      && (Number.isNaN(end.valueOf()) || end > now);
+  });
+  if (!live) return null;
+  const band = (shinyOdds?.bands ?? []).find((row) => row.id === "community-day")
+    ?? (shinyOdds?.bands ?? []).find((row) => row.boosted);
+  if (!band) return null;
+  return {
+    id: `shiny-boost-${live.eventId}`,
+    title: `Boosted shiny odds: ${live.name}`,
+    detail: `${band.odds} while it runs, against ~1 in 500 for an ordinary wild catch — a community estimate, not a published rate.`,
+    href: live.formId ? `./?boss=${encodeURIComponent(live.formId)}#raids` : "./#home",
+  };
+}
+
+
 function hourEventItem(event, forms, now) {
   const fromName = event.name.replace(HOUR_EVENT_SUFFIX[event.kind] ?? "", "");
   const name = KEEP_EVENT_NAME_KINDS.has(event.kind)
@@ -204,7 +228,9 @@ export function buildTodayItems({
   const pass = dailyPassItem(summary);
   const cdToday = communityDayTodayItem(data?.currentEvents?.events, forms, now);
   const gap = gapItem(data, gapByFormId, now);
+  const shinyBoost = shinyBoostItem(data?.shinyOdds, data?.currentEvents?.events, now);
   const items = [
+    ...(shinyBoost ? [shinyBoost] : []),
     ...todaysHourEvents(data?.currentEvents?.events, now).map((event) => hourEventItem(event, forms, now)),
     ...(cdToday ? [cdToday] : []),
     ...(pass ? [pass] : []),

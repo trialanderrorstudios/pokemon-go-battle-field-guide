@@ -3996,6 +3996,41 @@ select {
   font-size: 0.78rem;
 }
 
+/* Shiny odds. Always rendered with provenance attached — see shinyOddsLine.
+   A bare "~1 in 50" beside computed CP values borrows credibility it has not
+   earned, and a wrong rate costs someone an afternoon of walking. */
+.shiny-odds {
+  margin: 0.35rem 0 0;
+  font-size: 0.82rem;
+  line-height: 1.5;
+  color: var(--muted);
+}
+
+.shiny-odds strong {
+  color: var(--text);
+}
+
+.shiny-odds-label {
+  font-size: 0.74rem;
+}
+
+/* A boosted band reads warmer, because it is the one that should change plans. */
+.shiny-odds.is-boosted strong,
+.shiny-odds-live {
+  color: var(--amber);
+}
+
+.shiny-odds-live {
+  display: block;
+  font-weight: 700;
+}
+
+.egg-shiny-note {
+  margin: 0.4rem 0 0;
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+
 /* Search suggestions. One tappable line each: what it is, and enough to decide
    whether to tap. The raid CP band, boost note, counters and movesets used to
    render here and made the dropdown unreadable — they live on the Raid Target

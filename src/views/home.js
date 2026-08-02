@@ -30,6 +30,29 @@ export function whyLine(text, label = "") {
 }
 
 
+// Shiny odds. Every figure is a community estimate — Niantic publishes none, and
+// no frozen source this app ingests carries one (see docs/shiny-odds-spike.md).
+// So the band is always rendered WITH its provenance, never as a bare number:
+// a "~1 in 50" sitting beside computed CP values would borrow credibility it has
+// not earned, and unlike a wrong bit of prose a wrong rate here costs someone an
+// afternoon of walking.
+export function shinyOddsLine(band, { boosted = null } = {}) {
+  if (!band) return "";
+  if (band.confidence === "unknown") {
+    return `<p class="shiny-odds"><strong>Shiny:</strong> possible — rate not known
+      <span class="acq-flag">no data</span></p>`;
+  }
+  // A live boosted window is the one part of this that is real data: it comes
+  // from the synced event calendar, not from an estimate.
+  const live = boosted
+    ? ` <span class="shiny-odds-live">${escapeHtml(boosted.name)} is running — better odds than usual</span>`
+    : "";
+  return `<p class="shiny-odds${band.boosted ? " is-boosted" : ""}">
+    <strong>Shiny:</strong> ${escapeHtml(band.odds)} <span class="shiny-odds-label">${escapeHtml(band.label)}</span>
+    <span class="acq-flag">community estimate</span>${live}</p>`;
+}
+
+
 // Where a recommendation comes from: what you actually catch, and what the climb
 // costs. Every ranked list names the final evolution, which is the one form you
 // cannot go out and find — and Candy is shared across the family, so the base

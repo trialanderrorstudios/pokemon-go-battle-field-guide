@@ -239,7 +239,7 @@ const CHUNK_FIELDS = Object.freeze({
   "gyms.json": ["gym", "placement"],
   "pvp.json": ["pvp", "pvpTeams", "pvpAlternatives"],
   "extras.json": ["budgets", "megasPrimals", "futureProof", "coveragePlanner"],
-  "acquisition.json": ["acquisitionGuide"],
+  "acquisition.json": ["acquisitionGuide", "shinyOdds"],
   "current-bosses.json": ["currentBosses"],
   "current-events.json": ["currentEvents"],
   "current-eggs.json": ["currentEggs"],
@@ -3132,7 +3132,7 @@ export function bootstrap({
     },
     eggs() {
       app.innerHTML = interactionNotice(ui) + (state.currentEggs
-        ? renderEggs({ currentEggs: state.currentEggs, forms: state.core.forms, acquisitionGuide: state.acquisitionGuide })
+        ? renderEggs({ currentEggs: state.currentEggs, forms: state.core.forms, acquisitionGuide: state.acquisitionGuide, shinyOdds: state.shinyOdds })
         : chunkLoadingNotice("Egg Pool"));
     },
     rocket() {
