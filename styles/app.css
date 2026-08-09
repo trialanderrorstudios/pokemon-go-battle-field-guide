@@ -4209,6 +4209,23 @@ html:not([data-app-booted]) #app .fallback-section {
 /* Hand-curated annotation living inside a section headed "Computed, not
    curated". Losing this label is a provenance regression, not a style nit: the
    editorial tiers read as model output without it. */
+/* "Better with an Elite TM" — an upgrade, never the headline recommendation.
+   Naming an Elite-TM-only move as THE answer tells a reader to do something most
+   of them cannot do. */
+.gym-elite-upgrade {
+  margin: 0.3rem 0 0;
+  font-size: 0.78rem;
+  color: var(--muted);
+}
+
+/* An em-dash beside an "A" read as a worse grade rather than an absent one. */
+.gym-rank-untiered {
+  font-size: 0.68rem;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: var(--muted);
+}
+
 .gym-curated-note,
 .gym-curated-label {
   margin: 0.4rem 0 0;

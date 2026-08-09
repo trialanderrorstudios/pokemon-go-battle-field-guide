@@ -78,6 +78,34 @@ function staggerSection(gym) {
 // Per-move numbers for a defender. basePower is the move's own power and power is
 // the STAB-adjusted product; show the base one so a reader can look it up in the
 // game, with the bonus called out separately rather than folded in silently.
+// An Elite TM is a scarce resource, so naming a better move is only half the
+// advice — the other half is whether it is worth spending one. The threshold is
+// deliberately blunt: a few percent is not worth a TM you cannot re-earn, a
+// third more damage usually is.
+function eliteUpgradeLine(row) {
+  const elite = row.eliteCharged;
+  if (!elite?.move) return "";
+  const gain = Number(elite.gainPct);
+  // An Elite TM cannot be re-earned on demand, so the verdict matters as much as
+  // the number. Blunt thresholds on purpose: a few percent is not worth a scarce
+  // item, a quarter more damage usually is.
+  const verdict = !Number.isFinite(gain) ? ""
+    : gain >= 25 ? `<strong>Worth the TM.</strong> ${gain}% more damage is a real upgrade.`
+      : gain >= 10 ? `Worth it only if you have Elite TMs to spare — ${gain}% is noticeable but not decisive.`
+        : `Not worth an Elite TM. ${gain}% will not change a gym fight; save it for a raid attacker.`;
+  return `<div class="gym-elite-upgrade">
+    <p><strong>Elite TM option:</strong> ${moveLink(elite.move, { kind: "Charged" })} —
+    the pick above is the best move you can get without one.</p>
+    <dl class="gym-move-dps">
+      <div><dt>With Elite TM</dt><dd>${elite.score}<span class="gym-dps-sub">weighted score</span></dd></div>
+      <div><dt>Without</dt><dd>${elite.obtainableScore}<span class="gym-dps-sub">what you can build now</span></dd></div>
+      ${Number.isFinite(gain) ? `<div><dt>Gain</dt><dd>+${gain}%</dd></div>` : ""}
+    </dl>
+    <p class="gym-elite-verdict">${verdict}</p>
+  </div>`;
+}
+
+
 function defenderMoveNumbers(row) {
   const fast = row.moves?.fast;
   const charged = row.moves?.charged;
@@ -204,7 +232,9 @@ function lineupSection(gym, forms, lineupShape = "clean", ownedFormIds = [], own
       <span class="gym-rank-n">#${row.rank}</span>
       <strong id="gym-rank-${row.rank}">${escapeHtml(row.pokemon)}</strong>
       <span class="gym-rank-score">${row.score}</span>
-      ${row.curatedTier ? `<span class="gym-rank-tier" title="Hand-curated tier, not computed">${escapeHtml(row.curatedTier)}-tier <span class="acq-flag">curated</span></span>` : ""}
+      ${row.curatedTier
+        ? `<span class="gym-rank-tier" title="Hand-curated tier, not computed">${escapeHtml(row.curatedTier)}-tier <span class="acq-flag">curated</span></span>`
+        : `<span class="gym-rank-untiered" title="Rank and score are computed for every eligible Pokémon; letter tiers exist only for the twelve hand-graded ones">not hand-graded</span>`}
       ${ownedStarButton({ formId: row.formId, name: row.pokemon, owned, route: "gyms" })}
     </div>
     <p class="gym-moves">${moveLink(row.bestFastMove, { kind: "Fast" })} + ${moveLink(row.bestChargedMove, { kind: "Charged" })}</p>
@@ -213,6 +243,7 @@ function lineupSection(gym, forms, lineupShape = "clean", ownedFormIds = [], own
     <details class="gym-rank-more">
       <summary>Move numbers, origin and full reasoning</summary>
       ${defenderMoveNumbers(row)}
+      ${eliteUpgradeLine(row)}
       ${originLine(row.origin, row.acquisition)}
       ${whyLine(row.fastWhy, "Fast:")}
       ${whyLine(row.chargedWhy, "Charged:")}
@@ -233,7 +264,9 @@ function lineupSection(gym, forms, lineupShape = "clean", ownedFormIds = [], own
     <p class="gym-note">Three accounts dropping one each. Each option avoids a single attacking type sweeping the whole set, and no Pokémon anchors more than two options — so these are genuinely different things to invest toward, not one answer reshuffled.</p>
     <ul class="gym-card-list">${lineupCards}</ul>
     ${sectionHeading("Computed, not curated", "Defender ranking", "gym-ranking-title")}
-    <p class="gym-curated-note">Who is on this list and in what order is computed over every eligible
+    <p class="gym-curated-note">Rank and score are computed for every eligible Pokémon, so a row with no
+      letter tier is not worse than one with an A — it simply is not among the twelve anyone hand-graded.
+      Who is on this list and in what order is computed over every eligible
       Pokémon. A dozen rows also carry hand-researched notes — tier, placement, motivation, solo counters —
       marked <span class="acq-flag">curated</span> where they appear. Those are editorial judgement, not
       output of the model.</p>
