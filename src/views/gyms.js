@@ -81,7 +81,7 @@ function staggerSection(gym) {
 // An Elite TM is a scarce resource, so naming a better move is only half the
 // advice — the other half is whether it is worth spending one. The threshold is
 // deliberately blunt: a few percent is not worth a TM you cannot re-earn, a
-// third more damage usually is.
+// quarter more damage usually is.
 function eliteUpgradeLine(row) {
   const elite = row.eliteCharged;
   if (!elite?.move) return "";
@@ -93,11 +93,13 @@ function eliteUpgradeLine(row) {
     : gain >= 25 ? `<strong>Worth the TM.</strong> ${gain}% more damage is a real upgrade.`
       : gain >= 10 ? `Worth it only if you have Elite TMs to spare — ${gain}% is noticeable but not decisive.`
         : `Not worth an Elite TM. ${gain}% will not change a gym fight; save it for a raid attacker.`;
+  // elite: true so this gets the same "Elite Charged TM" badge every other move
+  // link on the page shows — a bare move name here read as freely obtainable.
   return `<div class="gym-elite-upgrade">
-    <p><strong>Elite TM option:</strong> ${moveLink(elite.move, { kind: "Charged" })} —
+    <p><strong>Elite TM option:</strong> ${moveLink(elite.move, { kind: "Charged", elite: true })} —
     the pick above is the best move you can get without one.</p>
     <dl class="gym-move-dps">
-      <div><dt>With Elite TM</dt><dd>${elite.score}<span class="gym-dps-sub">weighted score</span></dd></div>
+      <div><dt>With Elite TM</dt><dd>${elite.score}<span class="gym-dps-sub">damage/s, weighted across its weaknesses</span></dd></div>
       <div><dt>Without</dt><dd>${elite.obtainableScore}<span class="gym-dps-sub">what you can build now</span></dd></div>
       ${Number.isFinite(gain) ? `<div><dt>Gain</dt><dd>+${gain}%</dd></div>` : ""}
     </dl>
@@ -128,6 +130,7 @@ function defenderMoveNumbers(row) {
 // been bitten by twice. Each section gets a matching "Back to top" so a reader
 // forty defenders down is one tap from the list of sections.
 const DEFEND_SECTIONS = Object.freeze([
+  ["placement-coach-title", "Placement Coach"],
   ["gym-lineups-title", "Starting lineups"],
   ["gym-ranking-title", "Defender ranking"],
   ["gym-defense-title", "Placement notes"],
@@ -198,11 +201,16 @@ function lineupSection(gym, forms, lineupShape = "clean", ownedFormIds = [], own
     Where two are close, the one that is super-effective against the attackers who
     actually come for this defender wins: Snorlax's only weakness is Fighting, and
     Psychic hits Fighting for 1.6x, which is why Zen Headbutt beats Lick.</p>
-    <p><strong>Charged move — damage per second of real time, not per energy.</strong>
-    Divide the move's power by how long a full cycle takes: the fast moves needed
-    to pay for it, plus its own animation. A big move that costs 100 energy and
-    animates for 4s does less over time than a cheap one landing every ~6s, which
-    is why Body Slam beats Outrage despite Outrage having more raw power.</p>
+    <p><strong>Charged move — damage per second of real time, not per energy,</strong>
+    scored across every weakness this defender actually faces, not the single
+    worst one. Divide the move's power by how long a full cycle takes, then
+    weight each weakness by how hard the best attacker of that type actually
+    hits, plus a neutral case for attackers that aren't the textbook counter.
+    Scoring only the worst column is what put Chilling Water on Florges — Water
+    edges out Psychic on the Steel column by a hair, but that column never
+    checks Poison, where Psychic wins by a mile, or the neutral case, where
+    Chilling Water is the weaker pick. Weighing every column instead is why
+    Florges carries Psychic.</p>
     <p>Both figures assume a Level 40 defender with 15 attack IV, and neither
     models berry feeding, motivation decay, or dodging.</p>
   </details>`;
@@ -224,7 +232,7 @@ function lineupSection(gym, forms, lineupShape = "clean", ownedFormIds = [], own
   // removed) — the same Pokemon shown twice with different framing. assemble.py
   // already attaches those curated fields onto the matching ranked row
   // (curated_by_form loop in assemble.py), so render them here instead.
-  const rankRows = displayRanking.map((row) => {
+  const renderRankRow = (row) => {
     const owned = ownedSet.has(row.formId);
     return `<li class="gym-rank-row gym-rank-card${owned ? " is-owned" : ""}"><article aria-labelledby="gym-rank-${row.rank}">
     <div class="gym-rank-head">
@@ -234,11 +242,12 @@ function lineupSection(gym, forms, lineupShape = "clean", ownedFormIds = [], own
       <span class="gym-rank-score">${row.score}</span>
       ${row.curatedTier
         ? `<span class="gym-rank-tier" title="Hand-curated tier, not computed">${escapeHtml(row.curatedTier)}-tier <span class="acq-flag">curated</span></span>`
-        : `<span class="gym-rank-untiered" title="Rank and score are computed for every eligible Pokémon; letter tiers exist only for the twelve hand-graded ones">not hand-graded</span>`}
+        : ""}
       ${ownedStarButton({ formId: row.formId, name: row.pokemon, owned, route: "gyms" })}
     </div>
     <p class="gym-moves">${moveLink(row.bestFastMove, { kind: "Fast" })} + ${moveLink(row.bestChargedMove, { kind: "Charged" })}</p>
     ${row.weaknesses?.length ? `<p><strong>Weak to:</strong> ${escapeHtml(row.weaknesses.join(", "))}</p>` : ""}
+    ${row.resists?.length ? `<p><strong>Resists:</strong> ${escapeHtml(row.resists.join(", "))}</p>` : ""}
     ${whyLine(row.whyRanked)}
     <details class="gym-rank-more">
       <summary>Move numbers, origin and full reasoning</summary>
@@ -256,7 +265,25 @@ function lineupSection(gym, forms, lineupShape = "clean", ownedFormIds = [], own
       ` : ""}
     </details>
   </article></li>`;
-  }).join("");
+  };
+
+  // Every row already carries a computed S/A/B/C tier (bands set on natural
+  // score gaps: S 2, A 4, B 10, C 34 — see gym_ranking.py), so a flat fifty-row
+  // list was hiding the one thing tiers exist to show: that ranks 8-20 are
+  // interchangeable while rank 1-2 are a class apart. Grouping by tier — S open,
+  // the rest collapsed — surfaces that without a reader scrolling the whole list.
+  // Native <details>, no JS: same rationale as the section-nav above (line 125).
+  const TIER_ORDER = ["S", "A", "B", "C"];
+  const tierGroups = TIER_ORDER
+    .map((tier) => [tier, displayRanking.filter((row) => row.tier === tier)])
+    .filter(([, rows]) => rows.length); // no empty "0 defenders" sections to click past
+  // Owned-only is a reader asking for a specific subset, not browsing blind — a
+  // tier that survives the filter is exactly what they asked for, so open every
+  // one of them. Unfiltered, only S opens: two defenders is a glance, fifty isn't.
+  const tierSections = tierGroups.map(([tier, rows]) => `<details class="gym-tier-section"${ownedOnly || tier === "S" ? " open" : ""}>
+    <summary>${tier} tier — ${rows.length} defender${rows.length === 1 ? "" : "s"}</summary>
+    <ol class="gym-rank-list">${rows.map(renderRankRow).join("")}</ol>
+  </details>`).join("");
 
   return `<section class="gym-section" aria-labelledby="gym-lineups-title">
     ${sectionHeading("Coordinated opening", "Starting lineups", "gym-lineups-title")}
@@ -264,18 +291,16 @@ function lineupSection(gym, forms, lineupShape = "clean", ownedFormIds = [], own
     <p class="gym-note">Three accounts dropping one each. Each option avoids a single attacking type sweeping the whole set, and no Pokémon anchors more than two options — so these are genuinely different things to invest toward, not one answer reshuffled.</p>
     <ul class="gym-card-list">${lineupCards}</ul>
     ${sectionHeading("Computed, not curated", "Defender ranking", "gym-ranking-title")}
-    <p class="gym-curated-note">Rank and score are computed for every eligible Pokémon, so a row with no
-      letter tier is not worse than one with an A — it simply is not among the twelve anyone hand-graded.
-      Who is on this list and in what order is computed over every eligible
-      Pokémon. A dozen rows also carry hand-researched notes — tier, placement, motivation, solo counters —
-      marked <span class="acq-flag">curated</span> where they appear. Those are editorial judgement, not
-      output of the model.</p>
+    <p class="gym-curated-note">Rank, score and the S/A/B/C tier below — the section headings, not a
+      hand grade — are computed over every eligible Pokémon. A dozen rows also carry hand-researched
+      notes — a curated tier, placement value, motivation, solo counters — marked
+      <span class="acq-flag">curated</span> where they appear. Those are editorial judgement, not
+      output of the model, and they occasionally land a Pokémon in a different letter than the computed
+      tier it's grouped under below — two independent opinions, not a typo.</p>
     <p class="gym-note">${escapeHtml(gym.rankingMethodology ?? "")}</p>
     ${defenderRules}
     ${ownedOnlyToggle}
-    ${displayRanking.length
-      ? `<ol class="gym-rank-list">${rankRows}</ol>`
-      : `<p class="gym-empty">No ranked defender is marked owned yet. <button type="button" data-gym-owned-only aria-pressed="${ownedOnly}">Show all defenders</button></p>`}
+    ${tierSections || `<p class="gym-empty">No ranked defender is marked owned yet. <button type="button" data-gym-owned-only aria-pressed="${ownedOnly}">Show all defenders</button></p>`}
     <p class="gym-note">${escapeHtml(gym.defenderLevelNote ?? "")}</p>
   ${backToTop()}
   </section>`;

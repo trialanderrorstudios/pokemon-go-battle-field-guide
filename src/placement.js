@@ -64,6 +64,26 @@ function scoreCandidate(defender, candidate, lineup, weights) {
 }
 
 
+// The Coach is the computed lane (gym_ranking.py's whole point is 50 ranked
+// defenders, not the hand-typed 12), so this maps row.tier — the computed
+// S/A/B/C band — not row.curatedTier, which only exists for the curated subset
+// and would silently drop every non-curated ranked defender back to undefined.
+export function defenderPoolFromRanking(gym) {
+  if (!gym?.defenderRanking?.length) return gym?.defenders ?? [];
+  const pool = gym.defenderRanking.map((row) => ({ formId: row.formId, defenseTier: row.tier }));
+  // Union in curated defenders the top-50 cut (Shuckle is curated B-tier but
+  // unranked): ranking-only silently dropped them, so a reader owning one got
+  // no Coach suggestion at all — the leaderboard drop-form default came back
+  // empty instead of falling to their next defender. Curated rows keep their
+  // hand-graded defenseTier; it is the only tier they have.
+  const ranked = new Set(pool.map((row) => row.formId));
+  for (const row of gym.defenders ?? []) {
+    if (!ranked.has(row.formId)) pool.push(row);
+  }
+  return pool;
+}
+
+
 export function scorePlacement({
   lineupFormIds = [], ownedFormIds = [], defenderRows = [], forms = {}, weights,
 } = {}) {

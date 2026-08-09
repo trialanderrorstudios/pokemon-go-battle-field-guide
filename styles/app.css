@@ -3923,6 +3923,19 @@ select {
   gap: 0.6rem;
 }
 
+/* The fifty-row ranking is grouped into S/A/B/C <details>, one per computed
+   tier, so a reader sees ranks 1-2 are a class apart before scrolling past
+   ranks 8-20 that aren't. The tap target and cursor already come from
+   .gym-section > details > summary (same rule gym-rules uses); this only adds
+   the spacing between tier blocks and above the list once one is open. */
+.gym-tier-section {
+  margin: 0 0 0.6rem;
+}
+
+.gym-tier-section .gym-rank-list {
+  margin-top: 0.4rem;
+}
+
 .gym-rank-card {
   padding: 0.75rem;
   border-radius: 0.9rem;
@@ -4215,14 +4228,6 @@ html:not([data-app-booted]) #app .fallback-section {
 .gym-elite-upgrade {
   margin: 0.3rem 0 0;
   font-size: 0.78rem;
-  color: var(--muted);
-}
-
-/* An em-dash beside an "A" read as a worse grade rather than an absent one. */
-.gym-rank-untiered {
-  font-size: 0.68rem;
-  text-transform: uppercase;
-  letter-spacing: 0.03em;
   color: var(--muted);
 }
 

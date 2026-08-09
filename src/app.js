@@ -23,7 +23,7 @@ import {
   saveMyFriendCode,
   updateFriend,
 } from "./friend-codes.js";
-import { scorePlacement } from "./placement.js";
+import { defenderPoolFromRanking, scorePlacement } from "./placement.js";
 import { jargonTerm } from "./glossary.js";
 import { dismissGuide, renderGuide, showGuide } from "./guide.js";
 import { escapeHtml, ownedStarButton, renderHome, viewSegments } from "./views/home.js";
@@ -723,7 +723,7 @@ function placementFor(state, roster) {
     return scorePlacement({
       lineupFormIds: state.lineupFormIds ?? [],
       ownedFormIds: roster?.ownedFormIds ?? [],
-      defenderRows: state.gym.defenders,
+      defenderRows: defenderPoolFromRanking(state.gym),
       forms: state.core.forms,
       weights: state.placement.weights,
     });
