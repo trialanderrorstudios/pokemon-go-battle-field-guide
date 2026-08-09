@@ -1,6 +1,6 @@
 import { escapeHtml, originLine, ownedStarButton, viewSegments, whyLine } from "./home.js";
 import { spriteHtml } from "../sprites.js";
-import { moveLink } from "./move-sheet.js";
+import { displayMoveName, moveLink } from "./move-sheet.js";
 import { jargonTerm } from "../glossary.js";
 import { buildDeploymentMap } from "../gym-availability.js";
 import { bestInstanceForForm } from "../instances.js";
@@ -26,6 +26,18 @@ function moveWithElite(moveId, form, kind) {
 function movePair(row, forms) {
   const form = forms?.[row.formId];
   return `${moveWithElite(row.fastMove, form, "Fast")} + ${moveWithElite(row.chargedMove, form, "Charged")}`;
+}
+
+
+// A caught shadow is forced onto Frustration until a Charged TM is spent on it (see
+// shadowUpgradeLine below); Frustration also has no move-sheet catalog entry, so the normal
+// moveLink button would tap through to a sheet reading "Unknown, Fast move". Show it as plain,
+// unlinked text with the same locked badge the shadow-upgrade block uses instead.
+function chargedMoveDisplay(moveId) {
+  if (moveId === "FRUSTRATION") {
+    return `${escapeHtml(displayMoveName(moveId))} <small class="elite-tm">Locked</small>`;
+  }
+  return moveLink(moveId, { kind: "Charged" });
 }
 
 
@@ -93,17 +105,52 @@ function eliteUpgradeLine(row) {
     : gain >= 25 ? `<strong>Worth the TM.</strong> ${gain}% more damage is a real upgrade.`
       : gain >= 10 ? `Worth it only if you have Elite TMs to spare — ${gain}% is noticeable but not decisive.`
         : `Not worth an Elite TM. ${gain}% will not change a gym fight; save it for a raid attacker.`;
+  // A percentage alone doesn't answer "does it move up" — a tier band crossing does. Ursaluna
+  // gains 3.6% and stays B-tier either way, which is a clearer argument against spending a
+  // scarce, non-re-earnable TM than the percentage by itself.
+  const tierNote = elite.tier === row.tier
+    ? ` It stays ${escapeHtml(row.tier)} tier either way (rank ${row.rank} → ${elite.rank}).`
+    : ` It moves from ${escapeHtml(row.tier)} tier to ${escapeHtml(elite.tier)} tier (rank ${row.rank} → ${elite.rank}).`;
   // elite: true so this gets the same "Elite Charged TM" badge every other move
   // link on the page shows — a bare move name here read as freely obtainable.
   return `<div class="gym-elite-upgrade">
     <p><strong>Elite TM option:</strong> ${moveLink(elite.move, { kind: "Charged", elite: true })} —
     the pick above is the best move you can get without one.</p>
     <dl class="gym-move-dps">
-      <div><dt>With Elite TM</dt><dd>${elite.score}<span class="gym-dps-sub">damage/s, weighted across its weaknesses</span></dd></div>
-      <div><dt>Without</dt><dd>${elite.obtainableScore}<span class="gym-dps-sub">what you can build now</span></dd></div>
+      <div><dt>With Elite TM</dt><dd>${elite.score}<span class="gym-dps-sub">rank #${elite.rank}, ${escapeHtml(elite.tier)} tier</span></dd></div>
+      <div><dt>Without</dt><dd>${elite.obtainableScore}<span class="gym-dps-sub">rank #${row.rank}, ${escapeHtml(row.tier)} tier — what you can build now</span></dd></div>
       ${Number.isFinite(gain) ? `<div><dt>Gain</dt><dd>+${gain}%</dd></div>` : ""}
     </dl>
-    <p class="gym-elite-verdict">${verdict}</p>
+    <p class="gym-elite-verdict">${verdict}${tierNote}</p>
+  </div>`;
+}
+
+
+// Same shape as eliteUpgradeLine (a dl of with/without numbers plus a verdict paragraph), but
+// inverted framing: the headline pick above IS the forced default (a caught shadow starts with
+// no charged move and defaults to Frustration — see gym_ranking.py's charged_pool_override),
+// and the "upgrade" is the real charged move a Charged TM would unlock. That TM is only handed
+// out during a Team GO Rocket takeover event — a scarcity claim this dataset does not derive, so
+// it carries the same "not computed" badge as every other hand-researched note on this page
+// (acq-flag; see the curated-notes block below).
+function shadowUpgradeLine(row) {
+  const shadow = row.shadowCharged;
+  if (!shadow?.move) return "";
+  const gain = Number(shadow.gainPct);
+  const tierNote = shadow.tier === row.tier
+    ? `It stays ${escapeHtml(row.tier)} tier either way (rank ${row.rank} → ${shadow.rank}) — real damage, but not a tier change.`
+    : `It moves from ${escapeHtml(row.tier)} tier to ${escapeHtml(shadow.tier)} tier (rank ${row.rank} → ${shadow.rank}).`;
+  return `<div class="gym-elite-upgrade">
+    <p><strong>Locked to Frustration.</strong> A caught shadow has no charged move of its own and
+    defaults to Frustration until a Charged TM is spent on it, which only happens during a Team
+    GO Rocket takeover event <span class="acq-flag">not computed</span>.</p>
+    <p>With one, it could carry ${moveLink(shadow.move, { kind: "Charged" })} instead.</p>
+    <dl class="gym-move-dps">
+      <div><dt>With Charged TM</dt><dd>${shadow.score}<span class="gym-dps-sub">rank #${shadow.rank}, ${escapeHtml(shadow.tier)} tier</span></dd></div>
+      <div><dt>Locked to Frustration</dt><dd>${shadow.obtainableScore}<span class="gym-dps-sub">rank #${row.rank}, ${escapeHtml(row.tier)} tier</span></dd></div>
+      ${Number.isFinite(gain) ? `<div><dt>Gain</dt><dd>+${gain}%</dd></div>` : ""}
+    </dl>
+    <p class="gym-shadow-verdict">${tierNote}</p>
   </div>`;
 }
 
@@ -114,8 +161,14 @@ function defenderMoveNumbers(row) {
   if (!fast || !charged) return "";
   const bonus = (move) => (move.stab ? " ×1.2 same-type" : "");
   const threat = row.topThreats?.[0];
+  // A zero-power fast move (Yawn, Splash) still banks energy for the charged hit — it isn't
+  // broken data, but "Fast DPS 0" sitting next to a real Cycle DPS reads like one unless the
+  // row says why. See whyRanked (rendered above this block) for the full explanation.
+  const zeroPowerNote = fast.dps === 0 && fast.energyPerSecond > 0
+    ? ` <span class="gym-dps-sub">no direct fast damage — its energy funds Cycle DPS below</span>`
+    : "";
   return `<dl class="gym-move-dps" aria-label="Move numbers for ${escapeHtml(row.pokemon)}">
-    <div><dt>Fast DPS</dt><dd>${fast.dps} <span class="gym-dps-sub">${fast.basePower ?? fast.power} power${bonus(fast)} / ${fast.durationS}s</span></dd></div>
+    <div><dt>Fast DPS</dt><dd>${fast.dps} <span class="gym-dps-sub">${fast.basePower ?? fast.power} power${bonus(fast)} / ${fast.durationS}s</span>${zeroPowerNote}</dd></div>
     <div><dt>Energy</dt><dd>${fast.energyPerSecond}/s</dd></div>
     <div><dt>Charged</dt><dd>${charged.basePower ?? charged.power} power${bonus(charged)} <span class="gym-dps-sub">${charged.energyCost} energy, fires every ${charged.firesEverySeconds}s</span></dd></div>
     ${Number.isFinite(row.cycleDps)
@@ -133,6 +186,8 @@ const DEFEND_SECTIONS = Object.freeze([
   ["placement-coach-title", "Placement Coach"],
   ["gym-lineups-title", "Starting lineups"],
   ["gym-ranking-title", "Defender ranking"],
+  ["gym-bands-title", "Band spotlight"],
+  ["gym-shadow-title", "Shadow defenders"],
   ["gym-defense-title", "Placement notes"],
   ["gym-motivation-title", "Motivation"],
   ["gym-owned-defenders-title", "What you own"],
@@ -174,13 +229,13 @@ function lineupSection(gym, forms, lineupShape = "clean", ownedFormIds = [], own
     ? "Two walls that share a weakness, with something between them that resists it — the attacker cannot walk straight through. Use these when you do not have three unrelated walls to hand."
     : "Nothing here is super-effective against more than one member, so no single attacker gets a free run. Strongest when you can build it."}</p>`;
 
-  const lineupCards = lineups.map((lineup, index) => `<li class="gym-card"><article>
-    <p class="gym-rank">Option ${index + 1}</p>
+  const lineupCard = (lineup, optionNumber) => `<li class="gym-card"><article>
+    <p class="gym-rank">Option ${optionNumber}</p>
     <ol class="gym-lineup-order">${lineup.members.map((member) => `<li>
       ${spriteHtml(member.formId, forms, member.pokemon, forms?.[member.formId]?.primary_type)}
       <strong>${escapeHtml(member.pokemon)}</strong>
       <span class="gym-rank-n">#${member.rank}</span>
-      <p class="gym-moves">${moveLink(member.bestFastMove, { kind: "Fast" })} + ${moveLink(member.bestChargedMove, { kind: "Charged" })}</p>
+      <p class="gym-moves">${moveLink(member.bestFastMove, { kind: "Fast" })} + ${chargedMoveDisplay(member.bestChargedMove)}</p>
       ${whyLine(member.whyRanked)}
     </li>`).join("")}</ol>
     ${(lineup.chainBreaks ?? []).map((brk) => whyLine(
@@ -189,7 +244,29 @@ function lineupSection(gym, forms, lineupShape = "clean", ownedFormIds = [], own
     <p><strong>Shared weakness:</strong> ${lineup.sharedWeaknesses.length
       ? `${escapeHtml(lineup.sharedWeaknesses.join(", "))} — one attacker type pressures more than one slot`
       : "none — no single attacking type is super-effective against more than one member"}</p>
-  </article></li>`).join("");
+  </article></li>`;
+
+  // Lineups are grouped by lead (the first member each option opens with) rather
+  // than shown as one flat numbered list: which Pokemon you invest toward first
+  // is the actual decision, and "Option 4" meant nothing without scrolling back
+  // to see who led it. Grouping is order-preserving off the lead's own name — no
+  // separate "lead" field exists in the data (see gym_ranking.py's
+  // _scored_lineups), so consecutive options sharing a first member are read as
+  // one group, matching how assemble.py already emits them.
+  const leadGroups = [];
+  for (const lineup of lineups) {
+    const lead = lineup.members[0]?.pokemon ?? "Unknown";
+    const leadFormId = lineup.members[0]?.formId ?? "unknown";
+    let group = leadGroups.at(-1)?.lead === lead ? leadGroups.at(-1) : null;
+    if (!group) { group = { lead, leadFormId, lineups: [] }; leadGroups.push(group); }
+    group.lineups.push(lineup);
+  }
+  // formId, not the Pokemon's display name, in the anchor id: names can carry spaces or
+  // punctuation ("Steelix (Shadow)"), formId is already the app's stable, id-safe slug for it.
+  const lineupCards = leadGroups.map((group) => `<div class="gym-subsection" aria-labelledby="gym-lineup-lead-${escapeHtml(group.leadFormId)}">
+    <h3 id="gym-lineup-lead-${escapeHtml(group.leadFormId)}">Led by ${escapeHtml(group.lead)}</h3>
+    <ul class="gym-card-list">${group.lineups.map((lineup, i) => lineupCard(lineup, i + 1)).join("")}</ul>
+  </div>`).join("");
 
   // The two selection rules, stated once for the section rather than repeated on
   // fifty rows. The per-row lines below show the numbers that instantiate them,
@@ -215,15 +292,13 @@ function lineupSection(gym, forms, lineupShape = "clean", ownedFormIds = [], own
     models berry feeding, motivation decay, or dodging.</p>
   </details>`;
 
-  // 50, not 25: a second account or a friend's roster rarely has the top 25,
-  // and a ranking that stops before the Pokemon you actually own is a ranking
-  // you cannot act on.
+  // No display cap: a second account or a friend's roster rarely has the top
+  // 25, and a ranking that stops before the Pokemon you actually own is a
+  // ranking you cannot act on. Render whatever the shipped ranking contains —
+  // not a pinned row count, which would silently drift from what python
+  // actually ships (gym_ranking.py) the next time the eligible pool changes.
   const ownedSet = new Set(ownedFormIds ?? []);
-  // Owned-only filters the full ranking, not the display-capped top 50: the
-  // whole reason the cap went from 25 to 50 (see above) was that owned
-  // Pokemon land past a shallow cutoff, so a filter that only searched the
-  // already-truncated slice would defeat its own purpose.
-  const displayRanking = ownedOnly ? ranking.filter((row) => ownedSet.has(row.formId)) : ranking.slice(0, 50);
+  const displayRanking = ownedOnly ? ranking.filter((row) => ownedSet.has(row.formId)) : ranking;
   const ownedOnlyToggle = `<div class="placement-controls" aria-label="Defender ranking filter">
     <button type="button" data-gym-owned-only aria-pressed="${ownedOnly}">Owned only</button>
   </div>`;
@@ -245,7 +320,7 @@ function lineupSection(gym, forms, lineupShape = "clean", ownedFormIds = [], own
         : ""}
       ${ownedStarButton({ formId: row.formId, name: row.pokemon, owned, route: "gyms" })}
     </div>
-    <p class="gym-moves">${moveLink(row.bestFastMove, { kind: "Fast" })} + ${moveLink(row.bestChargedMove, { kind: "Charged" })}</p>
+    <p class="gym-moves">${moveLink(row.bestFastMove, { kind: "Fast" })} + ${chargedMoveDisplay(row.bestChargedMove)}</p>
     ${row.weaknesses?.length ? `<p><strong>Weak to:</strong> ${escapeHtml(row.weaknesses.join(", "))}</p>` : ""}
     ${row.resists?.length ? `<p><strong>Resists:</strong> ${escapeHtml(row.resists.join(", "))}</p>` : ""}
     ${whyLine(row.whyRanked)}
@@ -253,6 +328,7 @@ function lineupSection(gym, forms, lineupShape = "clean", ownedFormIds = [], own
       <summary>Move numbers, origin and full reasoning</summary>
       ${defenderMoveNumbers(row)}
       ${eliteUpgradeLine(row)}
+      ${shadowUpgradeLine(row)}
       ${originLine(row.origin, row.acquisition)}
       ${whyLine(row.fastWhy, "Fast:")}
       ${whyLine(row.chargedWhy, "Charged:")}
@@ -268,11 +344,15 @@ function lineupSection(gym, forms, lineupShape = "clean", ownedFormIds = [], own
   };
 
   // Every row already carries a computed S/A/B/C tier (bands set on natural
-  // score gaps: S 2, A 4, B 10, C 34 — see gym_ranking.py), so a flat fifty-row
-  // list was hiding the one thing tiers exist to show: that ranks 8-20 are
-  // interchangeable while rank 1-2 are a class apart. Grouping by tier — S open,
-  // the rest collapsed — surfaces that without a reader scrolling the whole list.
-  // Native <details>, no JS: same rationale as the section-nav above (line 125).
+  // score gaps, re-measured whenever the underlying score distribution changes —
+  // see gym_ranking.py; counts are data-derived, not a fixed split, so they are
+  // read from `rows.length` below rather than pinned in this comment), so a flat
+  // hundred-row list was hiding the one thing tiers exist to show: that ranks
+  // 8-20 are interchangeable while rank 1-2 are a class apart. Grouping by tier —
+  // S open, the rest collapsed — surfaces that without a reader scrolling the
+  // whole list. Native <details>, no JS: same rationale as the section-nav above
+  // (line 125), and it also means opening the largest (C) section is just a CSS
+  // display toggle on already-rendered markup, not a re-render — no perf cliff.
   const TIER_ORDER = ["S", "A", "B", "C"];
   const tierGroups = TIER_ORDER
     .map((tier) => [tier, displayRanking.filter((row) => row.tier === tier)])
@@ -288,8 +368,8 @@ function lineupSection(gym, forms, lineupShape = "clean", ownedFormIds = [], own
   return `<section class="gym-section" aria-labelledby="gym-lineups-title">
     ${sectionHeading("Coordinated opening", "Starting lineups", "gym-lineups-title")}
     ${shapeTabs}
-    <p class="gym-note">Three accounts dropping one each. Each option avoids a single attacking type sweeping the whole set, and no Pokémon anchors more than two options — so these are genuinely different things to invest toward, not one answer reshuffled.</p>
-    <ul class="gym-card-list">${lineupCards}</ul>
+    <p class="gym-note">Three accounts dropping one each, grouped by which Pokémon leads. Each option avoids a single attacking type sweeping the whole set, and no Pokémon anchors more than two options — so these are genuinely different things to invest toward, not one answer reshuffled.</p>
+    ${lineupCards}
     ${sectionHeading("Computed, not curated", "Defender ranking", "gym-ranking-title")}
     <p class="gym-curated-note">Rank, score and the S/A/B/C tier below — the section headings, not a
       hand grade — are computed over every eligible Pokémon. A dozen rows also carry hand-researched
@@ -297,11 +377,154 @@ function lineupSection(gym, forms, lineupShape = "clean", ownedFormIds = [], own
       <span class="acq-flag">curated</span> where they appear. Those are editorial judgement, not
       output of the model, and they occasionally land a Pokémon in a different letter than the computed
       tier it's grouped under below — two independent opinions, not a typo.</p>
+    <p class="gym-note">S and A sit on real breaks in the score — big drops with nothing near them on
+      either side. Below that, B and C are a reading aid, not a measured boundary: the gaps get small
+      and gradual, so a B-tier defender a couple points from the C cutoff is not meaningfully worse,
+      just sorted lower.</p>
     <p class="gym-note">${escapeHtml(gym.rankingMethodology ?? "")}</p>
     ${defenderRules}
     ${ownedOnlyToggle}
     ${tierSections || `<p class="gym-empty">No ranked defender is marked owned yet. <button type="button" data-gym-owned-only aria-pressed="${ownedOnly}">Show all defenders</button></p>`}
     <p class="gym-note">${escapeHtml(gym.defenderLevelNote ?? "")}</p>
+  ${backToTop()}
+  </section>`;
+}
+
+
+// Fixed copy for the two bands the score distribution alone can't name (bulk,
+// damage); anti-<type> bands are named and worded from the band's own id below
+// instead, so a new anti-band ships with correct copy for free.
+const BAND_COPY = Object.freeze({
+  bulk: {
+    title: "Bulk",
+    blurb: "Raw survivability — Defense times Stamina, no floor — ignoring how hard it hits back.",
+  },
+  damage: {
+    title: "Damage",
+    blurb: "How hard it hits back over a full attack cycle, among defenders sturdy enough to still be standing when it lands — ignoring how well it resists what's attacking it.",
+  },
+});
+
+
+function bandThreatType(band) {
+  // "anti-fighting" -> "Fighting"
+  const type = band.id.replace(/^anti-/, "");
+  return type.charAt(0).toUpperCase() + type.slice(1);
+}
+
+
+// Names the threat and states the frailty-by-design tradeoff up front (per
+// operator direction) so an anti-band doesn't read as the ranking
+// contradicting itself when it leads with something overall buried.
+function bandCopy(band) {
+  if (band.kind !== "anti") return BAND_COPY[band.id] ?? { title: band.id, blurb: "" };
+  const type = bandThreatType(band);
+  return {
+    title: `Beats ${type} attackers`,
+    blurb: `Resists ${type} hard enough to be worth placing against it, ranked by effective HP against ${type} — ignoring bulk against everything else. These are often frail against other types by design: they exist so ${type} alone cannot run the whole line, not to out-survive Blissey.`,
+  };
+}
+
+
+function bandRow(row, index, forms, band) {
+  return `<li class="gym-band-row"><article class="gym-rank-card">
+    <div class="gym-rank-head">
+      ${spriteHtml(row.formId, forms, row.pokemon, forms?.[row.formId]?.primary_type)}
+      <span class="gym-rank-n">#${index + 1}</span>
+      <strong>${escapeHtml(row.pokemon)}</strong>
+      <span class="gym-rank-score">${row.metric}</span>
+    </div>
+    <p class="gym-note">Overall #${row.overallRank} · score ${row.overallScore} · ${escapeHtml(row.tier)} tier${
+      band.kind === "anti" ? ` · takes x${row.multiplier} damage from ${bandThreatType(band)}` : ""
+    }</p>
+    ${row.weaknesses?.length ? `<p><strong>Weak to:</strong> ${escapeHtml(row.weaknesses.join(", "))}</p>` : ""}
+  </article></li>`;
+}
+
+
+// Every band is a re-sort of the same defender pool by a narrower question
+// than Overall — Drifblim is the case: buried past rank 100 overall, it's the
+// best Fighting sponge in the game. Stacked closed <details>, not a row of
+// tabs: eight one-line summaries solve the density problem on a phone without
+// adding a single tap or byte to reaching Overall, which stays exactly where
+// it already was, above this section.
+function bandSpotlightSection(gym, forms) {
+  const bands = gym.bands ?? [];
+  if (!bands.length) return "";
+  const sections = bands.map((band) => {
+    const copy = bandCopy(band);
+    const rows = band.rows ?? [];
+    return `<details class="gym-tier-section">
+      <summary>${escapeHtml(copy.title)} — top ${rows.length}</summary>
+      <p class="gym-note">${escapeHtml(copy.blurb)}</p>
+      <ol class="gym-rank-list gym-band-rank-list">${rows.map((row, i) => bandRow(row, i, forms, band)).join("")}</ol>
+    </details>`;
+  }).join("");
+  return `<section class="gym-section" aria-labelledby="gym-bands-title">
+    ${sectionHeading("Same defenders, a narrower question", "Band spotlight", "gym-bands-title")}
+    <p class="gym-note">Overall buries a defender whose real strength is one job — outlasting one
+      attacking type, or hitting hardest once it's sturdy enough to matter. The #1 pick in a band
+      below is often nowhere near the top of Overall — that's what these are for. Open one; Overall
+      above is unchanged.</p>
+    ${sections}
+  ${backToTop()}
+  </section>`;
+}
+
+
+// No owned-star button here (unlike renderRankRow above): a shadow form is
+// already starrable from Edit Owned Defenders / the normal ranking's own row
+// for the same species, and a second interactive star for the same formId
+// would double the "own it" tap targets a reader has to reconcile. The
+// is-owned class still reflects roster state read-only, for the reader who
+// starred it elsewhere.
+function shadowRankRow(row, forms, ownedSet) {
+  const owned = ownedSet.has(row.formId);
+  return `<li class="gym-shadow-row gym-rank-card${owned ? " is-owned" : ""}"><article aria-labelledby="gym-shadow-rank-${row.rank}">
+    <div class="gym-rank-head">
+      ${spriteHtml(row.formId, forms, row.pokemon, forms?.[row.formId]?.primary_type)}
+      <span class="gym-rank-n">#${row.rank}</span>
+      <strong id="gym-shadow-rank-${row.rank}">${escapeHtml(row.pokemon)}</strong>
+      <span class="gym-rank-score">${row.score}</span>
+    </div>
+    <p class="gym-moves">${moveLink(row.bestFastMove, { kind: "Fast" })} + ${chargedMoveDisplay(row.bestChargedMove)}</p>
+    ${row.weaknesses?.length ? `<p><strong>Weak to:</strong> ${escapeHtml(row.weaknesses.join(", "))}</p>` : ""}
+    ${whyLine(row.whyRanked)}
+    <details class="gym-rank-more">
+      <summary>Move numbers, origin and Charged TM upgrade</summary>
+      ${defenderMoveNumbers(row)}
+      ${shadowUpgradeLine(row)}
+      ${originLine(row.origin, row.acquisition)}
+    </details>
+  </article></li>`;
+}
+
+
+// Its own list, not a filter on Defender ranking above: a caught shadow is
+// forced onto Frustration (see shadowUpgradeLine) and every shadow scores
+// below the S/A/B cutoffs on that forced moveset, so this population is
+// entirely C-tier on the same absolute scale the normal-form ranking uses —
+// grouping it into four tier sections like the one above would produce three
+// empty headers. The ranking inside is still real: rank 1 here genuinely
+// outperforms rank 100 here, on Frustration, even though the letter never
+// changes.
+function shadowDefenderSection(gym, forms, ownedFormIds = []) {
+  const rows = gym.shadowDefenderRanking ?? [];
+  if (!rows.length) return "";
+  const ownedSet = new Set(ownedFormIds ?? []);
+  return `<section class="gym-section" aria-labelledby="gym-shadow-title">
+    ${sectionHeading("A separate population, not a filter", "Shadow defenders", "gym-shadow-title")}
+    <p class="gym-note">A caught shadow starts locked to Frustration — the only charged move it has
+      until a Charged TM is spent on it, which only happens during a Team GO Rocket takeover event
+      <span class="acq-flag">not computed</span>. Ranked on what it can do locked to Frustration, this
+      list never borrows a normal form's score: every shadow lands below this ranking's own S/A/B
+      cutoffs, so the top ${rows.length} shown here all sit in one C-tier population even where the
+      same Pokémon's normal form ranks higher in Defender ranking above. Open a row to see what a
+      Charged TM would buy.</p>
+    <details class="gym-tier-section">
+      <summary>Top ${rows.length} shadow defenders, ranked</summary>
+      <ol class="gym-rank-list gym-shadow-rank-list">${rows.map((row) => shadowRankRow(row, forms, ownedSet)).join("")}</ol>
+    </details>
   ${backToTop()}
   </section>`;
 }
@@ -495,6 +718,8 @@ export function renderGyms({
     ${lineupControls}
     ${renderPlacementCoach({ placementResult, ownedIndex, overallIndex, rosterInstances, deploymentMap })}
     ${lineupSection(gym, forms, lineupShape, ownedFormIds, ownedOnly)}
+    ${bandSpotlightSection(gym, forms)}
+    ${shadowDefenderSection(gym, forms, ownedFormIds)}
     ${defenseSection(gym, trainerTeam)}
     ${motivationSection()}
     ${ownedDefenderEditor(gym.defenders, ownedFormIds)}`

@@ -2877,10 +2877,57 @@ h1 {
 }
 
 @media (min-width: 48rem) {
+  /* Fixed 48rem used to pin the shell at exactly 768px forever, wasting 44%
+     of an iPad Pro's 1366px width as plain chassis background. Let it keep
+     growing with the viewport instead, capped so it still reads as a device
+     (not an edge-to-edge webpage) on very wide screens. */
   .app-shell {
-    width: 48rem;
+    width: min(100%, 90rem);
     border-inline: 1px solid var(--dx-body-edge);
     box-shadow: 0 0 60px #0008;
+  }
+
+  /* The shell growing must not just stretch prose to unreadable line
+     lengths (comfortable reading tops out around 65-75 characters) — cap
+     the text measure and let containers spend the recovered width on
+     structure (grids) instead. */
+  #app p {
+    max-width: 65ch;
+  }
+
+  .gym-section,
+  .pvp-view,
+  .pvp-section,
+  .more-view,
+  .more-section,
+  .more-list-view,
+  .coach-view,
+  .coach-section,
+  .today-view {
+    max-width: 64rem;
+  }
+
+  /* Card lists (gym rank list, raid ranks, PvP ranks, more/source cards):
+     fixed-width uniform cards, unbounded length — perfect auto-fill grid
+     candidates once their container isn't capped at 42-44rem anymore. */
+  .gym-card-list,
+  .raid-card-list,
+  .pvp-card-list,
+  .pvp-team-list,
+  .more-card-list,
+  .source-list {
+    grid-template-columns: repeat(auto-fill, minmax(20rem, 1fr));
+    align-items: start;
+  }
+
+  /* .pvp-controls fieldset resets grid-column to auto at the 36rem
+     breakpoint for genuine multi-field control rows (line ~2850). The
+     Attacking/Defending switcher (view-segments) reuses .pvp-controls only
+     for its input chrome and has always needed to span the full row here —
+     without this it collapses to one narrow stacked column with the rest
+     of the row sitting empty beside it. */
+  .view-segments fieldset {
+    grid-column: 1 / -1;
   }
 }
 
