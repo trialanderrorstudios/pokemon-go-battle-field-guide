@@ -2294,6 +2294,15 @@ h1 {
 .move-link {
   padding: 0.65rem 0.35rem;
   margin: -0.65rem -0.35rem;
+  /* Floor, not more padding: the negative margin above cancels padding out of
+     line-flow, so any growth past what the negative margin cancels bleeds
+     into neighboring rows/links (this p's siblings sit at margin-block:0, see
+     .gym-section p). min-height/min-width only grows the box the small
+     remainder needed to clear 44px — a couple px in the tightest contexts
+     (why-line's 0.82rem move mentions, short move names like "Bite") instead
+     of proportionally inflating every context's padding. */
+  min-height: 44px;
+  min-width: 44px;
   border: none;
   border-radius: 0.4rem;
   background: none;
@@ -2325,6 +2334,10 @@ h1 {
 .pvp-team-charged .move-link {
   padding: 0.1rem 0.35rem;
   margin: -0.1rem -0.35rem;
+  /* Opt back out of the app-wide 44px floor added above — this is the exact
+     dense stack the floor's own comment warns about. */
+  min-height: 0;
+  min-width: 0;
 }
 
 .move-sheet-backdrop {
@@ -4031,7 +4044,26 @@ select {
   }
 }
 
+/* Rank-span chunk sections nested inside a large tier: the 48px tap-target
+   rule above is .gym-section > details > summary (direct child), so it never
+   reaches these nested summaries — measured 23px tall without this, the only
+   sub-44px targets the chunking introduced. */
+.gym-tier-section .gym-tier-section > summary {
+  display: flex;
+  align-items: center;
+  min-height: 48px;
+  padding: 0.55rem 0.2rem;
+  cursor: pointer;
+}
+
 .gym-rank-card {
+  /* 256 of these render at once (ranking + band spotlight + shadow list);
+     closed-card heights range ~120-390px, median ~283px — skip layout/paint
+     for whichever are off-screen. "auto" keeps each card's own last-rendered
+     height once it has one, so scrollbar/anchor jumps don't appear; 280px
+     is just the pre-render guess. */
+  content-visibility: auto;
+  contain-intrinsic-size: auto 280px;
   padding: 0.75rem;
   border-radius: 0.9rem;
   background: var(--dx-screen-card);
@@ -4090,7 +4122,9 @@ select {
 }
 
 .gym-section-nav a {
-  display: inline-block;
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
   padding: 0.3rem 0.6rem;
   border-radius: 999px;
   background: var(--screen-bg);
@@ -4102,6 +4136,18 @@ select {
   margin: 0.75rem 0 0;
   text-align: right;
   font-size: 0.78rem;
+}
+
+/* .gym-section p resets margin-block to 0 with higher specificity, so the
+   44px floor has to come from the link's own box (padding), not from
+   growing .gym-back-to-top's margin. No negative-margin trick needed here
+   (unlike .move-link) — this anchor is the paragraph's only content, so the
+   grown box pushes real layout instead of bleeding into a neighbor. */
+.gym-back-to-top a {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  padding: 0.3rem 0.4rem;
 }
 
 .max-role-list {

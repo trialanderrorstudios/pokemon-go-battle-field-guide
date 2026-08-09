@@ -1,4 +1,5 @@
 import { TIPS } from "./tricks.js";
+import { weaknessesOf } from "./type-chart.js";
 
 function normalizedParts(values) {
   return values
@@ -27,7 +28,7 @@ function formRows(forms) {
 }
 
 
-function formEntry(form) {
+function formEntry(form, bandVocabByFormId) {
   const formId = form.formId ?? form.form_id;
   if (typeof formId !== "string" || typeof form.name !== "string") return null;
   const types = [
@@ -40,7 +41,11 @@ function formEntry(form) {
     ...(form.chargedMoves ?? form.charged_moves ?? []),
     ...(form.moves ?? []),
   ];
-  const fields = normalizedParts([form.name, formId, types, moves]);
+  // A gym-band member (see bandVocabByFormId below) also picks up its band's
+  // "anti <type>" vocabulary here, so searching the band's own words surfaces
+  // the defender directly, not just the band's reference card.
+  const bandVocab = bandVocabByFormId?.get(formId) ?? [];
+  const fields = normalizedParts([form.name, formId, types, moves, bandVocab]);
   return {
     formId,
     name: form.name,
@@ -141,6 +146,66 @@ function referenceEntries() {
 }
 
 
+// Gym anti-<type> bands (gym.bands, kind === "anti"): a band answers "which
+// defenders resist an incoming <type> attacker". DEFECT 9 — the app computes
+// this but a search for "anti fighting", a band member's own name, or a
+// specific attacker ("counter machamp") couldn't reach it. See
+// bandVocabByFormId (tags each member's own pokemon entry) and
+// bandReferenceEntries (one findable card per band) below.
+function antiBands(gym) {
+  const bands = Array.isArray(gym?.bands) ? gym.bands : [];
+  return bands.filter((band) => band?.kind === "anti" && typeof band.id === "string");
+}
+
+// "anti-fighting" -> "fighting" (matches gyms.js's own bandThreatType, kept
+// separate since that file is a view this task doesn't own).
+function bandThreatType(band) {
+  return band.id.replace(/^anti-/, "");
+}
+
+function bandVocabulary(type) {
+  return [`anti ${type}`, `resist ${type}`, `resists ${type}`, `resistant to ${type}`];
+}
+
+// formId -> that defender's band vocabulary, so its own pokemon entry (not
+// just the band's reference card) surfaces on "anti <type>".
+function bandVocabByFormId(gym) {
+  const map = new Map();
+  for (const band of antiBands(gym)) {
+    const vocab = bandVocabulary(bandThreatType(band));
+    for (const row of band.rows ?? []) {
+      if (typeof row.formId !== "string") continue;
+      map.set(row.formId, [...(map.get(row.formId) ?? []), ...vocab]);
+    }
+  }
+  return map;
+}
+
+// One findable "reference" card per band (same shape/rendering as
+// REFERENCE_PAGES below) so "anti fighting" and a member's own name
+// ("Drifblim") both reach it, even before its member defenders are searched
+// individually.
+function bandReferenceEntries(gym) {
+  return antiBands(gym).map((band) => {
+    const type = bandThreatType(band);
+    const title = `Anti-${type[0].toUpperCase()}${type.slice(1)} defenders`;
+    const memberNames = (band.rows ?? []).map((row) => row.pokemon).filter(Boolean);
+    return {
+      formId: `gym-band-${band.id}`,
+      name: title,
+      resultCategory: "reference",
+      route: "gyms",
+      view: "defend",
+      types: [`${type[0].toUpperCase()}${type.slice(1)}`],
+      moves: [],
+      _name: normalizeSearchText(title),
+      _formId: normalizeSearchText(band.id),
+      _fields: normalizedParts([title, band.id, ...bandVocabulary(type), memberNames]),
+    };
+  });
+}
+
+
 function tipEntries() {
   return TIPS.map((tip) => ({
     formId: tip.id,
@@ -165,11 +230,13 @@ function fuzzyTokens(entry) {
 
 
 export function buildSearchIndex(core) {
+  const bandVocab = bandVocabByFormId(core?.gym);
   const candidates = [
-    ...formRows(core?.forms).map(formEntry).filter(Boolean),
+    ...formRows(core?.forms).map((form) => formEntry(form, bandVocab)).filter(Boolean),
     ...bossEntries(core),
     ...tipEntries(),
     ...referenceEntries(),
+    ...bandReferenceEntries(core?.gym),
   ];
   const unique = new Map();
   for (const entry of candidates) {
@@ -288,9 +355,45 @@ export function removeRecentSearch(storage, term) {
 }
 
 
+// "counter machamp" / "beats blissey" / "what beats blissey": these name an
+// attacker, not the anti-<type> vocabulary itself (that's covered by the
+// bandVocabulary fields above, e.g. plain "anti fighting"). Resolve the named
+// pokemon's own type(s) — what it hits gyms WITH — and, failing that, what
+// it's weak TO (the same "which anti-band answers this" question from a
+// gym-defender's point of view, which is how "what beats Blissey" — Blissey
+// itself has no offensive type worth a band — still lands on anti-fighting).
+// Rewriting the query onto the matched band's own vocabulary reuses the
+// normal scoring pipeline unchanged, so the band card AND its tagged member
+// defenders both surface, sorted the same as any other search.
+const COUNTER_QUERY_PATTERN = /^(?:what\s+beats|counter|beats)\s+(.+)$/;
+
+function findPokemonEntry(index, name) {
+  return index.find((entry) => entry.resultCategory === "pokemon" && entry._name === name)
+    ?? index.find((entry) => entry.resultCategory === "pokemon" && entry._name.startsWith(name));
+}
+
+function findBandEntryForType(index, type) {
+  return index.find((entry) => (
+    entry.resultCategory === "reference" && entry.formId.startsWith("gym-band-") && entry.types[0] === type
+  ));
+}
+
+function rewriteCounterQuery(index, normalizedQuery) {
+  const match = normalizedQuery.match(COUNTER_QUERY_PATTERN);
+  const target = match ? findPokemonEntry(index, match[1].trim()) : null;
+  if (!target) return normalizedQuery;
+  const candidateTypes = [...target.types, ...weaknessesOf(target.types).map((row) => row.type)];
+  for (const type of candidateTypes) {
+    const band = findBandEntryForType(index, type);
+    if (band) return `anti ${type.toLowerCase()}`;
+  }
+  return normalizedQuery;
+}
+
 export function search(index, query, { limit = 50 } = {}) {
-  const normalizedQuery = normalizeSearchText(query);
-  if (!normalizedQuery) return [];
+  const rawNormalizedQuery = normalizeSearchText(query);
+  if (!rawNormalizedQuery) return [];
+  const normalizedQuery = rewriteCounterQuery(index, rawNormalizedQuery);
   const categoryOrder = { pokemon: 0, "raid-boss": 1 };
   const scored = index
     .map((entry) => ({ entry, score: relevance(entry, normalizedQuery) }))

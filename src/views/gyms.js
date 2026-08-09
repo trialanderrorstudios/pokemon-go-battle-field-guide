@@ -198,7 +198,10 @@ function sectionNav() {
   const links = DEFEND_SECTIONS
     .map(([id, label]) => `<li><a href="#${id}">${escapeHtml(label)}</a></li>`)
     .join("");
-  return `<nav class="gym-section-nav" id="gym-top" aria-label="Jump to a section">
+  // id="gym-top" lives on the .gyms-view wrapper (see renderGyms), not here — this
+  // nav sits below the tabs and the "gym tricks" link, so anchoring to it left
+  // "Back to top" one screen short of the actual top.
+  return `<nav class="gym-section-nav" aria-label="Jump to a section">
     <ul>${links}</ul>
   </nav>`;
 }
@@ -218,6 +221,11 @@ function lineupSection(gym, forms, lineupShape = "clean", ownedFormIds = [], own
   const lineups = (breaker ? gym.chainBreakerLineups : gym.startingLineups) ?? [];
   const ranking = gym.defenderRanking ?? [];
   if (!lineups.length && !ranking.length) return "";
+  // Measured, not asserted: how often the hand-curated tier disagrees with the
+  // computed one drifts every time gym_ranking.py or the curated notes change,
+  // so the count rendered near the ranking below has to come from this data.
+  const curatedRows = ranking.filter((row) => row.curatedTier);
+  const curatedDisagreements = curatedRows.filter((row) => row.curatedTier !== row.tier).length;
 
   const shapeTabs = `<div class="pvp-controls" aria-label="Lineup strategy">
     <fieldset><legend>Lineup shape</legend>
@@ -249,22 +257,26 @@ function lineupSection(gym, forms, lineupShape = "clean", ownedFormIds = [], own
   // Lineups are grouped by lead (the first member each option opens with) rather
   // than shown as one flat numbered list: which Pokemon you invest toward first
   // is the actual decision, and "Option 4" meant nothing without scrolling back
-  // to see who led it. Grouping is order-preserving off the lead's own name — no
-  // separate "lead" field exists in the data (see gym_ranking.py's
-  // _scored_lineups), so consecutive options sharing a first member are read as
-  // one group, matching how assemble.py already emits them.
+  // to see who led it. gym_ranking.py now ships a "lead" field per lineup
+  // (formId/pokemon/rank/tier/score) and a "whyLead" string grounded in that
+  // lead's own computed numbers — grouping and its justification both read from
+  // data instead of inferring the lead from members[0].
   const leadGroups = [];
   for (const lineup of lineups) {
-    const lead = lineup.members[0]?.pokemon ?? "Unknown";
-    const leadFormId = lineup.members[0]?.formId ?? "unknown";
-    let group = leadGroups.at(-1)?.lead === lead ? leadGroups.at(-1) : null;
-    if (!group) { group = { lead, leadFormId, lineups: [] }; leadGroups.push(group); }
+    const lead = lineup.lead?.pokemon ?? lineup.members[0]?.pokemon ?? "Unknown";
+    const leadFormId = lineup.lead?.formId ?? lineup.members[0]?.formId ?? "unknown";
+    let group = leadGroups.at(-1)?.leadFormId === leadFormId ? leadGroups.at(-1) : null;
+    if (!group) { group = { lead, leadFormId, whyLead: lineup.whyLead, lineups: [] }; leadGroups.push(group); }
     group.lineups.push(lineup);
   }
   // formId, not the Pokemon's display name, in the anchor id: names can carry spaces or
   // punctuation ("Steelix (Shadow)"), formId is already the app's stable, id-safe slug for it.
+  // whyLead is rendered once per group, right under the heading it explains: it's the
+  // same string for every option sharing that lead, and it's what stops a rank-81/C
+  // Slaking leading four lineups from reading as the page contradicting its own ranking.
   const lineupCards = leadGroups.map((group) => `<div class="gym-subsection" aria-labelledby="gym-lineup-lead-${escapeHtml(group.leadFormId)}">
     <h3 id="gym-lineup-lead-${escapeHtml(group.leadFormId)}">Led by ${escapeHtml(group.lead)}</h3>
+    ${whyLine(group.whyLead)}
     <ul class="gym-card-list">${group.lineups.map((lineup, i) => lineupCard(lineup, i + 1)).join("")}</ul>
   </div>`).join("");
 
@@ -353,35 +365,91 @@ function lineupSection(gym, forms, lineupShape = "clean", ownedFormIds = [], own
   // whole list. Native <details>, no JS: same rationale as the section-nav above
   // (line 125), and it also means opening the largest (C) section is just a CSS
   // display toggle on already-rendered markup, not a re-render — no perf cliff.
-  const TIER_ORDER = ["S", "A", "B", "C"];
+  // Derived from the rows, not hardcoded. The tail letters (C/D/F) are
+  // tertiles of the shipped population, so the SET can change with the data —
+  // and a hardcoded four silently dropped every D and F row on the floor,
+  // rendering 51 of 100 defenders while every count in the section summaries
+  // still added up.
+  const TIER_ORDER = [...new Set(ranking.map((row) => row.tier))];
   const tierGroups = TIER_ORDER
     .map((tier) => [tier, displayRanking.filter((row) => row.tier === tier)])
     .filter(([, rows]) => rows.length); // no empty "0 defenders" sections to click past
   // Owned-only is a reader asking for a specific subset, not browsing blind — a
   // tier that survives the filter is exactly what they asked for, so open every
   // one of them. Unfiltered, only S opens: two defenders is a glance, fifty isn't.
-  const tierSections = tierGroups.map(([tier, rows]) => `<details class="gym-tier-section"${ownedOnly || tier === "S" ? " open" : ""}>
-    <summary>${tier} tier — ${rows.length} defender${rows.length === 1 ? "" : "s"}</summary>
-    <ol class="gym-rank-list">${rows.map(renderRankRow).join("")}</ol>
-  </details>`).join("");
+  //
+  // C holds most of the 100 (75 today) and the score gaps inside it are all
+  // under 0.8 — nothing there discriminates the way the S/A break does, so a
+  // flat 75-row list was scroll, not signal. Chunk any large tier into
+  // rank-span sub-details reusing the same .gym-tier-section class (so the
+  // perf CSS covering the outer sections covers these for free), sized by
+  // count rather than a fixed rank cut so this stays correct if the tier's
+  // population ever shifts — the S/A/B/C cuts themselves are untouched.
+  // Chunking existed to break up a C tier holding 75 of 100 rows. The D/F tail
+  // letters now do that properly, so the largest tier is ~26 and chunking it
+  // would produce a 25-row section beside a 1-row one — worse than leaving it
+  // flat. Kept, but only above a threshold no current tier reaches, so it comes
+  // back on its own if a future refresh piles rows into one letter again.
+  const TIER_CHUNK_SIZE = 25;
+  const TIER_CHUNK_THRESHOLD = 40;
+  const tierSections = tierGroups.map(([tier, rows]) => {
+    const chunks = [];
+    if (rows.length > TIER_CHUNK_THRESHOLD) {
+      for (let i = 0; i < rows.length; i += TIER_CHUNK_SIZE) chunks.push(rows.slice(i, i + TIER_CHUNK_SIZE));
+    }
+    const body = chunks.length > 1
+      ? `<p class="gym-note">${tier} tier is the rest of the shipped top ${ranking.length} defenders —
+          every row in it still out-ranked every eligible Pokémon that isn't on this list. Split below
+          by rank so you can open the range you care about instead of the whole tier at once.</p>
+        ${chunks.map((chunk) => {
+          const first = chunk[0];
+          const last = chunk[chunk.length - 1];
+          const scoreHigh = Math.max(first.score, last.score);
+          const scoreLow = Math.min(first.score, last.score);
+          return `<details class="gym-tier-section">
+            <summary>Ranks ${first.rank}–${last.rank} · scores ${scoreHigh}–${scoreLow}</summary>
+            <ol class="gym-rank-list">${chunk.map(renderRankRow).join("")}</ol>
+          </details>`;
+        }).join("")}`
+      : `<ol class="gym-rank-list">${rows.map(renderRankRow).join("")}</ol>`;
+    return `<details class="gym-tier-section"${ownedOnly || tier === "S" ? " open" : ""}>
+      <summary>${tier} tier — ${rows.length} defender${rows.length === 1 ? "" : "s"}</summary>
+      ${body}
+    </details>`;
+  }).join("");
 
   return `<section class="gym-section" aria-labelledby="gym-lineups-title">
     ${sectionHeading("Coordinated opening", "Starting lineups", "gym-lineups-title")}
     ${shapeTabs}
-    <p class="gym-note">Three accounts dropping one each, grouped by which Pokémon leads. Each option avoids a single attacking type sweeping the whole set, and no Pokémon anchors more than two options — so these are genuinely different things to invest toward, not one answer reshuffled.</p>
+    <p class="gym-note">Three accounts dropping one each, grouped by which Pokémon leads. Each option
+      avoids a single attacking type sweeping the whole set. ${escapeHtml(gym.lineupPolicy?.note ?? "")}
+      These are genuinely different things to invest toward, not one answer reshuffled.</p>
+    ${gym.lineupLeads?.note ? `<p class="gym-note">${escapeHtml(gym.lineupLeads.note)}</p>` : ""}
     ${lineupCards}
     ${sectionHeading("Computed, not curated", "Defender ranking", "gym-ranking-title")}
+    <p class="gym-note">Three related things sit on this page and they answer different questions:
+      <strong>rank</strong> is where a defender places among all ${ranking.length} ranked (#1 is
+      best); <strong>tier</strong> groups those ranks at real breaks in the score; <strong>band</strong>,
+      further down, re-sorts this same pool by one narrower question — like which defender best answers
+      a single attacking type — so a Pokémon's band rank can sit far from its overall rank.</p>
     <p class="gym-curated-note">Rank, score and the S/A/B/C tier below — the section headings, not a
       hand grade — are computed over every eligible Pokémon. A dozen rows also carry hand-researched
       notes — a curated tier, placement value, motivation, solo counters — marked
       <span class="acq-flag">curated</span> where they appear. Those are editorial judgement, not
-      output of the model, and they occasionally land a Pokémon in a different letter than the computed
-      tier it's grouped under below — two independent opinions, not a typo.</p>
+      output of the model: where a curated tier disagrees with the computed one, trust the computed
+      tier for where a Pokémon is grouped and ranked — the curated note is capturing something the
+      model can't see (motivation, dodging, how a fight actually plays out), not correcting the score.
+      ${curatedDisagreements} of ${curatedRows.length} curated rows disagree with their computed tier
+      this way — two independent opinions, not a typo.</p>
     <p class="gym-note">S and A sit on real breaks in the score — big drops with nothing near them on
       either side. Below that, B and C are a reading aid, not a measured boundary: the gaps get small
       and gradual, so a B-tier defender a couple points from the C cutoff is not meaningfully worse,
       just sorted lower.</p>
     <p class="gym-note">${escapeHtml(gym.rankingMethodology ?? "")}</p>
+    <p class="gym-note">Our S/A/B/C won't line up with every community tier list you've seen
+      <span class="acq-flag">not computed</span> — this ranks the full shipped ${ranking.length}, while
+      most public tier lists publish 10–16 picks total, so their top tier usually just means
+      "made the list," not the same cut this page draws.</p>
     ${defenderRules}
     ${ownedOnlyToggle}
     ${tierSections || `<p class="gym-empty">No ranked defender is marked owned yet. <button type="button" data-gym-owned-only aria-pressed="${ownedOnly}">Show all defenders</button></p>`}
@@ -725,7 +793,7 @@ export function renderGyms({
     ${ownedDefenderEditor(gym.defenders, ownedFormIds)}`
     : `${offenseSection(gym, forms)}
     ${staggerSection(gym)}`;
-  return `<div class="gyms-view">
+  return `<div class="gyms-view" id="gym-top">
     <p class="gym-tricks-seed"><a class="safe-escape" href="./#basics/tricks" data-route="basics" data-view="tricks">See gym tricks →</a></p>
     ${tabs}
     ${body}

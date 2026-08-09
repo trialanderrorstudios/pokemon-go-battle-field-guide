@@ -71,11 +71,20 @@ function scoreCandidate(defender, candidate, lineup, weights) {
 export function defenderPoolFromRanking(gym) {
   if (!gym?.defenderRanking?.length) return gym?.defenders ?? [];
   const pool = gym.defenderRanking.map((row) => ({ formId: row.formId, defenseTier: row.tier }));
-  // Union in curated defenders the top-50 cut (Shuckle is curated B-tier but
-  // unranked): ranking-only silently dropped them, so a reader owning one got
-  // no Coach suggestion at all — the leaderboard drop-form default came back
-  // empty instead of falling to their next defender. Curated rows keep their
-  // hand-graded defenseTier; it is the only tier they have.
+  // Shadows moved out of defenderRanking into their own shadowDefenderRanking
+  // list (same Blissey=100 score scale, own S/A/B/C tier) — union them in or
+  // the Coach can recommend zero shadows, including ones the app itself calls
+  // out as strong (e.g. Shadow Steelix reaches rank 17 with a Charged TM).
+  // isShadow lets any consumer of the pool tell a shadow row apart without
+  // re-deriving it from the formId suffix or a forms[] lookup.
+  for (const row of gym.shadowDefenderRanking ?? []) {
+    pool.push({ formId: row.formId, defenseTier: row.tier, isShadow: true });
+  }
+  // Union in curated defenders the ranking's cut (Shuckle is curated B-tier
+  // but unranked): ranking-only silently dropped them, so a reader owning one
+  // got no Coach suggestion at all — the leaderboard drop-form default came
+  // back empty instead of falling to their next defender. Curated rows keep
+  // their hand-graded defenseTier; it is the only tier they have.
   const ranked = new Set(pool.map((row) => row.formId));
   for (const row of gym.defenders ?? []) {
     if (!ranked.has(row.formId)) pool.push(row);
