@@ -117,6 +117,9 @@ export function createRouter({
 }) {
   const safeBase = normalizedBasePath(basePath);
   let started = false;
+  // The surface the reader is actually on. An in-page anchor overwrites the hash,
+  // so this is the only remaining record of where to put them back.
+  let lastRendered = { route: "home", view: "" };
 
   // A link that declares data-view is a view switcher and must match the view
   // exactly, or every segment of a control lights up at once. A link with no
@@ -138,6 +141,7 @@ export function createRouter({
       throw new TypeError(`Missing renderer for route: ${route}`);
     }
     renderer();
+    lastRendered = { route, view };
     // Read the view back off the location: a renderer may canonicalize the URL
     // itself (?boss=X#raids folds into #raids/target), and marking the view we
     // came in with would light the wrong segment of the strip it just drew.
@@ -178,6 +182,26 @@ export function createRouter({
 
   function onClick(event) {
     if (!isPlainPrimaryClick(event) || !event.target?.closest) return;
+    // In-page anchors are handled here, BEFORE the hash can change. Letting the
+    // fragment land in the URL and catching it on hashchange also works, but the
+    // hash write provokes a second render whose scrollTo(0, 0) immediately undoes
+    // the scroll — measured: the target reached top=81, then snapped back to
+    // scrollTop 0. Not navigating at all is simpler than racing the re-render.
+    const anchor = event.target.closest('a[href^="#"]:not([data-route])');
+    if (anchor) {
+      const id = (anchor.getAttribute?.("href") ?? "").slice(1);
+      const target = id && !ROUTE_SET.has(id.split("/")[0])
+        ? documentObject?.getElementById?.(id)
+        : null;
+      if (target) {
+        event.preventDefault();
+        // A jump into a collapsed tier section would otherwise scroll to a shut
+        // <details> and look like nothing happened.
+        target.closest?.("details:not([open])")?.setAttribute?.("open", "");
+        target.scrollIntoView?.({ block: "start" });
+        return;
+      }
+    }
     const link = event.target.closest("a[data-route]");
     if (!link || link.target === "_blank") return;
     const route = link.dataset.route;
@@ -191,8 +215,39 @@ export function createRouter({
     navigate(route, { view: resolveRoute(destination.href, safeBase).view });
   }
 
+  // An in-page anchor is not a route. The Defend view's jump links
+  // (#gym-ranking-title, #gym-motivation-title) and every "↑ Back to top" carry a
+  // bare fragment, and resolveRoute maps any unknown first segment to home — so
+  // tapping "Defender ranking" silently threw the reader back to Home. Honour a
+  // fragment that names an element on the page, and leave the route alone.
+  function anchorTarget() {
+    let raw = "";
+    try {
+      raw = decodeURIComponent(windowObject.location.hash.slice(1));
+    } catch {
+      return null;
+    }
+    if (!raw || ROUTE_SET.has(raw.split("/")[0])) return null;
+    return documentObject?.getElementById?.(raw) ?? null;
+  }
+
   function onHistoryChange() {
-    renderLocation({ canonicalize: true });
+    const target = anchorTarget();
+    if (!target) return renderLocation({ canonicalize: true });
+    // A jump link into a collapsed tier section would otherwise scroll to a
+    // closed <details> and appear to do nothing.
+    target.closest?.("details:not([open])")?.setAttribute?.("open", "");
+    target.scrollIntoView?.({ block: "start" });
+    // Put the route back in the address bar without firing another hashchange,
+    // so reload and Back still land on the surface the reader was actually on.
+    // Read it from the last render, NOT from the location — by now the hash IS
+    // the anchor, so resolving it would canonicalize the reader onto #home.
+    windowObject.history.replaceState?.(
+      {},
+      "",
+      routeHref(lastRendered.route, safeBase, windowObject.location.search, lastRendered.view),
+    );
+    return lastRendered.route;
   }
 
   return {

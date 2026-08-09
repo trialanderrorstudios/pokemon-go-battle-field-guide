@@ -3925,22 +3925,70 @@ select {
 
 /* The fifty-row ranking is grouped into S/A/B/C <details>, one per computed
    tier, so a reader sees ranks 1-2 are a class apart before scrolling past
-   ranks 8-20 that aren't. The tap target and cursor already come from
-   .gym-section > details > summary (same rule gym-rules uses); this only adds
-   the spacing between tier blocks and above the list once one is open. */
+   ranks 8-20 that aren't.
+
+   A tier is a CARD THAT CONTAINS its rows, not a heading with a loose list
+   underneath. The first pass got two things wrong: nothing enclosed the
+   children, so an open S tier bled into the A tier below with no boundary; and
+   nothing signalled the row could be opened, so three of the four tiers read as
+   dead headings. The chevron is drawn here rather than left to the native
+   marker, which the reset strips and which no two browsers place alike. */
 .gym-tier-section {
-  margin: 0 0 0.6rem;
+  margin: 0 0 0.7rem;
+  border: 1px solid var(--line);
+  border-radius: 1rem;
+  background: var(--dx-screen);
+  overflow: hidden;
+}
+
+/* The summary is the card's own header, so it carries a tint that separates it
+   from the rows it encloses. Tap target and cursor still come from
+   .gym-section > details > summary. */
+.gym-tier-section > summary {
+  gap: 0.5rem;
+  padding: 0.7rem 0.85rem;
+  background: var(--dx-screen-card-raised);
+}
+
+.gym-tier-section > summary::-webkit-details-marker {
+  display: none;
+}
+
+.gym-tier-section > summary::before {
+  content: "";
+  flex: 0 0 auto;
+  width: 0.5rem;
+  height: 0.5rem;
+  border-right: 2px solid currentColor;
+  border-bottom: 2px solid currentColor;
+  transform: rotate(-45deg);
+  transition: transform 140ms ease;
+}
+
+.gym-tier-section[open] > summary::before {
+  transform: rotate(45deg);
+}
+
+.gym-tier-section[open] > summary {
+  border-bottom: 1px solid var(--line);
 }
 
 .gym-tier-section .gym-rank-list {
-  margin-top: 0.4rem;
+  margin: 0;
+  padding: 0.6rem;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .gym-tier-section > summary::before {
+    transition: none;
+  }
 }
 
 .gym-rank-card {
   padding: 0.75rem;
   border-radius: 0.9rem;
-  background: var(--card-bg, var(--screen-bg));
-  border: 1px solid var(--border, rgba(255, 255, 255, 0.08));
+  background: var(--dx-screen-card);
+  border: 1px solid var(--line);
 }
 
 .gym-rank-head {
@@ -4276,8 +4324,8 @@ html:not([data-app-booted]) #app .fallback-section {
 .acq-item {
   padding: 0.75rem;
   border-radius: 0.9rem;
-  background: var(--card-bg, var(--screen-bg));
-  border: 1px solid var(--border, rgba(255, 255, 255, 0.08));
+  background: var(--dx-screen-card);
+  border: 1px solid var(--line);
 }
 
 .acq-item h3 {
