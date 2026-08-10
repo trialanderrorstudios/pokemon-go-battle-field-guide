@@ -17,15 +17,34 @@ export function sectionHeading(kicker, title, id) {
 }
 
 
-function moveWithElite(moveId, form, kind) {
-  const elite = new Set(form?.elite_moves ?? []).has(moveId);
+// form.elite_moves lumps Community Day classics in with genuinely restricted
+// moves — Blast Burn sits in the same list as Thunder Cage. Badging on raw
+// membership told readers their Blast Burn Charizard needed an Elite TM, which
+// is false for anyone who evolved during the event (i.e. most people) and is a
+// worse error than the one this wave fixed. When the row carries a researched
+// availabilityClass, trust it; when it does not, fall back to the old behaviour.
+// One rule, applied per slot, from the researched class — not from raw
+// form.elite_moves membership, which is wrong in BOTH directions. It lumps
+// Community Day classics (Blast Burn, Frenzy Plant, Hydro Cannon) in with
+// genuinely restricted moves, and it MISSES permanently-unobtainable ones that
+// live in PvPoke's legacyMoves instead (Mega Mewtwo X's Counter), which
+// rendered as freely available.
+function moveWithElite(moveId, form, kind, availabilityClass) {
+  const restricted = availabilityClass === "eliteOnly" || availabilityClass === "eventOnly";
+  const elite = availabilityClass
+    ? restricted
+    : new Set(form?.elite_moves ?? []).has(moveId);
   return moveLink(moveId, { elite, kind });
 }
 
 
 function movePair(row, forms) {
   const form = forms?.[row.formId];
-  return `${moveWithElite(row.fastMove, form, "Fast")} + ${moveWithElite(row.chargedMove, form, "Charged")}`;
+  // Fall back to the row-level class where per-slot is absent, then to the old
+  // membership behaviour where neither is shipped.
+  const fastCls = row.fastAvailabilityClass ?? row.availabilityClass;
+  const chargedCls = row.chargedAvailabilityClass ?? row.availabilityClass;
+  return `${moveWithElite(row.fastMove, form, "Fast", fastCls)} + ${moveWithElite(row.chargedMove, form, "Charged", chargedCls)}`;
 }
 
 
@@ -72,11 +91,25 @@ function offenseSection(gym, forms) {
 }
 
 
-// A team member's fast/charged pair carries its own eliteFastTM/eliteChargedTM
-// flags in the data (gym.attackTeams) rather than needing a form lookup —
-// moveLink's elite badge just reads them straight off the row.
+// A team member's fast/charged pair carries its own eliteFastTM/eliteChargedTM/
+// eventOnlyFastTM/eventOnlyChargedTM/availabilityClass flags in the data
+// (gym.attackTeams) rather than needing a form lookup. Event-only moves (not
+// obtainable via any TM — Zacian's Behemoth Blade) get the same warning badge
+// as Elite-TM moves since moveLink only knows the "Elite" wording; a
+// communityDayClassic headline is never scare-labelled, since the raid meta
+// assumes every serious player already has it.
+function moveAvailabilityBadge(moveId, { kind, elite, eventOnly, availabilityClass }) {
+  if (availabilityClass === "communityDayClassic") return moveLink(moveId, { kind });
+  if (elite) return moveLink(moveId, { kind, elite: true });
+  if (eventOnly) return `${moveLink(moveId, { kind })} <small class="elite-tm">Event-only move</small>`;
+  return moveLink(moveId, { kind });
+}
+
 function attackTeamMemberMoves(member) {
-  return `${moveLink(member.fastMove, { kind: "Fast", elite: member.eliteFastTM })} + ${moveLink(member.chargedMove, { kind: "Charged", elite: member.eliteChargedTM })}`;
+  const cls = member.availabilityClass;
+  const fast = moveAvailabilityBadge(member.fastMove, { kind: "Fast", elite: member.eliteFastTM, eventOnly: member.eventOnlyFastTM, availabilityClass: cls });
+  const charged = moveAvailabilityBadge(member.chargedMove, { kind: "Charged", elite: member.eliteChargedTM, eventOnly: member.eventOnlyChargedTM, availabilityClass: cls });
+  return `${fast} + ${charged}`;
 }
 
 function attackTeamMemberCard(member, forms) {
@@ -86,6 +119,7 @@ function attackTeamMemberCard(member, forms) {
     ${member.investmentTier ? `<p class="gym-rank">${escapeHtml(member.investmentTier)} investment</p>` : ""}
     <p class="gym-moves">${attackTeamMemberMoves(member)}</p>
     <p>${escapeHtml(member.role)}</p>
+    ${member.noObtainableAlternative ? `<p class="gym-warning-note">No obtainable ${escapeHtml(member.attackingType)} moveset exists for this Pokémon — this is its only option, Elite TM or not.</p>` : ""}
     ${member.answers?.length ? `<p class="gym-note"><strong>Best answer to:</strong> ${member.answers.map((answer) => `${escapeHtml(answer.pokemon)} (#${answer.defenderRank}, ${answer.effDps} eff DPS)`).join(", ")}</p>` : ""}
     ${whyLine(member.whyRanked)}
   </article></li>`;
@@ -113,6 +147,8 @@ function attackTeamsSection(gym, forms) {
   return `<section class="gym-section" aria-labelledby="gym-attack-teams-title">
     ${sectionHeading("Six defenders, one team at a time", "Gym-attacking teams", "gym-attack-teams-title")}
     <p class="gym-note">${escapeHtml(attackTeams.methodology ?? "")}</p>
+    <p class="gym-note">Which moves need an Elite TM, aren't obtainable via any TM, or are a Community Day
+      classic every serious player already has is a <span class="acq-flag">hand-researched</span> classification.</p>
     ${attackTeams.tiers.map((tier) => attackTeamTierSection(tier, forms)).join("")}
   </section>`;
 }
@@ -157,13 +193,21 @@ function eliteUpgradeLine(row) {
   const tierNote = elite.tier === row.tier
     ? ` It stays ${escapeHtml(row.tier)} tier either way (rank ${row.rank} → ${elite.rank}).`
     : ` It moves from ${escapeHtml(row.tier)} tier to ${escapeHtml(elite.tier)} tier (rank ${row.rank} → ${elite.rank}).`;
-  // elite: true so this gets the same "Elite Charged TM" badge every other move
-  // link on the page shows — a bare move name here read as freely obtainable.
+  // Community Day moves are NOT Elite-TM-gated for most people: anyone who
+  // evolved during the event has Meteor Mash or Hydro Cannon already. Badging
+  // them the same as Thunder Cage overstates what the upgrade costs, which is
+  // the mirror of the defect this wave set out to fix. Three shipped rows are
+  // in this class (Metagross, Primarina, Blastoise).
+  const communityDay = elite.availabilityClass === "communityDayClassic";
+  const label = communityDay ? "Community Day move" : "Elite TM option";
+  const without = communityDay
+    ? "the pick above is the best move you can get without it."
+    : "the pick above is the best move you can get without one.";
   return `<div class="gym-elite-upgrade">
-    <p><strong>Elite TM option:</strong> ${moveLink(elite.move, { kind: "Charged", elite: true })} —
-    the pick above is the best move you can get without one.</p>
+    <p><strong>${label}:</strong> ${moveLink(elite.move, { kind: "Charged", elite: !communityDay })} —
+    ${without}</p>
     <dl class="gym-move-dps">
-      <div><dt>With Elite TM</dt><dd>${elite.score}<span class="gym-dps-sub">rank #${elite.rank}, ${escapeHtml(elite.tier)} tier</span></dd></div>
+      <div><dt>${communityDay ? "With it" : "With Elite TM"}</dt><dd>${elite.score}<span class="gym-dps-sub">rank #${elite.rank}, ${escapeHtml(elite.tier)} tier</span></dd></div>
       <div><dt>Without</dt><dd>${elite.obtainableScore}<span class="gym-dps-sub">rank #${row.rank}, ${escapeHtml(row.tier)} tier — what you can build now</span></dd></div>
       ${Number.isFinite(gain) ? `<div><dt>Gain</dt><dd>+${gain}%</dd></div>` : ""}
     </dl>

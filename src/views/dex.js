@@ -105,6 +105,19 @@ function gymSection(form, gym) {
 }
 
 
+// A ranked row's fastMove/chargedMove are the practical, obtainable pick —
+// eliteFastTM/eliteChargedTM/eventOnlyFastTM/eventOnlyChargedTM say whether
+// even that needs an Elite TM or isn't obtainable via any TM (noObtainableAlternative:
+// no other option exists for this type). A communityDayClassic move is never
+// scare-labelled — the raid meta assumes every serious player already has it.
+function raidMoveBadge(moveId, { kind, elite, eventOnly, availabilityClass }) {
+  if (availabilityClass === "communityDayClassic") return moveLink(moveId, { kind });
+  if (elite) return moveLink(moveId, { kind, elite: true });
+  if (eventOnly) return `${moveLink(moveId, { kind })} <small class="elite-tm">Event-only move</small>`;
+  return moveLink(moveId, { kind });
+}
+
+
 function raidAttackerSection(form, raids, raidsLoaded) {
   if (!raidsLoaded) {
     return `<section class="dex-section" aria-labelledby="dex-raid-attacker-title"><h3 id="dex-raid-attacker-title">Raid attacker</h3><p class="dex-loading">Loading…</p></section>`;
@@ -113,7 +126,14 @@ function raidAttackerSection(form, raids, raidsLoaded) {
   if (!rows.length) {
     return `<section class="dex-section" aria-labelledby="dex-raid-attacker-title"><h3 id="dex-raid-attacker-title">Raid attacker</h3><p>Not a ranked raid attacker in this release.</p></section>`;
   }
-  const rowsHtml = rows.map((row) => `<li>${escapeHtml(row.attackingType)}: rank ${escapeHtml(row.rank)}, ${escapeHtml(row.investmentTier)} tier — ${moveLink(row.fastMove)} + ${moveLink(row.chargedMove)}</li>`).join("");
+  const rowsHtml = rows.map((row) => {
+    const cls = row.availabilityClass;
+    const fast = raidMoveBadge(row.fastMove, { kind: "Fast", elite: row.eliteFastTM, eventOnly: row.eventOnlyFastTM, availabilityClass: cls });
+    const charged = raidMoveBadge(row.chargedMove, { kind: "Charged", elite: row.eliteChargedTM, eventOnly: row.eventOnlyChargedTM, availabilityClass: cls });
+    const noAlt = row.noObtainableAlternative
+      ? ` <span class="acq-flag">no obtainable alternative</span>` : "";
+    return `<li>${escapeHtml(row.attackingType)}: rank ${escapeHtml(row.rank)}, ${escapeHtml(row.investmentTier)} tier — ${fast} + ${charged}${noAlt}</li>`;
+  }).join("");
   return `<section class="dex-section" aria-labelledby="dex-raid-attacker-title">
     <h3 id="dex-raid-attacker-title">Raid attacker</h3>
     <ul class="dex-list">${rowsHtml}</ul>
@@ -147,19 +167,27 @@ function pvpSection(form, pvp) {
 }
 
 
-function moveList(moveIds, eliteIds, kind) {
-  return moveIds.map((moveId) => `<li>${moveLink(moveId, { elite: eliteIds.has(moveId), kind })}</li>`).join("");
+// event_only_moves (PvPoke's legacyMoves) are moves this form can never get
+// via any TM, Elite included — a stricter claim than eliteIds, so it gets its
+// own badge rather than reusing moveLink's "Elite TM" wording.
+function moveList(moveIds, eliteIds, eventOnlyIds, kind) {
+  return moveIds.map((moveId) => (eliteIds.has(moveId)
+    ? `<li>${moveLink(moveId, { elite: true, kind })}</li>`
+    : eventOnlyIds.has(moveId)
+      ? `<li>${moveLink(moveId, { kind })} <small class="elite-tm">Event-only move</small></li>`
+      : `<li>${moveLink(moveId, { kind })}</li>`)).join("");
 }
 
 
 function movesSection(form) {
   const elite = new Set(form.elite_moves ?? []);
+  const eventOnly = new Set(form.event_only_moves ?? []);
   return `<section class="dex-section" aria-labelledby="dex-moves-title">
     <h3 id="dex-moves-title">Moves</h3>
     <p>Fast</p>
-    <ul class="dex-list">${moveList(form.fast_moves ?? [], elite, "Fast")}</ul>
+    <ul class="dex-list">${moveList(form.fast_moves ?? [], elite, eventOnly, "Fast")}</ul>
     <p>Charged</p>
-    <ul class="dex-list">${moveList(form.charged_moves ?? [], elite, "Charged")}</ul>
+    <ul class="dex-list">${moveList(form.charged_moves ?? [], elite, eventOnly, "Charged")}</ul>
   </section>`;
 }
 
