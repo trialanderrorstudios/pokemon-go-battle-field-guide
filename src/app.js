@@ -330,7 +330,13 @@ export function createRouteChunkLoader({ releaseManager, getReleaseState, onChun
         chunk = {};
         for (const path of missing) {
           const partial = await releaseManager.loadReleaseFiles(manifest, [path]);
-          if (partial.raids) partial.raids = { ...chunk.raids, ...partial.raids };
+          // Shallow-merging the two halves is not enough once `raids` carries a
+          // sibling LIST: both chunks ship honorableMentions (9 regular, 2
+          // shadow) and a spread makes the second file's array replace the
+          // first's instead of joining them. Electric's only mention lives in
+          // the regular half, so it vanished whenever shadow loaded second.
+          // Concatenate arrays, spread everything else.
+          if (partial.raids) partial.raids = mergeRaidsHalves(chunk.raids, partial.raids);
           Object.assign(chunk, partial);
         }
       } catch {
@@ -3810,4 +3816,19 @@ export async function startFieldGuide({
 
 if (typeof window !== "undefined" && typeof document !== "undefined") {
   void startFieldGuide();
+}
+
+
+// The `raids` key is split across raids-regular.json and raids-shadow.json
+// (pwa.py's SPLIT_KEY_OWNERS). Its halves must JOIN, never overwrite: `regular`
+// and `shadow` appear in only one file each, but sibling lists appear in both.
+export function mergeRaidsHalves(left = {}, right = {}) {
+  const merged = { ...left };
+  for (const [key, value] of Object.entries(right)) {
+    const existing = merged[key];
+    merged[key] = Array.isArray(existing) && Array.isArray(value)
+      ? [...existing, ...value]
+      : value;  // ponytail: concat is enough; nothing under `raids` needs dedupe today
+  }
+  return merged;
 }
