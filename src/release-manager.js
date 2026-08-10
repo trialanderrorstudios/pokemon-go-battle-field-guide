@@ -1,5 +1,5 @@
 export const APP_VERSION = 1;
-export const APP_SHELL_REVISION = "r88";
+export const APP_SHELL_REVISION = "r89";
 export const MANIFEST_SCHEMA_VERSION = 1;
 export const DATA_SCHEMA_VERSION = 1;
 export const RELEASE_STATES = Object.freeze([
@@ -91,7 +91,12 @@ export function validateReleaseManifest(manifest, { appVersion = APP_VERSION } =
       throw new TypeError(`Unsupported SHA-256 for ${file.path}.`);
     }
   }
-  for (const required of ["core.json", "extras.json", "gyms.json", "pvp.json", "raid-targets.json", "raids.json"]) {
+  // raids.json split into raids-regular.json + raids-shadow.json (pwa.py's
+  // SPLIT_KEY_OWNERS). This list must track pwa.py's chunk names: a manifest
+  // missing any of these fails validation and the release never installs —
+  // the app then boots to the static shell (2026-08-09 review caught exactly
+  // that: the split landed in pwa.py but not here).
+  for (const required of ["core.json", "extras.json", "gyms.json", "pvp.json", "raid-targets.json", "raids-regular.json", "raids-shadow.json"]) {
     if (!seen.has(required)) throw new TypeError(`Release is missing required file path ${required}.`);
   }
   return structuredClone(manifest);

@@ -670,6 +670,12 @@ h1 {
   display: inline;
 }
 
+/* Tap-target audit (390px, gym defend): the checkbox itself measures 1x1 and
+   pointer-events:none takes it out of hit-testing entirely — it exists only
+   for the a11y tree. The real target is .jargon-label below (19px tall, an
+   inline dotted-underline term inside running prose), which is the same
+   WCAG 2.5.5 inline-text-link case .move-link documents elsewhere in this
+   file. Not forcing 44px here for the same reason: no min-height. */
 .jargon-toggle {
   position: absolute;
   width: 1px;
@@ -4474,6 +4480,21 @@ html:not([data-app-booted]) #app .fallback-section {
   color: var(--muted);
 }
 
+/* Tap-target audit (390px, gym defend, 26 instances measured): 15px tall,
+   same inline-text-link case as .move-link — this is the last word of a
+   "Start from: ..." sentence inside .origin-line, not a standalone control.
+   Unlike .move-link, the .move-link min-height/negative-margin trick isn't
+   safe here: the gap from this link's own box to the boundary right after it
+   (next sibling paragraph, or the closing edge of the .gym-rank-more details
+   panel it sits in) measured 2.55px in every one of the 26 cases, not the
+   tens of px .move-link relies on. min-height: 44px would need ~14.5px of
+   bleed above and below (negative-margin canceling padding) — the 2.55px
+   available below means that bleed would extend past this link's own
+   paragraph and overlap the next card content's hit area, so a tap meant
+   for the text below could fire this link instead. WCAG 2.5.5's inline
+   exception applies (this is prose, not a button row), so left unforced;
+   see .move-link above for the technique this would use if a future layout
+   change opens up more room below it. */
 .origin-item-help {
   white-space: nowrap;
 }

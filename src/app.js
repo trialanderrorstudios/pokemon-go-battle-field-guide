@@ -33,7 +33,7 @@ import { renderTypes, typeChip } from "./views/types.js";
 import { weaknessesOf } from "./type-chart.js";
 import { renderGlossary } from "./views/glossary.js";
 import { handleSpriteError, spriteHtml } from "./sprites.js";
-import { renderGyms } from "./views/gyms.js";
+import { buildLazyGymBody, renderGyms } from "./views/gyms.js";
 import { renderLeaderboard } from "./views/leaderboard.js";
 import { MORE_LISTS, renderMore } from "./views/more.js";
 import { buildMoveIndex } from "./moves.js";
@@ -186,19 +186,22 @@ export const ROUTE_CHUNKS = Object.freeze({
   // content (Coming Up, invest-here rows, future-proof badges) is built
   // from, so those stay eager. raids.json is deliberately NOT here: Home's
   // only use of it is the roster-gap teaser (getGapByFormId below), and
-  // raids.json alone is 1.09MB raw (92KB gzip) — the single biggest file
-  // Home was parsing on every visit for a teaser most sessions never look
-  // at. It's fetched separately, only after the four chunks above have
-  // landed, under HOME_DEFERRED_CHUNK_KEY below — see the home renderer's
-  // onRouteVisit chaining for the fetch trigger. getGapByFormId's gate
-  // (loadedChunkPaths.has("raids.json")) doesn't care which key fetched it,
-  // so the teaser still renders honestly once it lands and stays a no-op
-  // (never a guessed gap) until then.
+  // raids.json (now split — see raids-regular.json/raids-shadow.json below)
+  // alone was 1.09MB raw (92KB gzip) — the single biggest file Home was
+  // parsing on every visit for a teaser most sessions never look at. It's
+  // fetched separately, only after the four chunks above have landed, under
+  // HOME_DEFERRED_CHUNK_KEY below — see the home renderer's onRouteVisit
+  // chaining for the fetch trigger. getGapByFormId's gate doesn't care which
+  // route triggered the load, so the teaser still renders honestly once both
+  // halves land and stays a no-op (never a guessed gap) until then.
   home: ["raid-targets.json", "current-bosses.json", "current-events.json", "extras.json"],
   // current-bosses/current-events/pvp belong to the Hundo Priority sub-view:
   // a chase/don't-chase verdict built from partial raid+PvP data would be
-  // wrong, not just incomplete.
-  raids: ["raids.json", "raid-targets.json", "current-bosses.json", "current-events.json", "pvp.json"],
+  // wrong, not just incomplete. raids.json is split into raids-regular.json
+  // + raids-shadow.json (pwa.py's VIEW_KEYS/SPLIT_KEY_OWNERS) — both own the
+  // top-level `raids` key, so both are always requested together; see
+  // ensureRouteChunks below for the merge that keeps both halves.
+  raids: ["raids-regular.json", "raids-shadow.json", "raid-targets.json", "current-bosses.json", "current-events.json", "pvp.json"],
   gyms: ["gyms.json"],
   // The drop-form's Placement Coach prefill reads the same ranked defenders
   // the Gyms page does; undeclared, a cold deep-link silently loses it.
@@ -208,7 +211,7 @@ export const ROUTE_CHUNKS = Object.freeze({
   // Blissey-class walls as transfer candy (operator-reported 2026-07-23).
   // current-bosses/current-events belong to the Roster Gaps sub-view, which
   // scores candidates against the bosses actually in rotation.
-  triage: ["raids.json", "pvp.json", "extras.json", "gyms.json", "current-bosses.json", "current-events.json"],
+  triage: ["raids-regular.json", "raids-shadow.json", "pvp.json", "extras.json", "gyms.json", "current-bosses.json", "current-events.json"],
   more: ["extras.json"],
   // acquisition.json: where Eggs come from, and what the "Adventure Sync" tag
   // on a row actually means — the page tagged rows and explained neither.
@@ -219,7 +222,7 @@ export const ROUTE_CHUNKS = Object.freeze({
   // raids.json fetch (see ROUTE_CHUNKS.home above) can go through the exact
   // same claim/load/merge machinery as a real route instead of a bespoke
   // fetch call.
-  [HOME_DEFERRED_CHUNK_KEY]: ["raids.json"],
+  [HOME_DEFERRED_CHUNK_KEY]: ["raids-regular.json", "raids-shadow.json"],
 });
 
 export function chunksNeededFor(route, loadedChunkPaths) {
@@ -234,7 +237,10 @@ export function routeChunksReady(route, loadedChunkPaths) {
 // Mirrors pwa.py's VIEW_KEYS: which top-level `state` fields each release
 // file's data lands as, once merged in.
 const CHUNK_FIELDS = Object.freeze({
-  "raids.json": ["raids"],
+  // Both own the top-level "raids" key (pwa.py's SPLIT_KEY_OWNERS) — see
+  // ensureRouteChunks below for why that needs its own merge step.
+  "raids-regular.json": ["raids"],
+  "raids-shadow.json": ["raids"],
   "raid-targets.json": ["raidTargetTool"],
   "gyms.json": ["gym", "placement"],
   "pvp.json": ["pvp", "pvpTeams", "pvpAlternatives"],
@@ -304,7 +310,21 @@ export function createRouteChunkLoader({ releaseManager, getReleaseState, onChun
       for (const path of missing) claimedChunkPaths.add(path);
       let chunk;
       try {
-        chunk = await releaseManager.loadReleaseFiles(manifest, missing);
+        // One file at a time, not releaseManager.loadReleaseFiles(manifest,
+        // missing) in a single call: that method merges every requested
+        // file with a flat Object.assign, and raids-regular.json /
+        // raids-shadow.json both own the top-level "raids" key (pwa.py's
+        // SPLIT_KEY_OWNERS) — whichever loaded second would silently
+        // clobber the other's half instead of the two combining. Fetching
+        // one path per call costs nothing extra (loadReleaseFiles already
+        // awaits its files sequentially), and lets this loop merge `raids`
+        // itself instead of overwriting it.
+        chunk = {};
+        for (const path of missing) {
+          const partial = await releaseManager.loadReleaseFiles(manifest, [path]);
+          if (partial.raids) partial.raids = { ...chunk.raids, ...partial.raids };
+          Object.assign(chunk, partial);
+        }
       } catch {
         // A release install/update/rollback may have landed while this fetch
         // was in flight — that already called reset(), repointing
@@ -2938,7 +2958,24 @@ export function onDialogKeydown(event, app) {
   }
 }
 
-function bindInteractions(app, controller, extraClickTargets = [], fullTargets = []) {
+// The Gyms#defend view ships closed <details data-lazy="..."> placeholders
+// (see gyms.js's buildTierSectionBody/lazyGymPlaceholder) whose body is only
+// built the first time they're opened — 'toggle' does not bubble, so this has
+// to be a capturing listener on a root that contains them, same reasoning as
+// handleSpriteError's 'error' listener just above it. getLazyContext is a
+// thunk (not a plain object) so this always reads whatever gym/forms/roster
+// state is current at click time, not whatever was in scope when bootstrap()
+// ran.
+function onGymLazyToggle(event, getLazyContext) {
+  const details = event.target;
+  if (details?.tagName !== "DETAILS" || !details.open || !details.hasAttribute?.("data-lazy")) return;
+  const body = details.querySelector?.(":scope > .gym-lazy-body");
+  if (!body) return;
+  body.innerHTML = buildLazyGymBody(details.getAttribute("data-lazy"), getLazyContext());
+  details.removeAttribute("data-lazy");
+}
+
+function bindInteractions(app, controller, extraClickTargets = [], fullTargets = [], getLazyContext = null) {
   if (typeof app?.addEventListener !== "function") return () => {};
   const delegate = (operation) => {
     void Promise.resolve().then(operation).catch((error) => controller.handleFailure(error));
@@ -2947,6 +2984,7 @@ function bindInteractions(app, controller, extraClickTargets = [], fullTargets =
   const onChange = (event) => delegate(() => controller.handleChange(event));
   const onInput = (event) => controller.handleInput(event);
   const onKeydown = (event) => onDialogKeydown(event, app);
+  const onToggle = getLazyContext ? (event) => onGymLazyToggle(event, getLazyContext) : null;
   // #app plus any full-delegation roots (the body-level overlay root that
   // hosts the move/instance sheets outside the clipped bezel) get the whole
   // event set, so sheet inputs, sprite-error fallbacks, and dialog keydown
@@ -2960,6 +2998,7 @@ function bindInteractions(app, controller, extraClickTargets = [], fullTargets =
     // "error" does not bubble, so this must be a capturing listener; it swaps
     // any broken sprite <img> for its fallback circle without inline JS.
     root.addEventListener("error", handleSpriteError, true);
+    if (onToggle) root.addEventListener("toggle", onToggle, true);
   }
   // The update banner lives in the persistent chrome outside #app (it must
   // survive route innerHTML swaps), so it needs its own click hookup into
@@ -2972,6 +3011,7 @@ function bindInteractions(app, controller, extraClickTargets = [], fullTargets =
       root.removeEventListener?.("input", onInput);
       root.removeEventListener?.("keydown", onKeydown);
       root.removeEventListener?.("error", handleSpriteError, true);
+      if (onToggle) root.removeEventListener?.("toggle", onToggle, true);
     }
     for (const target of extraClickTargets) target?.removeEventListener?.("click", onClick);
   };
@@ -3048,10 +3088,11 @@ export function bootstrap({
     return triageResult;
   };
   // Roster gap coverage (round 15, gap-analyzer.js) needs raids.json's
-  // ranked rows — gated on it actually being loaded (independent of which
-  // route triggered that load) so Home/Today never claim a gap from data
-  // that simply hasn't landed yet.
-  const getGapByFormId = () => (loadedChunkPaths.has("raids.json")
+  // ranked rows — gap-analyzer.js iterates both raids.regular and
+  // raids.shadow, so this is gated on BOTH split files actually being loaded
+  // (independent of which route triggered that load) so Home/Today never
+  // claim a gap from data that simply hasn't fully landed yet.
+  const getGapByFormId = () => (loadedChunkPaths.has("raids-regular.json") && loadedChunkPaths.has("raids-shadow.json")
     ? buildGapByFormId({
       coverage: typeCoverage({ raids: state.raids, roster }),
       currentBosses: state.currentBosses,
@@ -3217,6 +3258,7 @@ export function bootstrap({
           rosterInstances: roster.instances,
           trainerTeam: ui.trainerProfile.team,
           view,
+          lazy: true,
         })}`
         : chunkLoadingNotice("Gyms"));
     },
@@ -3581,7 +3623,12 @@ export function bootstrap({
   const stopInteractions = bindInteractions(app, controller, [
     documentObject.getElementById?.("update-banner"),
     documentObject.getElementById?.("staleness-banner"),
-  ], [overlayRoot]);
+  ], [overlayRoot], () => ({
+    gym: state.gym,
+    forms: state.core.forms,
+    ownedFormIds: roster.ownedFormIds,
+    ownedOnly: ui.gym.ownedOnly,
+  }));
   return { status: "ready", router, searchIndex: index, controller, ui, stopInteractions };
 }
 

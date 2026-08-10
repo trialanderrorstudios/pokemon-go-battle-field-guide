@@ -72,6 +72,50 @@ function offenseSection(gym, forms) {
 }
 
 
+// A team member's fast/charged pair carries its own eliteFastTM/eliteChargedTM
+// flags in the data (gym.attackTeams) rather than needing a form lookup —
+// moveLink's elite badge just reads them straight off the row.
+function attackTeamMemberMoves(member) {
+  return `${moveLink(member.fastMove, { kind: "Fast", elite: member.eliteFastTM })} + ${moveLink(member.chargedMove, { kind: "Charged", elite: member.eliteChargedTM })}`;
+}
+
+function attackTeamMemberCard(member, forms) {
+  return `<li class="gym-card"><article>
+    ${spriteHtml(member.formId, forms, member.pokemon, forms?.[member.formId]?.primary_type ?? member.attackingType)}
+    <h4>${escapeHtml(member.pokemon)}</h4>
+    ${member.investmentTier ? `<p class="gym-rank">${escapeHtml(member.investmentTier)} investment</p>` : ""}
+    <p class="gym-moves">${attackTeamMemberMoves(member)}</p>
+    <p>${escapeHtml(member.role)}</p>
+    ${member.answers?.length ? `<p class="gym-note"><strong>Best answer to:</strong> ${member.answers.map((answer) => `${escapeHtml(answer.pokemon)} (#${answer.defenderRank}, ${answer.effDps} eff DPS)`).join(", ")}</p>` : ""}
+    ${whyLine(member.whyRanked)}
+  </article></li>`;
+}
+
+// Budget/mid/premium are three genuinely different builds, not one ranking
+// truncated at different depths — eligibilityNote says what each one costs to
+// build in its own words (budget: literally the accessible Build These Six,
+// labelled as such; mid: no Megas/legendaries; premium: anything, one Mega
+// cap), so it renders as the tier's own headline rather than a caption.
+function attackTeamTierSection(tier, forms) {
+  return `<div class="gym-subsection" aria-labelledby="gym-team-${escapeHtml(tier.id)}-title">
+    <h3 id="gym-team-${escapeHtml(tier.id)}-title">${escapeHtml(tier.title)}</h3>
+    <p class="gym-note">${escapeHtml(tier.eligibilityNote)}</p>
+    <ol class="gym-card-list">${(tier.members ?? []).map((member) => attackTeamMemberCard(member, forms)).join("")}</ol>
+    ${tier.coverageGaps?.length ? `<p class="gym-warning-note"><strong>No super-effective team answer:</strong> ${escapeHtml(tier.coverageGaps.join(", "))}</p>` : ""}
+  </div>`;
+}
+
+function attackTeamsSection(gym, forms) {
+  const attackTeams = gym.attackTeams;
+  if (!attackTeams?.tiers?.length) return "";
+  return `<section class="gym-section" aria-labelledby="gym-attack-teams-title">
+    ${sectionHeading("Six defenders, one team at a time", "Gym-attacking teams", "gym-attack-teams-title")}
+    <p class="gym-note">${escapeHtml(attackTeams.methodology ?? "")}</p>
+    ${attackTeams.tiers.map((tier) => attackTeamTierSection(tier, forms)).join("")}
+  </section>`;
+}
+
+
 function staggerSection(gym) {
   const guide = gym.staggerGuide ?? {};
   return `<section class="gym-section" aria-labelledby="gym-stagger-title">
@@ -212,7 +256,123 @@ export function backToTop() {
 }
 
 
-function lineupSection(gym, forms, lineupShape = "clean", ownedFormIds = [], ownedOnly = false) {
+// Placeholder for a section body deferred until its <details> first opens.
+// The matching outer element also carries data-lazy="<id>" (see the lazy*
+// call sites below) so app.js's capture-phase 'toggle' listener knows to call
+// buildLazyGymBody(id, ...) and drop the result straight into this div — no
+// registry to keep in sync, the id alone is enough to rebuild the same HTML
+// buildLazyGymBody would have produced at render time.
+function lazyGymPlaceholder() {
+  return `<div class="gym-lazy-body"></div>`;
+}
+
+const TIER_CHUNK_SIZE = 25;
+const TIER_CHUNK_THRESHOLD = 40;
+
+// Solo counters moved from a hand-curated passthrough to a computed field
+// (see gym.soloCountersMethod) but keep the same {pokemon, fastMove,
+// chargedMove, formId} shape movePair() already reads, plus investmentTier —
+// shown so a reader sees what a "best answer" costs to build, not just that
+// it's a fast pick. "computed" replaces the old "not computed" flag: this is
+// the opposite claim from the hand-curated block it used to live inside.
+function soloCountersLine(row, forms) {
+  if (!row.soloCounters?.length) return "";
+  const counters = row.soloCounters.map((counter) => {
+    const tier = counter.investmentTier ? `, ${escapeHtml(counter.investmentTier)} investment` : "";
+    return `${escapeHtml(counter.pokemon)} (${movePair(counter, forms)}${tier})`;
+  }).join(", ");
+  return `<p class="why-line"><strong>Best answers:</strong> ${counters} <span class="acq-flag">computed</span></p>`;
+}
+
+// The body of a ranked row's "Move numbers, origin and full reasoning"
+// details — factored out of renderRankRow so both the eager render and the
+// on-demand lazy rebuild (buildLazyGymBody) produce byte-identical output
+// from one place.
+function rankMoreBody(row, forms) {
+  return `${defenderMoveNumbers(row)}
+      ${eliteUpgradeLine(row)}
+      ${shadowUpgradeLine(row)}
+      ${originLine(row.origin, row.acquisition)}
+      ${whyLine(row.fastWhy, "Fast:")}
+      ${whyLine(row.chargedWhy, "Charged:")}
+      ${whyLine(row.moveNote)}
+      ${soloCountersLine(row, forms)}
+      ${(row.placementValue || row.motivationNote) ? `
+        <p class="gym-curated-label">Hand-curated notes <span class="acq-flag">not computed</span></p>
+        ${whyLine(row.placementValue, "Placement:")}
+        ${whyLine(row.motivationNote, "Motivation:")}
+      ` : ""}`;
+}
+
+// Hoisted out of lineupSection (was a closure over forms/ownedSet) so
+// buildLazyGymBody can call it too, for a tier/chunk built on demand instead
+// of at initial render. `lazy` defers the row's OWN inner .gym-rank-more —
+// independent of whether the tier around it is open or closed — because
+// otherwise the eagerly-open S tier (or an owned-only filter matching many
+// rows) still builds every row's full reasoning block up front, and that
+// block is most of a row's bytes.
+function renderRankRow(row, forms, ownedSet, lazy) {
+  const owned = ownedSet.has(row.formId);
+  const moreLazyId = `more|normal|${row.formId}`;
+  return `<li class="gym-rank-row gym-rank-card${owned ? " is-owned" : ""}"><article aria-labelledby="gym-rank-${row.rank}">
+    <div class="gym-rank-head">
+      ${spriteHtml(row.formId, forms, row.pokemon, forms?.[row.formId]?.primary_type)}
+      <span class="gym-rank-n">#${row.rank}</span>
+      <strong id="gym-rank-${row.rank}">${escapeHtml(row.pokemon)}</strong>
+      <span class="gym-rank-score">${row.score}</span>
+      ${row.curatedTier
+        ? `<span class="gym-rank-tier" title="Hand-curated tier, not computed">${escapeHtml(row.curatedTier)}-tier <span class="acq-flag">curated</span></span>`
+        : ""}
+      ${ownedStarButton({ formId: row.formId, name: row.pokemon, owned, route: "gyms" })}
+    </div>
+    <p class="gym-moves">${moveLink(row.bestFastMove, { kind: "Fast" })} + ${chargedMoveDisplay(row.bestChargedMove)}</p>
+    ${row.weaknesses?.length ? `<p><strong>Weak to:</strong> ${escapeHtml(row.weaknesses.join(", "))}</p>` : ""}
+    ${row.resists?.length ? `<p><strong>Resists:</strong> ${escapeHtml(row.resists.join(", "))}</p>` : ""}
+    ${whyLine(row.whyRanked)}
+    <details class="gym-rank-more"${lazy ? ` data-lazy="${escapeHtml(moreLazyId)}"` : ""}>
+      <summary>Move numbers, origin and full reasoning</summary>
+      ${lazy ? lazyGymPlaceholder() : rankMoreBody(row, forms)}
+    </details>
+  </article></li>`;
+}
+
+function tierRowsHtml(rows, forms, ownedSet, lazy) {
+  return `<ol class="gym-rank-list">${rows.map((row) => renderRankRow(row, forms, ownedSet, lazy)).join("")}</ol>`;
+}
+
+// Shared by the eager render (a force-open tier — S, or any tier under an
+// owned-only filter) and buildLazyGymBody (a closed tier, built the first
+// time its <details> opens). `totalRanked` is the section's overall
+// ranking.length, needed for the chunk intro sentence.
+function buildTierSectionBody(tier, rows, forms, ownedSet, lazy, totalRanked) {
+  const chunks = [];
+  if (rows.length > TIER_CHUNK_THRESHOLD) {
+    for (let i = 0; i < rows.length; i += TIER_CHUNK_SIZE) chunks.push(rows.slice(i, i + TIER_CHUNK_SIZE));
+  }
+  if (chunks.length <= 1) return tierRowsHtml(rows, forms, ownedSet, lazy);
+  // ponytail: chunks build in full as soon as their parent tier opens — no
+  // shipped tier currently exceeds TIER_CHUNK_THRESHOLD (largest today is 26
+  // of 40), so a second lazy layer here has no live payoff yet. Give a chunk
+  // its own data-lazy (same mechanism, chunk index is already a unique
+  // suffix on the tier's lazy id) if a future refresh piles rows past the
+  // threshold again.
+  return `<p class="gym-note">${tier} tier is the rest of the shipped top ${totalRanked} defenders —
+      every row in it still out-ranked every eligible Pokémon that isn't on this list. Split below
+      by rank so you can open the range you care about instead of the whole tier at once.</p>
+    ${chunks.map((chunk) => {
+      const first = chunk[0];
+      const last = chunk[chunk.length - 1];
+      const scoreHigh = Math.max(first.score, last.score);
+      const scoreLow = Math.min(first.score, last.score);
+      return `<details class="gym-tier-section">
+        <summary>Ranks ${first.rank}–${last.rank} · scores ${scoreHigh}–${scoreLow}</summary>
+        ${tierRowsHtml(chunk, forms, ownedSet, lazy)}
+      </details>`;
+    }).join("")}`;
+}
+
+
+function lineupSection(gym, forms, lineupShape = "clean", ownedFormIds = [], ownedOnly = false, lazy = false) {
   // Two strategies, not one ranked list. "Clean" is stronger when you can
   // build it; "chain breakers" is what a second account or a friend's thinner
   // roster can actually field, and burying it below five clean options hides
@@ -237,8 +397,16 @@ function lineupSection(gym, forms, lineupShape = "clean", ownedFormIds = [], own
     ? "Two walls that share a weakness, with something between them that resists it — the attacker cannot walk straight through. Use these when you do not have three unrelated walls to hand."
     : "Nothing here is super-effective against more than one member, so no single attacker gets a free run. Strongest when you can build it."}</p>`;
 
-  const lineupCard = (lineup, optionNumber) => `<li class="gym-card"><article>
-    <p class="gym-rank">Option ${optionNumber}</p>
+  // Five options per lead means a reader could mistake #5 for a reshuffle of
+  // #1 instead of a real quality decline — show the lineup's own score, and
+  // how far behind the group's best option it is, so the ordering reads as
+  // honest rather than five interchangeable picks.
+  const lineupCard = (lineup, optionNumber, bestScore) => {
+    const gap = optionNumber > 1 && Number.isFinite(bestScore) && bestScore > 0
+      ? ` <span class="gym-dps-sub">${(100 * (bestScore - lineup.lineupScore) / bestScore).toFixed(0)}% behind option 1</span>`
+      : "";
+    return `<li class="gym-card"><article>
+    <p class="gym-rank">Option ${optionNumber} · score ${lineup.lineupScore}${gap}</p>
     <ol class="gym-lineup-order">${lineup.members.map((member) => `<li>
       ${spriteHtml(member.formId, forms, member.pokemon, forms?.[member.formId]?.primary_type)}
       <strong>${escapeHtml(member.pokemon)}</strong>
@@ -253,6 +421,7 @@ function lineupSection(gym, forms, lineupShape = "clean", ownedFormIds = [], own
       ? `${escapeHtml(lineup.sharedWeaknesses.join(", "))} — one attacker type pressures more than one slot`
       : "none — no single attacking type is super-effective against more than one member"}</p>
   </article></li>`;
+  };
 
   // Lineups are grouped by lead (the first member each option opens with) rather
   // than shown as one flat numbered list: which Pokemon you invest toward first
@@ -274,11 +443,16 @@ function lineupSection(gym, forms, lineupShape = "clean", ownedFormIds = [], own
   // whyLead is rendered once per group, right under the heading it explains: it's the
   // same string for every option sharing that lead, and it's what stops a rank-81/C
   // Slaking leading four lineups from reading as the page contradicting its own ranking.
-  const lineupCards = leadGroups.map((group) => `<div class="gym-subsection" aria-labelledby="gym-lineup-lead-${escapeHtml(group.leadFormId)}">
+  const lineupCards = leadGroups.map((group) => {
+    // Already lineupScore-descending within a lead (see gym_ranking.py's
+    // _scored_lineups sort) — option 1 is the group's own best score.
+    const bestScore = group.lineups[0]?.lineupScore;
+    return `<div class="gym-subsection" aria-labelledby="gym-lineup-lead-${escapeHtml(group.leadFormId)}">
     <h3 id="gym-lineup-lead-${escapeHtml(group.leadFormId)}">Led by ${escapeHtml(group.lead)}</h3>
     ${whyLine(group.whyLead)}
-    <ul class="gym-card-list">${group.lineups.map((lineup, i) => lineupCard(lineup, i + 1)).join("")}</ul>
-  </div>`).join("");
+    <ul class="gym-card-list">${group.lineups.map((lineup, i) => lineupCard(lineup, i + 1, bestScore)).join("")}</ul>
+  </div>`;
+  }).join("");
 
   // The two selection rules, stated once for the section rather than repeated on
   // fifty rows. The per-row lines below show the numbers that instantiate them,
@@ -314,46 +488,13 @@ function lineupSection(gym, forms, lineupShape = "clean", ownedFormIds = [], own
   const ownedOnlyToggle = `<div class="placement-controls" aria-label="Defender ranking filter">
     <button type="button" data-gym-owned-only aria-pressed="${ownedOnly}">Owned only</button>
   </div>`;
-  // Tier, placement value, motivation and solo counters used to live on a
-  // separate curated card list rendered below the ranking (defenderCard, now
-  // removed) — the same Pokemon shown twice with different framing. assemble.py
-  // already attaches those curated fields onto the matching ranked row
+  // Tier, placement value and motivation used to live on a separate curated
+  // card list rendered below the ranking (defenderCard, now removed) — the
+  // same Pokemon shown twice with different framing. assemble.py already
+  // attaches those curated fields onto the matching ranked row
   // (curated_by_form loop in assemble.py), so render them here instead.
-  const renderRankRow = (row) => {
-    const owned = ownedSet.has(row.formId);
-    return `<li class="gym-rank-row gym-rank-card${owned ? " is-owned" : ""}"><article aria-labelledby="gym-rank-${row.rank}">
-    <div class="gym-rank-head">
-      ${spriteHtml(row.formId, forms, row.pokemon, forms?.[row.formId]?.primary_type)}
-      <span class="gym-rank-n">#${row.rank}</span>
-      <strong id="gym-rank-${row.rank}">${escapeHtml(row.pokemon)}</strong>
-      <span class="gym-rank-score">${row.score}</span>
-      ${row.curatedTier
-        ? `<span class="gym-rank-tier" title="Hand-curated tier, not computed">${escapeHtml(row.curatedTier)}-tier <span class="acq-flag">curated</span></span>`
-        : ""}
-      ${ownedStarButton({ formId: row.formId, name: row.pokemon, owned, route: "gyms" })}
-    </div>
-    <p class="gym-moves">${moveLink(row.bestFastMove, { kind: "Fast" })} + ${chargedMoveDisplay(row.bestChargedMove)}</p>
-    ${row.weaknesses?.length ? `<p><strong>Weak to:</strong> ${escapeHtml(row.weaknesses.join(", "))}</p>` : ""}
-    ${row.resists?.length ? `<p><strong>Resists:</strong> ${escapeHtml(row.resists.join(", "))}</p>` : ""}
-    ${whyLine(row.whyRanked)}
-    <details class="gym-rank-more">
-      <summary>Move numbers, origin and full reasoning</summary>
-      ${defenderMoveNumbers(row)}
-      ${eliteUpgradeLine(row)}
-      ${shadowUpgradeLine(row)}
-      ${originLine(row.origin, row.acquisition)}
-      ${whyLine(row.fastWhy, "Fast:")}
-      ${whyLine(row.chargedWhy, "Charged:")}
-      ${whyLine(row.moveNote)}
-      ${(row.placementValue || row.motivationNote || row.soloCounters?.length) ? `
-        <p class="gym-curated-label">Hand-curated notes <span class="acq-flag">not computed</span></p>
-        ${whyLine(row.placementValue, "Placement:")}
-        ${whyLine(row.motivationNote, "Motivation:")}
-        ${row.soloCounters?.length ? `<p class="why-line"><strong>Solo counters:</strong> ${row.soloCounters.map((counter) => `${escapeHtml(counter.pokemon)} (${movePair(counter, forms)})`).join(", ")}</p>` : ""}
-      ` : ""}
-    </details>
-  </article></li>`;
-  };
+  // renderRankRow itself is now module-scope (see above lineupSection) so
+  // buildLazyGymBody can build the same row on demand.
 
   // Every row already carries a computed S/A/B/C tier (bands set on natural
   // score gaps, re-measured whenever the underlying score distribution changes —
@@ -390,29 +531,19 @@ function lineupSection(gym, forms, lineupShape = "clean", ownedFormIds = [], own
   // would produce a 25-row section beside a 1-row one — worse than leaving it
   // flat. Kept, but only above a threshold no current tier reaches, so it comes
   // back on its own if a future refresh piles rows into one letter again.
-  const TIER_CHUNK_SIZE = 25;
-  const TIER_CHUNK_THRESHOLD = 40;
+  // A tier this size of closed rows, times a per-row .gym-rank-more, is most
+  // of the ~17k elements sitting inert inside closed <details> — see
+  // measure-gym-lazy-dom's before/after. Only a force-open tier (S, or every
+  // tier once owned-only narrows the pool) builds its rows now; everything
+  // else waits for buildLazyGymBody to build it from the same data on first
+  // toggle (real toggle event, capture-phase — see app.js).
   const tierSections = tierGroups.map(([tier, rows]) => {
-    const chunks = [];
-    if (rows.length > TIER_CHUNK_THRESHOLD) {
-      for (let i = 0; i < rows.length; i += TIER_CHUNK_SIZE) chunks.push(rows.slice(i, i + TIER_CHUNK_SIZE));
-    }
-    const body = chunks.length > 1
-      ? `<p class="gym-note">${tier} tier is the rest of the shipped top ${ranking.length} defenders —
-          every row in it still out-ranked every eligible Pokémon that isn't on this list. Split below
-          by rank so you can open the range you care about instead of the whole tier at once.</p>
-        ${chunks.map((chunk) => {
-          const first = chunk[0];
-          const last = chunk[chunk.length - 1];
-          const scoreHigh = Math.max(first.score, last.score);
-          const scoreLow = Math.min(first.score, last.score);
-          return `<details class="gym-tier-section">
-            <summary>Ranks ${first.rank}–${last.rank} · scores ${scoreHigh}–${scoreLow}</summary>
-            <ol class="gym-rank-list">${chunk.map(renderRankRow).join("")}</ol>
-          </details>`;
-        }).join("")}`
-      : `<ol class="gym-rank-list">${rows.map(renderRankRow).join("")}</ol>`;
-    return `<details class="gym-tier-section"${ownedOnly || tier === "S" ? " open" : ""}>
+    const forceOpen = ownedOnly || tier === "S";
+    const lazyId = `tier|${tier}`;
+    const body = lazy && !forceOpen
+      ? lazyGymPlaceholder()
+      : buildTierSectionBody(tier, rows, forms, ownedSet, lazy, ranking.length);
+    return `<details class="gym-tier-section"${forceOpen ? " open" : ""}${lazy && !forceOpen ? ` data-lazy="${escapeHtml(lazyId)}"` : ""}>
       <summary>${tier} tier — ${rows.length} defender${rows.length === 1 ? "" : "s"}</summary>
       ${body}
     </details>`;
@@ -434,7 +565,7 @@ function lineupSection(gym, forms, lineupShape = "clean", ownedFormIds = [], own
       a single attacking type — so a Pokémon's band rank can sit far from its overall rank.</p>
     <p class="gym-curated-note">Rank, score and the S/A/B/C tier below — the section headings, not a
       hand grade — are computed over every eligible Pokémon. A dozen rows also carry hand-researched
-      notes — a curated tier, placement value, motivation, solo counters — marked
+      notes — a curated tier, placement value, motivation — marked
       <span class="acq-flag">curated</span> where they appear. Those are editorial judgement, not
       output of the model: where a curated tier disagrees with the computed one, trust the computed
       tier for where a Pokémon is grouped and ranked — the curated note is capturing something the
@@ -446,6 +577,9 @@ function lineupSection(gym, forms, lineupShape = "clean", ownedFormIds = [], own
       and gradual, so a B-tier defender a couple points from the C cutoff is not meaningfully worse,
       just sorted lower.</p>
     <p class="gym-note">${escapeHtml(gym.rankingMethodology ?? "")}</p>
+    ${gym.soloCountersMethod ? `<p class="gym-note">Every row's "Best answers" (inside its full-reasoning
+      details, below) is computed the same way <span class="acq-flag">computed</span>:
+      ${escapeHtml(gym.soloCountersMethod)}</p>` : ""}
     <p class="gym-note">Our S/A/B/C won't line up with every community tier list you've seen
       <span class="acq-flag">not computed</span> — this ranks the full shipped ${ranking.length}, while
       most public tier lists publish 10–16 picks total, so their top tier usually just means
@@ -516,16 +650,22 @@ function bandRow(row, index, forms, band) {
 // tabs: eight one-line summaries solve the density problem on a phone without
 // adding a single tap or byte to reaching Overall, which stays exactly where
 // it already was, above this section.
-function bandSpotlightSection(gym, forms) {
+function bandRowsHtml(rows, forms, band) {
+  return `<ol class="gym-rank-list gym-band-rank-list">${rows.map((row, i) => bandRow(row, i, forms, band)).join("")}</ol>`;
+}
+
+function bandSpotlightSection(gym, forms, lazy = false) {
   const bands = gym.bands ?? [];
   if (!bands.length) return "";
   const sections = bands.map((band) => {
     const copy = bandCopy(band);
     const rows = band.rows ?? [];
-    return `<details class="gym-tier-section">
+    const lazyId = `band|${band.id}`;
+    const body = lazy ? lazyGymPlaceholder() : bandRowsHtml(rows, forms, band);
+    return `<details class="gym-tier-section"${lazy ? ` data-lazy="${escapeHtml(lazyId)}"` : ""}>
       <summary>${escapeHtml(copy.title)} — top ${rows.length}</summary>
       <p class="gym-note">${escapeHtml(copy.blurb)}</p>
-      <ol class="gym-rank-list gym-band-rank-list">${rows.map((row, i) => bandRow(row, i, forms, band)).join("")}</ol>
+      ${body}
     </details>`;
   }).join("");
   return `<section class="gym-section" aria-labelledby="gym-bands-title">
@@ -546,8 +686,15 @@ function bandSpotlightSection(gym, forms) {
 // would double the "own it" tap targets a reader has to reconcile. The
 // is-owned class still reflects roster state read-only, for the reader who
 // starred it elsewhere.
-function shadowRankRow(row, forms, ownedSet) {
+function shadowMoreBody(row) {
+  return `${defenderMoveNumbers(row)}
+      ${shadowUpgradeLine(row)}
+      ${originLine(row.origin, row.acquisition)}`;
+}
+
+function shadowRankRow(row, forms, ownedSet, lazy) {
   const owned = ownedSet.has(row.formId);
+  const moreLazyId = `more|shadow|${row.formId}`;
   return `<li class="gym-shadow-row gym-rank-card${owned ? " is-owned" : ""}"><article aria-labelledby="gym-shadow-rank-${row.rank}">
     <div class="gym-rank-head">
       ${spriteHtml(row.formId, forms, row.pokemon, forms?.[row.formId]?.primary_type)}
@@ -558,11 +705,9 @@ function shadowRankRow(row, forms, ownedSet) {
     <p class="gym-moves">${moveLink(row.bestFastMove, { kind: "Fast" })} + ${chargedMoveDisplay(row.bestChargedMove)}</p>
     ${row.weaknesses?.length ? `<p><strong>Weak to:</strong> ${escapeHtml(row.weaknesses.join(", "))}</p>` : ""}
     ${whyLine(row.whyRanked)}
-    <details class="gym-rank-more">
+    <details class="gym-rank-more"${lazy ? ` data-lazy="${escapeHtml(moreLazyId)}"` : ""}>
       <summary>Move numbers, origin and Charged TM upgrade</summary>
-      ${defenderMoveNumbers(row)}
-      ${shadowUpgradeLine(row)}
-      ${originLine(row.origin, row.acquisition)}
+      ${lazy ? lazyGymPlaceholder() : shadowMoreBody(row)}
     </details>
   </article></li>`;
 }
@@ -576,10 +721,15 @@ function shadowRankRow(row, forms, ownedSet) {
 // empty headers. The ranking inside is still real: rank 1 here genuinely
 // outperforms rank 100 here, on Frustration, even though the letter never
 // changes.
-function shadowDefenderSection(gym, forms, ownedFormIds = []) {
+function shadowRowsHtml(rows, forms, ownedSet, lazy) {
+  return `<ol class="gym-rank-list gym-shadow-rank-list">${rows.map((row) => shadowRankRow(row, forms, ownedSet, lazy)).join("")}</ol>`;
+}
+
+function shadowDefenderSection(gym, forms, ownedFormIds = [], lazy = false) {
   const rows = gym.shadowDefenderRanking ?? [];
   if (!rows.length) return "";
   const ownedSet = new Set(ownedFormIds ?? []);
+  const body = lazy ? lazyGymPlaceholder() : shadowRowsHtml(rows, forms, ownedSet, lazy);
   return `<section class="gym-section" aria-labelledby="gym-shadow-title">
     ${sectionHeading("A separate population, not a filter", "Shadow defenders", "gym-shadow-title")}
     <p class="gym-note">A caught shadow starts locked to Frustration — the only charged move it has
@@ -589,12 +739,48 @@ function shadowDefenderSection(gym, forms, ownedFormIds = []) {
       cutoffs, so the top ${rows.length} shown here all sit in one C-tier population even where the
       same Pokémon's normal form ranks higher in Defender ranking above. Open a row to see what a
       Charged TM would buy.</p>
-    <details class="gym-tier-section">
+    <details class="gym-tier-section"${lazy ? ` data-lazy="shadow"` : ""}>
       <summary>Top ${rows.length} shadow defenders, ranked</summary>
-      <ol class="gym-rank-list gym-shadow-rank-list">${rows.map((row) => shadowRankRow(row, forms, ownedSet)).join("")}</ol>
+      ${body}
     </details>
   ${backToTop()}
   </section>`;
+}
+
+
+// Rebuilds exactly one deferred section body, keyed by the id a lazy
+// <details data-lazy="..."> above was stamped with. Called from app.js's
+// capture-phase 'toggle' listener (see bindInteractions) with the current
+// gym/forms/roster state — no registry, no closures kept between renders:
+// the id plus this data is everything the original render-time call had, so
+// this returns byte-identical HTML to what renderGyms({lazy:false}) would
+// have produced inline.
+export function buildLazyGymBody(lazyId, { gym = {}, forms = {}, ownedFormIds = [], ownedOnly = false } = {}) {
+  const ranking = gym.defenderRanking ?? [];
+  const ownedSet = new Set(ownedFormIds ?? []);
+  const [kind, ...rest] = String(lazyId ?? "").split("|");
+  if (kind === "tier") {
+    const tier = rest[0];
+    const displayRanking = ownedOnly ? ranking.filter((row) => ownedSet.has(row.formId)) : ranking;
+    const rows = displayRanking.filter((row) => row.tier === tier);
+    return buildTierSectionBody(tier, rows, forms, ownedSet, true, ranking.length);
+  }
+  if (kind === "band") {
+    const bandId = rest.join("|");
+    const band = (gym.bands ?? []).find((b) => b.id === bandId);
+    return band ? bandRowsHtml(band.rows ?? [], forms, band) : "";
+  }
+  if (kind === "shadow") {
+    return shadowRowsHtml(gym.shadowDefenderRanking ?? [], forms, ownedSet, true);
+  }
+  if (kind === "more") {
+    const [scope, formId] = rest;
+    const source = scope === "shadow" ? (gym.shadowDefenderRanking ?? []) : ranking;
+    const row = source.find((r) => r.formId === formId);
+    if (!row) return "";
+    return scope === "shadow" ? shadowMoreBody(row) : rankMoreBody(row, forms);
+  }
+  return "";
 }
 
 
@@ -772,6 +958,10 @@ export function renderGyms({
   lineupControls = "",
   lineupShape = "clean",
   ownedOnly = false,
+  // Off by default so every existing caller (and every test that reads full
+  // page content straight from this function) is unaffected; app.js's real
+  // route render opts in. See buildLazyGymBody for the on-demand rebuild.
+  lazy = false,
 } = {}) {
   const deploymentMap = buildDeploymentMap(defenseLog, now);
   const defending = view === "defend";
@@ -785,13 +975,14 @@ export function renderGyms({
     ? `${sectionNav()}
     ${lineupControls}
     ${renderPlacementCoach({ placementResult, ownedIndex, overallIndex, rosterInstances, deploymentMap })}
-    ${lineupSection(gym, forms, lineupShape, ownedFormIds, ownedOnly)}
-    ${bandSpotlightSection(gym, forms)}
-    ${shadowDefenderSection(gym, forms, ownedFormIds)}
+    ${lineupSection(gym, forms, lineupShape, ownedFormIds, ownedOnly, lazy)}
+    ${bandSpotlightSection(gym, forms, lazy)}
+    ${shadowDefenderSection(gym, forms, ownedFormIds, lazy)}
     ${defenseSection(gym, trainerTeam)}
     ${motivationSection()}
     ${ownedDefenderEditor(gym.defenders, ownedFormIds)}`
     : `${offenseSection(gym, forms)}
+    ${attackTeamsSection(gym, forms)}
     ${staggerSection(gym)}`;
   return `<div class="gyms-view" id="gym-top">
     <p class="gym-tricks-seed"><a class="safe-escape" href="./#basics/tricks" data-route="basics" data-view="tricks">See gym tricks →</a></p>
