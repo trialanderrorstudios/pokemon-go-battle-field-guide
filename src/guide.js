@@ -55,6 +55,10 @@ export const GUIDE_COPY = Object.freeze({
     title: "What's Rocket-flavored right now",
     body: `Shadow Raid bosses in this release's rotation, live Rocket-flavored events, and the lineups Giovanni, the leaders, and each grunt can bring. Lineups show what a battle can open with and which Pokémon the feed marks as catchable — not per-battle odds, CP, or movesets.`,
   }),
+  dex: Object.freeze({
+    title: "One Pokémon, everything the app knows",
+    body: `A dex entry gathers a single Pokémon's gym defense verdict, raid attacker rank, PvP ranks, moves, evolution line, and roster status onto one page. Reached from search or a name link elsewhere in the app — there's no browse list here; the Collection grid under More is that index.`,
+  }),
 });
 
 

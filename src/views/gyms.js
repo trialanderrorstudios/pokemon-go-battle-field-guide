@@ -93,9 +93,11 @@ function attackTeamMemberCard(member, forms) {
 
 // Budget/mid/premium are three genuinely different builds, not one ranking
 // truncated at different depths — eligibilityNote says what each one costs to
-// build in its own words (budget: literally the accessible Build These Six,
-// labelled as such; mid: no Megas/legendaries; premium: anything, one Mega
-// cap), so it renders as the tier's own headline rather than a caption.
+// build in its own words (budget: cost-constrained, same list as Build These
+// Six, explicitly NOT the six best attackers available; mid: no
+// Megas/legendaries; premium: anything, one Mega cap), so it renders as the
+// tier's own headline, right where a reader meets the member list, rather
+// than a caption.
 function attackTeamTierSection(tier, forms) {
   return `<div class="gym-subsection" aria-labelledby="gym-team-${escapeHtml(tier.id)}-title">
     <h3 id="gym-team-${escapeHtml(tier.id)}-title">${escapeHtml(tier.title)}</h3>
@@ -304,6 +306,43 @@ function rankMoreBody(row, forms) {
       ` : ""}`;
 }
 
+// Hoisted out of lineupSection (was a closure over `forms`) so
+// buildLazyGymBody can rebuild one lead group's option cards on demand
+// instead of only at initial render — same reason renderRankRow below was
+// hoisted. Five options per lead means a reader could mistake #5 for a
+// reshuffle of #1 instead of a real quality decline — show the lineup's own
+// score, and how far behind the group's best option it is, so the ordering
+// reads as honest rather than interchangeable picks.
+function lineupCard(lineup, optionNumber, bestScore, forms) {
+  const gap = optionNumber > 1 && Number.isFinite(bestScore) && bestScore > 0
+    ? ` <span class="gym-dps-sub">${(100 * (bestScore - lineup.lineupScore) / bestScore).toFixed(0)}% behind option 1</span>`
+    : "";
+  return `<li class="gym-card"><article>
+    <p class="gym-rank">Option ${optionNumber} · score ${lineup.lineupScore}${gap}</p>
+    <ol class="gym-lineup-order">${lineup.members.map((member) => `<li>
+      ${spriteHtml(member.formId, forms, member.pokemon, forms?.[member.formId]?.primary_type)}
+      <strong>${escapeHtml(member.pokemon)}</strong>
+      <span class="gym-rank-n">#${member.rank}</span>
+      <p class="gym-moves">${moveLink(member.bestFastMove, { kind: "Fast" })} + ${chargedMoveDisplay(member.bestChargedMove)}</p>
+      ${whyLine(member.whyRanked)}
+    </li>`).join("")}</ol>
+    ${(lineup.chainBreaks ?? []).map((brk) => whyLine(
+      `${brk.breaker} breaks the ${brk.type} chain between ${brk.between[0]} and ${brk.between[1]} — an attacker cannot walk straight through.`
+    )).join("")}
+    <p><strong>Shared weakness:</strong> ${lineup.sharedWeaknesses.length
+      ? `${escapeHtml(lineup.sharedWeaknesses.join(", "))} — one attacker type pressures more than one slot`
+      : "none — no single attacking type is super-effective against more than one member"}</p>
+  </article></li>`;
+}
+
+// A lead group's option cards, grid-friendly at any count — factored out so
+// both the eager render and buildLazyGymBody's on-demand rebuild produce
+// byte-identical output from one place (same rationale as rankMoreBody).
+function leadOptionsHtml(lineups, forms) {
+  const bestScore = lineups[0]?.lineupScore;
+  return `<ul class="gym-card-list">${lineups.map((lineup, i) => lineupCard(lineup, i + 1, bestScore, forms)).join("")}</ul>`;
+}
+
 // Hoisted out of lineupSection (was a closure over forms/ownedSet) so
 // buildLazyGymBody can call it too, for a tier/chunk built on demand instead
 // of at initial render. `lazy` defers the row's OWN inner .gym-rank-more —
@@ -397,32 +436,6 @@ function lineupSection(gym, forms, lineupShape = "clean", ownedFormIds = [], own
     ? "Two walls that share a weakness, with something between them that resists it — the attacker cannot walk straight through. Use these when you do not have three unrelated walls to hand."
     : "Nothing here is super-effective against more than one member, so no single attacker gets a free run. Strongest when you can build it."}</p>`;
 
-  // Five options per lead means a reader could mistake #5 for a reshuffle of
-  // #1 instead of a real quality decline — show the lineup's own score, and
-  // how far behind the group's best option it is, so the ordering reads as
-  // honest rather than five interchangeable picks.
-  const lineupCard = (lineup, optionNumber, bestScore) => {
-    const gap = optionNumber > 1 && Number.isFinite(bestScore) && bestScore > 0
-      ? ` <span class="gym-dps-sub">${(100 * (bestScore - lineup.lineupScore) / bestScore).toFixed(0)}% behind option 1</span>`
-      : "";
-    return `<li class="gym-card"><article>
-    <p class="gym-rank">Option ${optionNumber} · score ${lineup.lineupScore}${gap}</p>
-    <ol class="gym-lineup-order">${lineup.members.map((member) => `<li>
-      ${spriteHtml(member.formId, forms, member.pokemon, forms?.[member.formId]?.primary_type)}
-      <strong>${escapeHtml(member.pokemon)}</strong>
-      <span class="gym-rank-n">#${member.rank}</span>
-      <p class="gym-moves">${moveLink(member.bestFastMove, { kind: "Fast" })} + ${chargedMoveDisplay(member.bestChargedMove)}</p>
-      ${whyLine(member.whyRanked)}
-    </li>`).join("")}</ol>
-    ${(lineup.chainBreaks ?? []).map((brk) => whyLine(
-      `${brk.breaker} breaks the ${brk.type} chain between ${brk.between[0]} and ${brk.between[1]} — an attacker cannot walk straight through.`
-    )).join("")}
-    <p><strong>Shared weakness:</strong> ${lineup.sharedWeaknesses.length
-      ? `${escapeHtml(lineup.sharedWeaknesses.join(", "))} — one attacker type pressures more than one slot`
-      : "none — no single attacking type is super-effective against more than one member"}</p>
-  </article></li>`;
-  };
-
   // Lineups are grouped by lead (the first member each option opens with) rather
   // than shown as one flat numbered list: which Pokemon you invest toward first
   // is the actual decision, and "Option 4" meant nothing without scrolling back
@@ -443,15 +456,35 @@ function lineupSection(gym, forms, lineupShape = "clean", ownedFormIds = [], own
   // whyLead is rendered once per group, right under the heading it explains: it's the
   // same string for every option sharing that lead, and it's what stops a rank-81/C
   // Slaking leading four lineups from reading as the page contradicting its own ranking.
+  //
+  // The heading and whyLead stay eager (outside the collapsible), same reasoning
+  // as the "why" line on every other lazy row — a reader deciding whether to open
+  // a group needs the justification before opening it, not after. Only the six
+  // option cards collapse: reusing the same lazy machinery as the tier/band/shadow
+  // sections above (a <details data-lazy> the capture-phase toggle in app.js
+  // already knows how to fill), which is what keeps growing from 5 to 6 options
+  // per lead from undoing the lazy-build DOM win. The lineup shape ("clean" vs
+  // "breaker") has to ride inside the lazy id itself, not the shared toggle
+  // context, since chainBreakerLineups and startingLineups are two different
+  // pools keyed by the same lead formId.
+  //
+  // No wrapping <div class="gym-subsection"> here (unlike the attack-team tier
+  // subsections above): the tap-target CSS for a tier toggle is
+  // `.gym-section > details > summary` — a direct-child selector — and a
+  // wrapper div would put this <details> two levels below .gym-section instead
+  // of one, landing the toggle at 23px tall instead of 48px (measured). Every
+  // other collapsible in this section (tierSections below) is already a direct
+  // child of the returned <section> for the same reason.
   const lineupCards = leadGroups.map((group) => {
-    // Already lineupScore-descending within a lead (see gym_ranking.py's
-    // _scored_lineups sort) — option 1 is the group's own best score.
-    const bestScore = group.lineups[0]?.lineupScore;
-    return `<div class="gym-subsection" aria-labelledby="gym-lineup-lead-${escapeHtml(group.leadFormId)}">
-    <h3 id="gym-lineup-lead-${escapeHtml(group.leadFormId)}">Led by ${escapeHtml(group.lead)}</h3>
+    const lazyId = `lead|${lineupShape}|${group.leadFormId}`;
+    const optionCount = group.lineups.length;
+    const body = lazy ? lazyGymPlaceholder() : leadOptionsHtml(group.lineups, forms);
+    return `<h3 id="gym-lineup-lead-${escapeHtml(group.leadFormId)}">Led by ${escapeHtml(group.lead)}</h3>
     ${whyLine(group.whyLead)}
-    <ul class="gym-card-list">${group.lineups.map((lineup, i) => lineupCard(lineup, i + 1, bestScore)).join("")}</ul>
-  </div>`;
+    <details class="gym-tier-section"${lazy ? ` data-lazy="${escapeHtml(lazyId)}"` : ""}>
+      <summary>${optionCount} option${optionCount === 1 ? "" : "s"}</summary>
+      ${body}
+    </details>`;
   }).join("");
 
   // The two selection rules, stated once for the section rather than repeated on
@@ -769,6 +802,14 @@ export function buildLazyGymBody(lazyId, { gym = {}, forms = {}, ownedFormIds = 
     const bandId = rest.join("|");
     const band = (gym.bands ?? []).find((b) => b.id === bandId);
     return band ? bandRowsHtml(band.rows ?? [], forms, band) : "";
+  }
+  if (kind === "lead") {
+    // Shape rides in the id (not the shared toggle context) — see the comment
+    // above lineupCards in lineupSection for why.
+    const [shape, leadFormId] = [rest[0], rest.slice(1).join("|")];
+    const lineups = (shape === "breaker" ? gym.chainBreakerLineups : gym.startingLineups) ?? [];
+    const group = lineups.filter((lineup) => (lineup.lead?.formId ?? lineup.members[0]?.formId) === leadFormId);
+    return group.length ? leadOptionsHtml(group, forms) : "";
   }
   if (kind === "shadow") {
     return shadowRowsHtml(gym.shadowDefenderRanking ?? [], forms, ownedSet, true);

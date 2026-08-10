@@ -34,6 +34,7 @@ import { weaknessesOf } from "./type-chart.js";
 import { renderGlossary } from "./views/glossary.js";
 import { handleSpriteError, spriteHtml } from "./sprites.js";
 import { buildLazyGymBody, renderGyms } from "./views/gyms.js";
+import { renderDex } from "./views/dex.js";
 import { renderLeaderboard } from "./views/leaderboard.js";
 import { MORE_LISTS, renderMore } from "./views/more.js";
 import { buildMoveIndex } from "./moves.js";
@@ -218,6 +219,13 @@ export const ROUTE_CHUNKS = Object.freeze({
   eggs: ["current-eggs.json", "acquisition.json"],
   basics: ["acquisition.json"],
   rocket: ["raid-targets.json", "current-bosses.json", "current-events.json", "rocket-lineups.json"],
+  // The dex entry aggregates a form's gym/pvp/raid-boss/acquisition/egg-pool
+  // facts (see docs/dex-route-spec.md §4). raids.json is deliberately NOT
+  // here for the same reason as Home above — it's the single biggest file,
+  // and the entry's raid-attacker section is one section among many, not the
+  // reason most visits happen — so it's chained through HOME_DEFERRED_CHUNK_KEY
+  // after these five land (see the dex-route-visit chaining below).
+  dex: ["gyms.json", "pvp.json", "acquisition.json", "current-eggs.json", "raid-targets.json"],
   // Not a real route — no URL ever resolves here. It exists so the deferred
   // raids.json fetch (see ROUTE_CHUNKS.home above) can go through the exact
   // same claim/load/merge machinery as a real route instead of a bespoke
@@ -413,6 +421,9 @@ function bossSuggestionRow(result, forms, rawQuery, target = null) {
   const hundo = target?.normal?.hundoCP
     ? `<span class="search-suggestion-figure">${target.normal.hundoCP} hundo</span>`
     : "";
+  // The counters link answers "what beats it" (the reason someone searched a
+  // boss); the dex link is a secondary escape to "what does the app know
+  // about it" — two sibling <a>s, not one nested inside the other.
   return `<li class="search-result-card search-result-boss" role="option">
     <a class="safe-escape search-suggestion" href="./?boss=${encodeURIComponent(result.formId)}#raids">
       ${spriteHtml(result.formId, forms, result.name, forms?.[result.formId]?.primary_type)}
@@ -422,6 +433,7 @@ function bossSuggestionRow(result, forms, rawQuery, target = null) {
         ${weakChips ? `<span class="type-chip-list" aria-label="Weak to">${weakChips}</span>` : ""}
       </span>
     </a>
+    <a class="safe-escape search-suggestion-dex-link" data-route="dex" href="./#dex/${encodeURIComponent(result.formId)}">Dex entry →</a>
   </li>`;
 }
 
@@ -451,15 +463,18 @@ function renderSearchResults(results, forms, roster, rawQuery = "", raidData = {
     if (result.resultCategory === "raid-boss") {
       return bossSuggestionRow(result, forms, rawQuery, targetsByForm.get(result.formId) ?? null);
     }
-    // A species that is also a raid target gets the same destination. One that is
-    // not has no detail page to send anyone to, so it stays an owned-toggle row
-    // rather than becoming a dead link.
+    // A species that is also a raid target keeps its counters destination
+    // (the "what beats it" intent) plus a secondary dex link. One that is
+    // not a raid target used to dead-end in a plain, untappable <span> — the
+    // Drifblim scenario docs/dex-route-spec.md was written to fix — so it now
+    // links straight to its dex entry instead.
     const target = targetsByForm.get(result.formId) ?? null;
     const isOwned = owned.has(result.formId);
     const label = `${spriteHtml(result.formId, forms, result.name, forms?.[result.formId]?.primary_type)}<span class="search-suggestion-body"><strong>${highlightMatch(result.name, rawQuery)}</strong><span class="search-suggestion-meta">Pokémon${target ? " · raid target" : ""}</span></span>`;
+    const dexHref = `./#dex/${encodeURIComponent(result.formId)}`;
     return `<li class="search-result-card${isOwned ? " is-owned" : ""}" role="option">${target
-      ? `<a class="safe-escape search-suggestion" href="./?boss=${encodeURIComponent(result.formId)}#raids">${label}</a>`
-      : `<span class="search-suggestion">${label}</span>`}${ownedStarButton({ formId: result.formId, name: result.name, owned: isOwned, route: "search" })}</li>`;
+      ? `<a class="safe-escape search-suggestion" href="./?boss=${encodeURIComponent(result.formId)}#raids">${label}</a><a class="safe-escape search-suggestion-dex-link" data-route="dex" href="${dexHref}">Dex entry →</a>`
+      : `<a class="safe-escape search-suggestion" data-route="dex" href="${dexHref}">${label}</a>`}${ownedStarButton({ formId: result.formId, name: result.name, owned: isOwned, route: "search" })}</li>`;
   }).join("");
   const more = results.length > 8
     ? `<li class="search-more">${results.length - 8} more — keep typing to narrow it down</li>`
@@ -3191,6 +3206,32 @@ export function bootstrap({
         })
         : chunkLoadingNotice("Team GO Rocket"));
     },
+    // formId rides in as `view` — the router's dex carve-out (router.js) is
+    // the only route with a dynamic (non-enumerable) view segment. Sections
+    // render off whatever chunk data has landed so far (Home-style, not a
+    // whole-page gate — see docs/dex-route-spec.md §7): core.forms is always
+    // eager, so identity/stats/moves/evolution render on a cold deep-link
+    // immediately, and gym/pvp/boss/acquisition/eggs fill in as ROUTE_CHUNKS.dex
+    // lands. Also wires the global search box, a no-op unless the formId is
+    // unknown (renderDex's fallback shell embeds one — see dex.js).
+    dex(view) {
+      app.innerHTML = interactionNotice(ui) + renderDex({
+        formId: view,
+        forms: state.core.forms,
+        gym: state.gym,
+        pvp: state.pvp,
+        raidTargetTool: state.raidTargetTool,
+        raids: state.raids,
+        raidsLoaded: loadedChunkPaths.has("raids-regular.json") && loadedChunkPaths.has("raids-shadow.json"),
+        acquisitionGuide: state.acquisitionGuide,
+        currentEggs: state.currentEggs,
+        roster,
+      });
+      searchRefresh = bindSearch(documentObject, index, state.core.forms, roster, storage, {
+        raidTargetTool: state.raidTargetTool,
+        raids: state.raids,
+      });
+    },
     raids(view) {
       // ?boss=<formId> is a deep link into the target view. Move the hash with
       // it so the strip, Back and a re-share of the URL all agree, and consume
@@ -3502,14 +3543,14 @@ export function bootstrap({
       // hasn't landed yet. onRouteVisit re-bootstraps once the fetch lands
       // so the loading notice/fallback above swaps for the real view.
       const chunkVisit = onRouteVisit?.(route);
-      // Home's roster-gap teaser needs raids.json but it's deliberately not
-      // in ROUTE_CHUNKS.home (see that comment) — chain its fetch to start
-      // only once Home's own chunk visit has settled (immediately, on a
-      // cached visit), so its ~1MB parse never competes with the chunks
-      // Home's actual first-quality render depends on. Promise.resolve
-      // tolerates onRouteVisit being undefined or a test stub that returns
-      // nothing.
-      if (route === "home") {
+      // Home's roster-gap teaser (and the dex entry's raid-attacker section)
+      // need raids.json but it's deliberately not in ROUTE_CHUNKS.home/dex
+      // (see those comments) — chain its fetch to start only once the
+      // route's own chunk visit has settled (immediately, on a cached visit),
+      // so its ~1MB parse never competes with the chunks the route's actual
+      // first-quality render depends on. Promise.resolve tolerates
+      // onRouteVisit being undefined or a test stub that returns nothing.
+      if (route === "home" || route === "dex") {
         Promise.resolve(chunkVisit).then(() => onRouteVisit?.(HOME_DEFERRED_CHUNK_KEY));
       }
       // Prepend into #app so the guide scrolls with the view instead of

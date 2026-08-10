@@ -1,5 +1,12 @@
-const ROUTES = Object.freeze(["home", "raids", "gyms", "leaderboard", "pvp", "more", "basics", "triage", "eggs", "rocket"]);
+const ROUTES = Object.freeze(["home", "raids", "gyms", "leaderboard", "pvp", "more", "basics", "triage", "eggs", "rocket", "dex"]);
 const ROUTE_SET = new Set(ROUTES);
+
+// dex is the one route with a dynamic (not enumerable) view: the segment is a
+// formId, not one of a fixed list, so it can't live in ROUTE_VIEWS below. A
+// formId always starts with a 4-digit dex number (see core.forms keys, e.g.
+// "0426-normal") — whether it actually resolves to a known form is the
+// renderer's job, exactly like a typo'd #raids/bogus keeps its route today.
+const DEX_FORM_ID_PATTERN = /^\d{4}[a-z0-9-]*$/i;
 
 // Sub-views, addressed as #route/view. One switching idiom for the whole app:
 // the hash segment is the only mechanism that is simultaneously scroll-correct,
@@ -33,6 +40,11 @@ const RETIRED_ROUTES = Object.freeze({
   drill: "basics/drill",
   tricks: "basics/tricks",
   maxbasics: "basics/max",
+  // Bare #dex (no formId) has nothing to render — #more/collection is already
+  // the living-dex grid, so it's the destination rather than a second browse
+  // page. This key only matches the exact bare hash: "dex/0426-normal" never
+  // equals "dex", so a real deep link passes straight through untouched.
+  dex: "more/collection",
 });
 
 // Legacy ?list=<id>#more bookmarks. Their hash is already valid, so
@@ -53,7 +65,9 @@ export function routeHref(route, basePath, query = "", view = "") {
   const safeRoute = ROUTE_SET.has(route) ? route : "home";
   const safeBase = normalizedBasePath(basePath);
   const safeQuery = query === "" || query.startsWith("?") ? query : `?${query}`;
-  const safeView = (ROUTE_VIEWS[safeRoute] ?? []).includes(view) ? `/${view}` : "";
+  const safeView = safeRoute === "dex"
+    ? (DEX_FORM_ID_PATTERN.test(view || "") ? `/${view}` : "")
+    : (ROUTE_VIEWS[safeRoute] ?? []).includes(view) ? `/${view}` : "";
   return `${safeBase}${safeQuery}#${safeRoute}${safeView}`;
 }
 
@@ -78,8 +92,12 @@ export function resolveRoute(url, basePath) {
   const valid = parsed.pathname === safeBase && ROUTE_SET.has(requestedRoute);
   const route = valid ? requestedRoute : "home";
   // An unknown segment loses the view, never the route: a typo'd #raids/bogus
-  // bookmark still opens Raids.
-  let view = (ROUTE_VIEWS[route] ?? []).includes(requestedView) ? requestedView : "";
+  // bookmark still opens Raids. dex is the one dynamic-view route — its
+  // segment is a formId, validated by shape here; whether it's a real form is
+  // the renderer's job (see DEX_FORM_ID_PATTERN above).
+  let view = route === "dex"
+    ? (DEX_FORM_ID_PATTERN.test(requestedView || "") ? requestedView : "")
+    : (ROUTE_VIEWS[route] ?? []).includes(requestedView) ? requestedView : "";
   let query = parsed.search;
   if (valid && route === "more" && !view && parsed.searchParams.has("list")) {
     const list = parsed.searchParams.get("list");
