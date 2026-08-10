@@ -233,10 +233,41 @@ export function renderRaidRankings({ attackingType = "Bug", raids = {}, forms = 
       <button type="button" data-action="scroll-to" data-scroll-target="shadow-raid-title">Shadow</button>
     </nav>
     <div class="raid-lanes">${lane("regular", raids.regular)}${lane("shadow", raids.shadow)}</div>
+    ${honorableMentions(raids.honorableMentions, selectedType)}
   </section>`;
 }
 
 
 export function renderRaids({ attackingType = "Bug", raids = {}, forms = {}, pvp = {} } = {}) {
   return `<div class="raids-view">${renderRaidRankings({ attackingType, raids, forms, pvp })}</div>`;
+}
+
+
+// Attackers that miss the fifteen on a moveset you can build, but would make it
+// on one you probably cannot. Kept OUT of the ranking rather than interleaved:
+// the list above is what to build today, and mixing in "if you had an Elite TM"
+// would quietly change what the ranks mean. Regieleki is the case that prompted
+// this — honestly 16th on Zap Cannon, first in the game with Thunder Cage, and
+// previously absent from the page entirely, so a reader holding an Elite TM had
+// no way to find out.
+function honorableMentions(mentions, attackingType) {
+  const rows = (mentions ?? []).filter((row) => row.attackingType === attackingType);
+  if (!rows.length) return "";
+  const items = rows.map((row) => {
+    const move = displayMove(row.restrictedMove);
+    const cost = row.availabilityClass === "eventOnly"
+      ? "not obtainable by any TM — event distribution only"
+      : "needs an Elite TM";
+    const shadow = row.shadow ? " (Shadow)" : "";
+    return `<li><strong>${escapeHtml(row.pokemon)}${shadow}</strong> — would rank
+      <strong>#${row.rankIfUsed}</strong> with ${escapeHtml(move)}
+      (${escapeHtml(row.restrictedSlot)} move, ${cost}). Ranked above on
+      ${escapeHtml(displayMove(row.obtainableChargedMove))}, which is what you can build now.</li>`;
+  }).join("");
+  return `<section class="raid-honorable" aria-labelledby="raid-honorable-title">
+    <h3 id="raid-honorable-title">Honourable mentions</h3>
+    <p class="raid-method-note">Outside the fifteen on a buildable moveset — but strong enough to change
+      the list if you spend a restricted move on them.</p>
+    <ul class="raid-honorable-list">${items}</ul>
+  </section>`;
 }
