@@ -20,7 +20,7 @@ function typeRow(type) {
   const resistedBy = ATTACK_TYPES.filter((defend) => effectivenessOf(type, [defend]) < 1);
   const weakTo = weaknessesOf([type]).map((row) => row.type);
   return `<details class="type-row">
-    <summary>${typeChip(type)}<span>${type}</span></summary>
+    <summary>${typeChip(type)}</summary>
     <div class="type-row-body">
       <h4>Strong against</h4>${chipList(strongAgainst)}
       <h4>Weak to</h4>${chipList(weakTo)}

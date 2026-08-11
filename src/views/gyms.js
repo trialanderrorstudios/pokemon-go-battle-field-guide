@@ -315,9 +315,33 @@ function lazyGymPlaceholder() {
 const TIER_CHUNK_SIZE = 25;
 const TIER_CHUNK_THRESHOLD = 40;
 
+// Per slot, through the same three-way badge every other surface uses — NOT
+// movePair(), which collapses eventOnly into eliteOnly and then applies that
+// one row-level verdict to both slots. That stamped "Elite Fast/Charged TM" on
+// 96 moves across 39 rows: Mewtwo (Mega X)'s Counter is event-only (validate.py:
+// unobtainable by ANY means, not even an Elite TM) so the badge told the reader
+// to spend a TM that cannot work, while its Focus Blast has no restriction at
+// all and got the same badge.
+//
+// eventOnly is read from the form's own event_only_moves rather than the class,
+// because a merged row-level "eventOnly" says the row has an event-only move,
+// not which slot holds it — the whole defect. fast/chargedAvailabilityClass are
+// the per-slot classes; the merged fallback keeps this correct on packets built
+// before they shipped, since the only thing it still decides is the
+// communityDayClassic pass-through, which is a whole-row property in practice.
+function counterMoves(counter, forms) {
+  const eventOnlyMoves = new Set(forms?.[counter.formId]?.event_only_moves ?? []);
+  const badge = (moveId, kind, elite, availabilityClass) => moveAvailabilityBadge(moveId, {
+    kind, elite, eventOnly: eventOnlyMoves.has(moveId), availabilityClass,
+  });
+  const fastCls = counter.fastAvailabilityClass ?? counter.availabilityClass;
+  const chargedCls = counter.chargedAvailabilityClass ?? counter.availabilityClass;
+  return `${badge(counter.fastMove, "Fast", counter.eliteFastTM, fastCls)} + ${badge(counter.chargedMove, "Charged", counter.eliteChargedTM, chargedCls)}`;
+}
+
 // Solo counters moved from a hand-curated passthrough to a computed field
 // (see gym.soloCountersMethod) but keep the same {pokemon, fastMove,
-// chargedMove, formId} shape movePair() already reads, plus investmentTier —
+// chargedMove, formId} shape counterMoves() reads, plus investmentTier —
 // shown so a reader sees what a "best answer" costs to build, not just that
 // it's a fast pick. "computed" replaces the old "not computed" flag: this is
 // the opposite claim from the hand-curated block it used to live inside.
@@ -325,7 +349,7 @@ function soloCountersLine(row, forms) {
   if (!row.soloCounters?.length) return "";
   const counters = row.soloCounters.map((counter) => {
     const tier = counter.investmentTier ? `, ${escapeHtml(counter.investmentTier)} investment` : "";
-    return `${escapeHtml(counter.pokemon)} (${movePair(counter, forms)}${tier})`;
+    return `${escapeHtml(counter.pokemon)} (${counterMoves(counter, forms)}${tier})`;
   }).join(", ");
   return `<p class="why-line"><strong>Best answers:</strong> ${counters} <span class="acq-flag">computed</span></p>`;
 }
@@ -640,7 +664,7 @@ function lineupSection(gym, forms, lineupShape = "clean", ownedFormIds = [], own
       best); <strong>tier</strong> groups those ranks at real breaks in the score; <strong>band</strong>,
       further down, re-sorts this same pool by one narrower question — like which defender best answers
       a single attacking type — so a Pokémon's band rank can sit far from its overall rank.</p>
-    <p class="gym-curated-note">Rank, score and the S/A/B/C tier below — the section headings, not a
+    <p class="gym-curated-note">Rank, score and the S/A/B/C/D/F tier below — the section headings, not a
       hand grade — are computed over every eligible Pokémon. A dozen rows also carry hand-researched
       notes — a curated tier, placement value, motivation — marked
       <span class="acq-flag">curated</span> where they appear. Those are editorial judgement, not
@@ -649,15 +673,15 @@ function lineupSection(gym, forms, lineupShape = "clean", ownedFormIds = [], own
       model can't see (motivation, dodging, how a fight actually plays out), not correcting the score.
       ${curatedDisagreements} of ${curatedRows.length} curated rows disagree with their computed tier
       this way — two independent opinions, not a typo.</p>
-    <p class="gym-note">S and A sit on real breaks in the score — big drops with nothing near them on
-      either side. Below that, B and C are a reading aid, not a measured boundary: the gaps get small
-      and gradual, so a B-tier defender a couple points from the C cutoff is not meaningfully worse,
-      just sorted lower.</p>
+    <p class="gym-note">S, A and B sit on real breaks in the score — big drops with nothing near them
+      on either side. Below B, the C/D/F cuts split what's left into equal thirds by position, not at
+      a break: the tail is smooth, and one letter to the next can be a tenth of a point, so a C-tier
+      defender a row above the D cutoff is not meaningfully worse, just sorted lower.</p>
     <p class="gym-note">${escapeHtml(gym.rankingMethodology ?? "")}</p>
     ${gym.soloCountersMethod ? `<p class="gym-note">Every row's "Best answers" (inside its full-reasoning
       details, below) is computed the same way <span class="acq-flag">computed</span>:
       ${escapeHtml(gym.soloCountersMethod)}</p>` : ""}
-    <p class="gym-note">Our S/A/B/C won't line up with every community tier list you've seen
+    <p class="gym-note">Our S/A/B/C/D/F won't line up with every community tier list you've seen
       <span class="acq-flag">not computed</span> — this ranks the full shipped ${ranking.length}, while
       most public tier lists publish 10–16 picks total, so their top tier usually just means
       "made the list," not the same cut this page draws.</p>
@@ -742,15 +766,25 @@ function bandSpotlightSection(gym, forms, lazy = false) {
     return `<details class="gym-tier-section"${lazy ? ` data-lazy="${escapeHtml(lazyId)}"` : ""}>
       <summary>${escapeHtml(copy.title)} — top ${rows.length}</summary>
       <p class="gym-note">${escapeHtml(copy.blurb)}</p>
+      ${band.floorNote ? `<p class="gym-note"><strong>Floor:</strong> ${escapeHtml(band.floorNote)}</p>` : ""}
       ${body}
     </details>`;
   }).join("");
+  // core.honesty.doNotClaim tells the reader the bands "floor out low-scoring,
+  // doubly-weak technical resistors (see each band's floorNote)" — the field
+  // ships on every band and nothing under web/ rendered it, so that pointer led
+  // nowhere. Same for coverage: six anti-type bands ship, eighteen attacking
+  // types exist, and the page never said which.
+  const antiBands = bands.filter((band) => band.kind === "anti").length;
   return `<section class="gym-section" aria-labelledby="gym-bands-title">
     ${sectionHeading("Same defenders, a narrower question", "Band spotlight", "gym-bands-title")}
     <p class="gym-note">Overall buries a defender whose real strength is one job — outlasting one
       attacking type, or hitting hardest once it's sturdy enough to matter. The #1 pick in a band
       below is often nowhere near the top of Overall — that's what these are for. Open one; Overall
       above is unchanged.</p>
+    ${antiBands ? `<p class="gym-note">Anti-type bands ship for ${antiBands} of the 18 attacking types
+      — the other ${18 - antiBands} have no band on this page. Each band states its own floor: the
+      cutoff that keeps a technically-true, practically-useless resistor off the top of the list.</p>` : ""}
     ${sections}
   ${backToTop()}
   </section>`;

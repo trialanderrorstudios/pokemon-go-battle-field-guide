@@ -54,7 +54,11 @@
     </div>
 
     <div class="bezelwrap">
-      <main id="app" aria-live="polite">
+      <!-- Deliberately NOT aria-live: the router replaces this element's
+           innerHTML on every route change, so a live region here read the whole
+           view out loud — 400,468 characters on #pvp/rankings. Route changes
+           announce through #app-status below instead. -->
+      <main id="app">
         <!-- Boot state. Shown while the app starts; replaced wholesale the moment
              the router renders. It exists because the static reference sections
              below were doing this job and reading as stale content instead —
@@ -100,6 +104,14 @@
          mounted inside #app has its lower-left corner cut off on real WebKit
          (2026-07-23 device QA; headless renders clip-path differently). -->
     <div id="overlay-root"></div>
+
+    <!-- The app's one screen-reader announcement channel: the router writes the
+         new heading here per route, and search writes a match count. It lives
+         outside #app so a route innerHTML swap can't delete it. src/router.js's
+         announce() applies the visually-hidden styles (a `#app-status` rule in
+         app.css would be the tidier home for them; that file is owned by
+         another lane). An empty <div> costs no layout in the meantime. -->
+    <div id="app-status" role="status"></div>
 
     <nav class="tab-bar" aria-label="Primary">
       <a class="tab-link" href="./#home" data-route="home"><span class="tab-glyph" aria-hidden="true">⌂</span><span>Home</span></a>

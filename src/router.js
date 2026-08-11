@@ -78,7 +78,11 @@ export function resolveRoute(url, basePath) {
   const parsed = url instanceof URL ? url : new URL(url, testOnlyRelativeBase);
   let requested = "";
   try {
-    requested = decodeURIComponent(parsed.hash.slice(1)).trim().toLowerCase();
+    // Leading slash stripped BEFORE the RETIRED_ROUTES lookup below, not after
+    // the ROUTE_SET check: a hand-typed "#/coach" has to redirect like "#coach"
+    // does, and no app-generated link produces this shape (routeHref always
+    // emits "#route") — it is bookmark/address-bar input only.
+    requested = decodeURIComponent(parsed.hash.slice(1)).trim().toLowerCase().replace(/^\/+/, "");
   } catch {
     requested = "";
   }
@@ -114,6 +118,34 @@ export function resolveRoute(url, basePath) {
     href: routeHref(route, safeBase, query, view),
     valid,
   };
+}
+
+
+// The app's one screen-reader announcement channel (#app-status, which lives in
+// the shell outside #app so a route innerHTML swap can't delete it). #app itself
+// used to carry aria-live="polite", so replacing its contents per route read the
+// ENTIRE view aloud — measured 400,468 characters on #pvp/rankings, 379,154 on
+// #pvp. The search results container had the same defect at keystroke scale.
+// Both write one short string here instead.
+const STATUS_ID = "app-status";
+
+export function announce(documentObject, message) {
+  const node = documentObject?.getElementById?.(STATUS_ID);
+  if (!node) return;
+  // Visually hidden from here rather than app.css so the shell markup needs no
+  // stylesheet change; a `#app-status` rule in app.css is the tidier home for
+  // this and can replace it. An inline style attribute is not an option — the
+  // shell's CSP sets style-src 'self' with no 'unsafe-inline'.
+  if (node.style && !node.style.position) {
+    Object.assign(node.style, {
+      position: "absolute",
+      width: "1px",
+      height: "1px",
+      overflow: "hidden",
+      clip: "rect(0 0 0 0)",
+    });
+  }
+  node.textContent = message;
 }
 
 
@@ -153,12 +185,23 @@ export function createRouter({
     }
   }
 
-  function render(route, view = "") {
+  function render(route, view = "", { moveFocus = false } = {}) {
     const renderer = renderers[route] ?? renderers.home;
     if (typeof renderer !== "function") {
       throw new TypeError(`Missing renderer for route: ${route}`);
     }
     renderer();
+    const screen = documentObject?.getElementById?.("app");
+    const heading = screen?.querySelector?.("h2");
+    announce(documentObject, heading?.textContent?.trim() || route);
+    // Focus the new heading so assistive tech lands ON the content rather than
+    // having the whole view read at it. Only on a navigation the reader asked
+    // for: a landing data chunk re-renders the same route 4-5 times per cold
+    // load, and yanking focus then would pull it out of the search box mid-word.
+    if (moveFocus && typeof heading?.focus === "function") {
+      heading.setAttribute?.("tabindex", "-1");
+      heading.focus({ preventScroll: true });
+    }
     lastRendered = { route, view };
     // Read the view back off the location: a renderer may canonicalize the URL
     // itself (?boss=X#raids folds into #raids/target), and marking the view we
@@ -171,7 +214,6 @@ export function createRouter({
     windowObject.scrollTo?.(0, 0);
     // The screen (#app) scrolls internally now, not the window — reset its
     // scroll position too, and restart the 220ms dex page-wipe.
-    const screen = documentObject?.getElementById?.("app");
     screen?.scrollTo?.(0, 0);
     screen?.classList?.remove("dex-wipe");
     void screen?.offsetWidth;
@@ -179,7 +221,7 @@ export function createRouter({
     return route;
   }
 
-  function renderLocation({ canonicalize = false } = {}) {
+  function renderLocation({ canonicalize = false, moveFocus = false } = {}) {
     const location = windowObject.location;
     const resolved = resolveRoute(location.href, safeBase);
     // Canonicalize whenever the resolved URL differs from what's in the bar —
@@ -188,14 +230,14 @@ export function createRouter({
     if (canonicalize && resolved.href !== `${location.pathname}${location.search}${location.hash}`) {
       windowObject.history.replaceState({}, "", resolved.href);
     }
-    return render(resolved.route, resolved.view);
+    return render(resolved.route, resolved.view, { moveFocus });
   }
 
   function navigate(route, { replace = false, view = "" } = {}) {
     const safeRoute = ROUTE_SET.has(route) ? route : "home";
     const href = routeHref(safeRoute, safeBase, windowObject.location.search, view);
     windowObject.history[replace ? "replaceState" : "pushState"]({}, "", href);
-    return render(safeRoute, view);
+    return render(safeRoute, view, { moveFocus: true });
   }
 
   function onClick(event) {
@@ -251,7 +293,7 @@ export function createRouter({
 
   function onHistoryChange() {
     const target = anchorTarget();
-    if (!target) return renderLocation({ canonicalize: true });
+    if (!target) return renderLocation({ canonicalize: true, moveFocus: true });
     // A jump link into a collapsed tier section would otherwise scroll to a
     // closed <details> and appear to do nothing.
     target.closest?.("details:not([open])")?.setAttribute?.("open", "");

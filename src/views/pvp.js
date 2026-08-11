@@ -604,10 +604,22 @@ function teamsView(pvp, teams, alternatives, forms, roster, state, trainerLevel 
     <ul class="pvp-team-list">${leagueTeams.map((team) => teamCard(team, pvp, forms, pvpMoveCatalog)).join("")}</ul>
     ${backToTop()}
   </section>${alternativesView(alternatives, forms, state, trainerLevel, pvpMoveCatalog)}
-  <details class="pvp-full-rankings">
+  <details class="pvp-full-rankings" data-lazy="pvp-full-rankings">
     <summary>Full rankings</summary>
-    ${rankingsView(pvp, forms, { ...state, form: "all", investment: "all" }, trainerLevel, pvpMoveCatalog, false)}
+    <div class="lazy-body"></div>
   </details>`;
+}
+
+
+// This closed <details> was 14,185 of #pvp's 15,717 elements — 90.6% of the
+// route's DOM, built eagerly so it could sit collapsed. Same deferral the Gyms
+// tier sections use (app.js's onLazyToggle builds the body on first open).
+// Exported rather than inlined because that handler lives in app.js and needs
+// pvp/trainerLevel/pvpMoveCatalog/league, none of which the gym lazy context
+// carried — which is why this could not be fixed from inside views/ alone.
+export function buildPvpFullRankings(context = {}) {
+  const { pvp = {}, forms = {}, pvpState = {}, trainerLevel = null, pvpMoveCatalog = {} } = context;
+  return rankingsView(pvp, forms, { ...pvpState, form: "all", investment: "all" }, trainerLevel, pvpMoveCatalog, false);
 }
 
 

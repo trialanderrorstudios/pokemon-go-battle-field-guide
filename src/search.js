@@ -28,6 +28,30 @@ function formRows(forms) {
 }
 
 
+// The data stores "Tyranitar (Shadow)"; players type "shadow tyranitar", and
+// 586 of 586 reversed-order queries returned nothing because relevance() has no
+// per-token AND. Indexing the reversed spelling as a field is enough — it lands
+// on the existing exact/prefix tiers. Multi-suffix forms are the trap: one
+// greedy rewrite leaves "Marowak (Alolan) (Shadow)" as "shadow marowak alolan",
+// so "alolan marowak" still fails. Each suffix gets its own alias instead.
+function reversedNameAliases(name) {
+  const suffixes = [...name.matchAll(/\(([^()]+)\)/g)].map((match) => match[1].trim()).filter(Boolean);
+  const base = name.replace(/\s*\([^()]*\)/g, "").trim();
+  if (!suffixes.length || !base) return [];
+  const aliases = [];
+  for (const suffix of suffixes) {
+    const words = suffix.split(/\s+/);
+    aliases.push(`${suffix} ${base}`);
+    // "Charizard (Mega X)" also has to answer "mega charizard" and "mega
+    // charizard x"; one alias covers both, the shorter query being its prefix.
+    if (words.length > 1) aliases.push(`${words[0]} ${base} ${words.slice(1).join(" ")}`);
+  }
+  // "shadow alolan marowak" — the whole suffix stack, reader's order.
+  if (suffixes.length > 1) aliases.push(`${[...suffixes].reverse().join(" ")} ${base}`);
+  return aliases;
+}
+
+
 function formEntry(form, bandVocabByFormId) {
   const formId = form.formId ?? form.form_id;
   if (typeof formId !== "string" || typeof form.name !== "string") return null;
@@ -45,7 +69,7 @@ function formEntry(form, bandVocabByFormId) {
   // "anti <type>" vocabulary here, so searching the band's own words surfaces
   // the defender directly, not just the band's reference card.
   const bandVocab = bandVocabByFormId?.get(formId) ?? [];
-  const fields = normalizedParts([form.name, formId, types, moves, bandVocab]);
+  const fields = normalizedParts([form.name, reversedNameAliases(form.name), formId, types, moves, bandVocab]);
   return {
     formId,
     name: form.name,
@@ -91,7 +115,7 @@ function bossEntries(core) {
 // the species name was the only route in, and it is the one word a player
 // looking for the event is least likely to type. These carry a destination
 // rather than a formId, so the renderer links them instead of showing a sprite.
-const REFERENCE_PAGES = Object.freeze([
+export const REFERENCE_PAGES = Object.freeze([
   {
     id: "reference-max-battles",
     title: "Max Battles",

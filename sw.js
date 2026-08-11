@@ -262,6 +262,56 @@ async function cacheIsComplete(env, releaseId, manifest) {
 }
 
 
+// Most of a release does not change between releases: measured over the one
+// real inter-release delta (e9292a2), 4,730,951 of 4,758,814 B were
+// byte-identical to the installed release, so refetching everything spent
+// 4.7MB of a phone's data to land 27,863 B of new content. The manifest sha256
+// is the authority on which bytes belong to this release, so a local copy that
+// hashes to it IS this release's file. Re-hash it — the x-content-sha256 header
+// we wrote earlier is our own claim, not evidence, and a corrupted cache entry
+// must not ride into a new release on the strength of it.
+async function reusableBytes(env, metadata, file) {
+  for (const releaseId of [metadata.currentReleaseId, metadata.previousReleaseId]) {
+    if (!releaseId) continue;
+    const cache = await env.caches.open(`${RELEASE_CACHE_PREFIX}${releaseId}`);
+    const hit = await cache.match(releaseUrl(env, releaseId, file.path));
+    if (!hit) continue;
+    const bytes = await hit.arrayBuffer();
+    if (bytes.byteLength !== file.bytes) continue;
+    if (await hashBytes(bytes, env.crypto) === file.sha256) return bytes;
+  }
+  return null;
+}
+
+
+// Reuse saves the bytes but would also stop staging from proving the SERVER has
+// the file — and "a broken publish never moves the active pointer" is the
+// guarantee release-manager.test.mjs has encoded since the 2026-07-29 outages.
+// A HEAD per reused file costs ~12 round trips against the 4.7MB reuse saves,
+// so we keep both. Operator decision, 2026-08-11.
+//
+// This restores detection for a file the publish dropped and for a network
+// failure. It cannot detect a server serving DIFFERENT bytes under an unchanged
+// path unless content-length disagrees — and in that case this client is fine
+// regardless, because the bytes it reuses are the ones the manifest sha256
+// names. A client that does NOT already hold the file still fetches and
+// hash-checks it, so a corrupt publish is caught there.
+async function assertServerStillHas(env, url, file) {
+  let response;
+  try {
+    response = await env.fetch(url, { method: "HEAD", cache: "no-store", credentials: "same-origin" });
+  } catch (error) {
+    throw new Error(`Network fetch failed for ${file.path}: ${error?.message ?? error}`);
+  }
+  if (!response?.ok) throw new Error(`Missing release file ${file.path} (${response?.status ?? "unknown"}).`);
+  // Advisory: absent on some servers, so only trusted when actually present.
+  const declared = Number(response.headers?.get?.("content-length"));
+  if (Number.isFinite(declared) && declared > 0 && declared !== file.bytes) {
+    throw new Error(`Byte count mismatch for ${file.path}.`);
+  }
+}
+
+
 function assertStageExpectations(metadata, expectations) {
   for (const [field, actual] of [
     ["expectedCurrentReleaseId", metadata.currentReleaseId],
@@ -322,6 +372,9 @@ export async function stageRelease(manifest, environment = {}, expectations = {}
   const cacheName = `${RELEASE_CACHE_PREFIX}${validated.releaseId}`;
   await env.caches.delete(cacheName);
   const cache = await env.caches.open(cacheName);
+  // Read once, before the fetch loop: reuse must be judged against the pointer
+  // state staging started from, not one a concurrent activation moved.
+  const reuseFrom = await readMetadata(env);
   try {
     const manifestBytes = new TextEncoder().encode(JSON.stringify(validated));
     const manifestSha256 = await hashBytes(manifestBytes, env.crypto);
@@ -333,19 +386,23 @@ export async function stageRelease(manifest, environment = {}, expectations = {}
     );
     for (const file of validated.files) {
       const url = releaseUrl(env, validated.releaseId, file.path);
-      let response;
-      try {
-        response = await env.fetch(url, { cache: "no-store", credentials: "same-origin" });
-      } catch (error) {
-        throw new Error(`Network fetch failed for ${file.path}: ${error?.message ?? error}`);
+      let bytes = await reusableBytes(env, reuseFrom, file);
+      if (bytes) await assertServerStillHas(env, url, file);
+      if (!bytes) {
+        let response;
+        try {
+          response = await env.fetch(url, { cache: "no-store", credentials: "same-origin" });
+        } catch (error) {
+          throw new Error(`Network fetch failed for ${file.path}: ${error?.message ?? error}`);
+        }
+        if (!response?.ok) throw new Error(`Missing release file ${file.path} (${response?.status ?? "unknown"}).`);
+        bytes = await response.arrayBuffer();
+        if (bytes.byteLength !== file.bytes) throw new Error(`Byte count mismatch for ${file.path}.`);
+        const actualHash = await hashBytes(bytes, env.crypto);
+        if (actualHash !== file.sha256) throw new Error(`SHA-256 hash mismatch for ${file.path}.`);
       }
-      if (!response?.ok) throw new Error(`Missing release file ${file.path} (${response?.status ?? "unknown"}).`);
-      const bytes = await response.arrayBuffer();
-      if (bytes.byteLength !== file.bytes) throw new Error(`Byte count mismatch for ${file.path}.`);
-      const actualHash = await hashBytes(bytes, env.crypto);
-      if (actualHash !== file.sha256) throw new Error(`SHA-256 hash mismatch for ${file.path}.`);
       await cache.put(url, new Response(bytes, {
-        headers: { "content-type": "application/json", "x-content-sha256": actualHash },
+        headers: { "content-type": "application/json", "x-content-sha256": file.sha256 },
       }));
     }
     const marker = { releaseId: validated.releaseId, fileCount: validated.files.length, manifestSha256 };
@@ -622,7 +679,16 @@ export async function fetchWithinWorker(request, environment = {}) {
   if (request.mode === "navigate") {
     const shell = await env.caches.open(SHELL_CACHE);
     try {
-      const response = await env.fetch(request, { cache: "no-store" });
+      // no-cache, not no-store: both revalidate with the server on every
+      // request, so a shell revision still lands on the very next navigation
+      // (the 2026-07-22 stranding fix depends on that immediacy — index.html
+      // and src/app.js share URLs across revisions, so serving either one from
+      // a cache while the other comes from the network mixes revisions).
+      // no-store additionally forbade the HTTP cache from holding the bytes,
+      // which re-downloaded all 86 shell files / 344,576 B on every warm
+      // launch; no-cache turns that into 86 conditional GETs that return 304
+      // with an empty body (verified against the live host 2026-08-11).
+      const response = await env.fetch(request, { cache: "no-cache" });
       if (response?.ok) return response;
     } catch {
       // Offline navigation falls back to the verified shell below.
@@ -642,7 +708,9 @@ export async function fetchWithinWorker(request, environment = {}) {
   const shellUrls = new Set(SHELL_FILES.map((path) => scopedUrl(env.scope, path)));
   if (!shellUrls.has(url.href)) return env.fetch(request);
   try {
-    const response = await env.fetch(request, { cache: "no-store" });
+    // no-cache for the same reason as the navigation branch above: still
+    // network-first and still revalidated every time, but a 304 costs no body.
+    const response = await env.fetch(request, { cache: "no-cache" });
     if (response?.ok) return response;
   } catch {
     // An installed shell remains available for offline use.

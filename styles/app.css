@@ -55,7 +55,7 @@
   /* Type palette, kept in sync with TYPE_COLORS in web/src/sprites.js. */
   --type-bug: #92bc2c; --type-dark: #595761; --type-dragon: #0c69c8; --type-electric: #f2d94e;
   --type-fairy: #ee90e6; --type-fighting: #c73a56; --type-fire: #fba54c; --type-flying: #a1bbec;
-  --type-ghost: #5f6dbc; --type-grass: #5fbd58; --type-ground: #da7c4d; --type-ice: #75d0c1;
+  --type-ghost: #5461aa; --type-grass: #5fbd58; --type-ground: #da7c4d; --type-ice: #75d0c1;
   --type-normal: #a0a29f; --type-poison: #b763cf; --type-psychic: #fa8581; --type-rock: #c9bb8a;
   --type-steel: #5695a3; --type-water: #539ddf;
   font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
@@ -1973,6 +1973,24 @@ h1 {
   background: linear-gradient(145deg, var(--panel-raised), var(--panel));
 }
 
+/* .pvp-card-list goes auto-fill minmax(20rem,1fr) at 48rem (below), which can
+   narrow a card to ~320px independent of viewport width — but .pvp-moves/
+   .pvp-stats/.pvp-guidance go 3-column off the 36rem viewport query (below),
+   which stays true well past 48rem. A ~340px card trying to fit 3 fact
+   columns mid-breaks words ("Flamethrow/er") via the inherited
+   overflow-wrap:anywhere. Drive the column count off the card's own width. */
+.pvp-card {
+  container-type: inline-size;
+}
+
+@container (max-width: 26.25rem) {
+  .pvp-moves,
+  .pvp-stats,
+  .pvp-guidance {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
 .pvp-card-heading {
   display: flex;
   align-items: baseline;
@@ -2342,6 +2360,23 @@ h1 {
   margin: -0.1rem -0.35rem;
   /* Opt back out of the app-wide 44px floor added above — this is the exact
      dense stack the floor's own comment warns about. */
+  min-height: 0;
+  min-width: 0;
+}
+
+/* The base rule's comment calls dl/dd rows a safe context for the 44px
+   bleed, on the assumption the "next line" is a separate dt/dd pair far
+   enough away. That holds between rows, but not within one: the "Charged
+   moves" dd (pvp.js) joins 2-3 move-link buttons with " + ", and on a
+   narrow card that wraps to a second physical line inside the same dd,
+   where the wrapped line sits only line-height apart — the 0.65rem bleed
+   overlaps it (measured 2.92-3.19px at 390 width). The 0.1rem value used
+   above still left a 3.19px residual here (tighter line-height than the
+   team-moves context), so this drops the vertical padding to 0 outright.
+   Same WCAG 2.5.5 justification as the pair above. */
+.pvp-moves dd .move-link {
+  padding: 0 0.35rem;
+  margin: 0 -0.35rem;
   min-height: 0;
   min-width: 0;
 }
@@ -2909,11 +2944,20 @@ h1 {
   /* The shell growing must not just stretch prose to unreadable line
      lengths (comfortable reading tops out around 65-75 characters) — cap
      the text measure and let containers spend the recovered width on
-     structure (grids) instead. */
-  #app p {
-    max-width: 65ch;
+     structure (grids) instead. `ch` is the width of "0", which overstates
+     this font's average character width by ~26%: 65ch computed to 655px
+     and still rendered 92-102 real characters. Cap in px instead, and
+     extend past `p` to `dd`/`td` (fact-grid/table cells were running
+     uncapped — the worst offender was a 139-char pvp role `dd` at 924px). */
+  #app p,
+  #app dd,
+  #app td {
+    max-width: 600px;
   }
 
+  /* .home-view (line ~436) caps at 34rem, and .today-view/.coach-view are
+     its children — widening them without widening the parent did nothing,
+     so home rendered identically at 768 and 1024. */
   .gym-section,
   .pvp-view,
   .pvp-section,
@@ -2922,7 +2966,8 @@ h1 {
   .more-list-view,
   .coach-view,
   .coach-section,
-  .today-view {
+  .today-view,
+  .home-view {
     max-width: 64rem;
   }
 
@@ -2947,6 +2992,18 @@ h1 {
      of the row sitting empty beside it. */
   .view-segments fieldset {
     grid-column: 1 / -1;
+  }
+
+  /* .fallback-section (line ~408) hardcodes max-width:34rem/margin:0 auto,
+     never overridden above 36rem — as the page-level guide card/toggle it's
+     the first child of #app, so it renders at the phone measure while every
+     sibling route runs at the widened 64rem, a ragged left edge on 6 of 8
+     routes. Scoped to the direct #app children only: `.whats-new-card` (the
+     other class on this element, see guide.js) is reused for cards nested
+     inside home/more that should stay narrow. */
+  #app > .guide-card,
+  #app > .guide-toggle-row {
+    max-width: 64rem;
   }
 }
 

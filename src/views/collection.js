@@ -18,12 +18,18 @@ function progressLine(bucket) {
 }
 
 
+// router.js redirects bare #dex here and the guide card calls this grid "that
+// index", but it shipped 946 cells with zero anchors and no click handler — the
+// search dropdown was the only way into a dex entry anywhere in the app. The
+// name carries the link rather than the whole cell: .collection-card is the
+// <li>'s own display:grid box, so wrapping the contents in an anchor would
+// collapse every cell's internal layout into one inline run.
 function dexCard(row, forms) {
   const badges = shinyLuckyBadges(row);
   return `<li class="collection-card${row.caught ? " is-caught" : " is-missing"}" data-form-id="${escapeHtml(row.formId)}">
     ${spriteHtml(row.formId, forms, row.name, row.primaryType)}
     <span class="collection-card-dex">#${row.dex}</span>
-    <strong class="collection-card-name">${escapeHtml(row.name)}</strong>
+    <strong class="collection-card-name"><a href="./#dex/${encodeURIComponent(row.formId)}" data-route="dex">${escapeHtml(row.name)}</a></strong>
     <span class="collection-card-status">${row.caught ? "Caught" : "Missing"}</span>
     ${badges}
   </li>`;

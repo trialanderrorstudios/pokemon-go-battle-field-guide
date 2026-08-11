@@ -1,7 +1,8 @@
-import { createRouter, resolveRoute, ROUTES } from "./router.js";
+import { announce, createRouter, resolveRoute, ROUTES } from "./router.js";
 import { APP_SHELL_REVISION, ReleaseManager } from "./release-manager.js";
 import { ATTACK_TYPES, WEATHERS, becauseLine, buildRaidPlan, loadWeather, powerUpCost, saveWeather } from "./raid-target.js";
 import {
+  REFERENCE_PAGES,
   buildSearchIndex, loadRecentSearches, removeRecentSearch, saveRecentSearch, search,
 } from "./search.js";
 import {
@@ -104,7 +105,7 @@ import {
   stableBackupJson,
   summarizeBackup,
 } from "./backup.js";
-import { createPvpState, renderPvp } from "./views/pvp.js";
+import { buildPvpFullRankings, createPvpState, renderPvp } from "./views/pvp.js";
 import { withMyTeamOverride } from "./pvp-team.js";
 import { renderRaids } from "./views/raids.js";
 import {
@@ -430,7 +431,7 @@ function bossSuggestionRow(result, forms, rawQuery, target = null) {
   // The counters link answers "what beats it" (the reason someone searched a
   // boss); the dex link is a secondary escape to "what does the app know
   // about it" — two sibling <a>s, not one nested inside the other.
-  return `<li class="search-result-card search-result-boss" role="option">
+  return `<li class="search-result-card search-result-boss">
     <a class="safe-escape search-suggestion" href="./?boss=${encodeURIComponent(result.formId)}#raids">
       ${spriteHtml(result.formId, forms, result.name, forms?.[result.formId]?.primary_type)}
       <span class="search-suggestion-body">
@@ -444,12 +445,33 @@ function bossSuggestionRow(result, forms, rawQuery, target = null) {
 }
 
 
+// "No local matches." answered 9 of 12 realistic queries and told the reader
+// nothing about what else to type. The gym line is conditional on purpose: the
+// anti-<type> band vocabulary lives in gyms.json, which Home deliberately does
+// NOT preload (610.6 KB), so before a Gyms visit those queries genuinely have
+// nothing to match and saying so beats a silent zero. Elite-TM acquisition
+// content is not indexed at all, so nothing here promises it.
+function searchEmptyState(rawQuery, raidData) {
+  const query = String(rawQuery ?? "").trim();
+  const bandLine = raidData?.gym
+    ? `Gym defenders answer to <strong>anti fighting</strong> or <strong>what beats Blissey</strong>.`
+    : `Gym defender searches (<strong>anti fighting</strong>, <strong>what beats Blissey</strong>) start working once you have opened <a class="safe-escape" href="./#gyms/defend" data-route="gyms" data-view="defend">Gyms</a> — that data isn't downloaded until then.`;
+  const references = REFERENCE_PAGES.map((page) => (
+    `<a class="safe-escape" href="./#${escapeHtml(page.route)}/${escapeHtml(page.view)}" data-route="${escapeHtml(page.route)}" data-view="${escapeHtml(page.view)}">${escapeHtml(page.title)}</a>`
+  )).join(" · ");
+  return `<p class="search-empty">No local matches for “${escapeHtml(query)}”.</p>
+    <p class="search-empty">Species, types and moves are all indexed, and form names work in either order — <strong>shadow tyranitar</strong> or <strong>Tyranitar (Shadow)</strong>.</p>
+    <p class="search-empty">${bandLine}</p>
+    <p class="search-empty">Reference pages: ${references}</p>`;
+}
+
+
 // An autocomplete list, not a results page. Every row is one tappable line that
 // says what the thing is and sends you to the surface that shows it properly.
 // Ten dense cards inside a dropdown was the old shape, and a full raid CP band
 // plus counters rendered in that box is what "hard to read" meant.
 function renderSearchResults(results, forms, roster, rawQuery = "", raidData = {}) {
-  if (!results.length) return `<p class="search-empty">No local matches.</p>`;
+  if (!results.length) return searchEmptyState(rawQuery, raidData);
   const owned = new Set(roster?.ownedFormIds ?? []);
   const targetsByForm = new Map(
     (raidData.raidTargetTool?.targets ?? []).map((target) => [target.bossFormId, target]),
@@ -457,7 +479,7 @@ function renderSearchResults(results, forms, roster, rawQuery = "", raidData = {
   const rows = results.slice(0, 8).map((result) => {
     if (result.resultCategory === "tip") return tipSearchResultCard(result, rawQuery);
     if (result.resultCategory === "reference") {
-      return `<li class="search-result-card search-result-reference" role="option">
+      return `<li class="search-result-card search-result-reference">
         <a class="safe-escape search-suggestion" href="./#${escapeHtml(result.route)}${result.view ? `/${escapeHtml(result.view)}` : ""}" data-route="${escapeHtml(result.route)}" data-view="${escapeHtml(result.view ?? "")}">
           <span class="search-suggestion-body">
             <strong>${highlightMatch(result.name, rawQuery)}</strong>
@@ -478,14 +500,20 @@ function renderSearchResults(results, forms, roster, rawQuery = "", raidData = {
     const isOwned = owned.has(result.formId);
     const label = `${spriteHtml(result.formId, forms, result.name, forms?.[result.formId]?.primary_type)}<span class="search-suggestion-body"><strong>${highlightMatch(result.name, rawQuery)}</strong><span class="search-suggestion-meta">Pokémon${target ? " · raid target" : ""}</span></span>`;
     const dexHref = `./#dex/${encodeURIComponent(result.formId)}`;
-    return `<li class="search-result-card${isOwned ? " is-owned" : ""}" role="option">${target
+    return `<li class="search-result-card${isOwned ? " is-owned" : ""}">${target
       ? `<a class="safe-escape search-suggestion" href="./?boss=${encodeURIComponent(result.formId)}#raids">${label}</a><a class="safe-escape search-suggestion-dex-link" data-route="dex" href="${dexHref}">Dex entry →</a>`
       : `<a class="safe-escape search-suggestion" data-route="dex" href="${dexHref}">${label}</a>`}${ownedStarButton({ formId: result.formId, name: result.name, owned: isOwned, route: "search" })}</li>`;
   }).join("");
   const more = results.length > 8
     ? `<li class="search-more">${results.length - 8} more — keep typing to narrow it down</li>`
     : "";
-  return `<ul class="search-suggestions" role="listbox" aria-label="Search suggestions">${rows}${more}</ul>`;
+  // Plain list, NOT role="listbox". It carried listbox/option roles with no
+  // combobox on the input — an orphaned pattern where ArrowDown did nothing and
+  // Tab walked into the rows. A row is not a listbox option: it holds up to
+  // three separate targets (counters link, "Dex entry →", the owned star), and
+  // ARIA forbids focusable descendants inside role="option". A list of links is
+  // what this actually is, and Tab through it already works.
+  return `<ul class="search-suggestions" aria-label="Search suggestions">${rows}${more}</ul>`;
 }
 
 
@@ -566,16 +594,27 @@ export function bindSearch(documentObject, index, forms, roster, storage = null,
   const output = form?.querySelector("[data-search-results]");
   if (!input || !output) return () => {};
   const recentsContainer = form?.querySelector("[data-search-recents]");
+  // The results container is authored as aria-live="polite" (views/home.js,
+  // views/dex.js), which re-read all 531 characters of the list on every
+  // keystroke. Dropped at bind time — an innerHTML swap doesn't restore an
+  // attribute on the container itself — in favour of the short count announced
+  // in render() below. The markup should lose the attribute too; it belongs to
+  // the views lane.
+  output.removeAttribute?.("aria-live");
   const renderRecents = () => {
     if (!recentsContainer) return;
     recentsContainer.innerHTML = recentSearchesHtml(loadRecentSearches(storage));
   };
   const render = () => {
     const query = input.value.trim();
+    const results = query ? search(index, input.value) : [];
     output.innerHTML = query
-      ? renderSearchResults(search(index, input.value), forms, roster, input.value, raidData)
+      ? renderSearchResults(results, forms, roster, input.value, raidData)
       : "";
-    if (recentsContainer) recentsContainer.hidden = Boolean(query);
+    if (query) announce(documentObject, `${results.length} ${results.length === 1 ? "match" : "matches"} for ${query}`);
+    // Recents stay up when a query found nothing: hiding them was the other
+    // half of the dead-end empty state.
+    if (recentsContainer) recentsContainer.hidden = Boolean(query) && results.length > 0;
   };
   input.addEventListener("input", render);
   // Recent searches are recorded on submit (Enter), not on every keystroke —
@@ -633,7 +672,16 @@ function offlineLabel(releaseState = {}) {
 export function ledState(releaseState = {}, roster = {}) {
   const rosterLoaded = (roster.instances?.length ?? 0) > 0 || (roster.ownedFormIds?.length ?? 0) > 0;
   const updateReady = releaseState.status === "update_available";
-  const dataFresh = !updateReady && releaseState.status !== "failed" && Boolean(releaseState.currentReleaseId);
+  // "updating" means a newer release is staging over the top of the current
+  // one, so the data on screen is no longer the freshest available — the LED
+  // said otherwise while releaseLabel() right beside it already read
+  // "Downloading and verifying data". Brief on a fast connection, but the whole
+  // release is 4.6MB, so on a phone it is exactly when the reader is deciding
+  // whether to trust what they are looking at.
+  // Only "updating" is checked: the sibling "caching" state occurs solely when
+  // currentReleaseId is null, which the Boolean() below already excludes.
+  const dataFresh = !updateReady && releaseState.status !== "updating"
+    && releaseState.status !== "failed" && Boolean(releaseState.currentReleaseId);
   return { roster: rosterLoaded, update: updateReady, fresh: dataFresh };
 }
 
@@ -774,8 +822,23 @@ function placementFor(state, roster) {
 }
 
 
+// One collator, reused. `localeCompare(value, undefined, options)` constructs a
+// fresh Intl.Collator per comparison: measured 15.88ms for the ~14,000
+// comparisons this sort makes over 1,402 forms, ×6 calls on #gyms/defend ≈ 94ms.
+// The same options through a hoisted collator measured 0.61ms, byte-identical
+// ordering. Bare localeCompare() without options is a different (and much
+// cheaper) call and is left alone.
+const NAME_COLLATOR = new Intl.Collator(undefined, { numeric: true, sensitivity: "base" });
+
+// Memoized on the `forms` object identity: a cold load re-bootstraps 4-5 times
+// as chunks land, and `state.core` (hence `state.core.forms`) is the same object
+// every time, so every rebuild after the first was ~25ms of identical work.
+const gymEligibleDefenderCache = new WeakMap();
+
 export function gymEligibleDefenderForms(forms = {}) {
-  return Object.values(forms).filter((form) => {
+  const cached = gymEligibleDefenderCache.get(forms);
+  if (cached) return cached;
+  const eligible = Object.values(forms).filter((form) => {
     const tags = new Set(form?.tags ?? []);
     const formName = String(form?.form ?? "").toUpperCase();
     const mythicalGymException = form?.dex === 808 || form?.dex === 809;
@@ -788,10 +851,10 @@ export function gymEligibleDefenderForms(forms = {}) {
       && !tags.has("ultrabeast")
       && !formName.startsWith("MEGA")
       && formName !== "PRIMAL";
-  }).sort((left, right) => left.name.localeCompare(right.name, undefined, {
-    numeric: true,
-    sensitivity: "base",
-  }) || left.form_id.localeCompare(right.form_id));
+  }).sort((left, right) => NAME_COLLATOR.compare(left.name, right.name)
+    || left.form_id.localeCompare(right.form_id));
+  gymEligibleDefenderCache.set(forms, eligible);
+  return eligible;
 }
 
 
@@ -932,10 +995,8 @@ export function raidTargetsForCategory(targets = [], forms = {}, category = "all
   const safeCategory = RAID_TARGET_CATEGORY_SET.has(category) ? category : "all";
   return [...targets]
     .filter((target) => raidTargetMatchesCategory(target, forms[target?.bossFormId], safeCategory))
-    .sort((left, right) => left.boss.localeCompare(right.boss, undefined, {
-      numeric: true,
-      sensitivity: "base",
-    }) || left.bossFormId.localeCompare(right.bossFormId));
+    .sort((left, right) => NAME_COLLATOR.compare(left.boss, right.boss)
+      || left.bossFormId.localeCompare(right.bossFormId));
 }
 
 
@@ -2763,6 +2824,17 @@ function beginnerCounterGroups(groups, roster, bossTypes, forms = {}, cardOption
 }
 
 
+// This label was hardcoded "10/10/10" until 2026-08-11, when the shadow-raid
+// floor was corrected to 6/6/6 — leaving the label contradicting the CP printed
+// immediately beside it on all 474 shadow rows. The band now carries its own
+// floor; read it rather than restating a constant that is no longer constant.
+// Falls back to 10 only for a release built before minimumIV shipped.
+function ivFloorLabel(band) {
+  const floor = Number.isFinite(band?.minimumIV) ? band.minimumIV : 10;
+  return escapeHtml(`${floor}/${floor}/${floor}`);
+}
+
+
 function raidTargetSurface(state, ui, roster) {
   const allTargets = state.raidTargetTool?.targets ?? [];
   const category = allowed(ui.raid.targetCategory, RAID_TARGET_CATEGORY_SET, "all");
@@ -2824,12 +2896,12 @@ function raidTargetSurface(state, ui, roster) {
     <div class="raid-cp-lines">
       <div class="raid-cp-set">
         <p><strong>Level 20 encounter:</strong></p>
-        <p><strong>Min CP:</strong> 10/10/10: ${escapeHtml(plan.target.normal.minimumRaidIVCP)}</p>
+        <p><strong>Min CP:</strong> ${ivFloorLabel(plan.target.normal)}: ${escapeHtml(plan.target.normal.minimumRaidIVCP)}</p>
         <p><strong>${jargonTerm("hundo", "Hundo CP")}:</strong> ${escapeHtml(plan.target.normal.hundoCP)}</p>
       </div>
       <div class="raid-cp-set">
         <p><strong>Level 25 weather-boosted encounter:</strong></p>
-        <p><strong>Min CP:</strong> 10/10/10: ${escapeHtml(plan.target.weatherBoosted.minimumRaidIVCP)}</p>
+        <p><strong>Min CP:</strong> ${ivFloorLabel(plan.target.weatherBoosted)}: ${escapeHtml(plan.target.weatherBoosted.minimumRaidIVCP)}</p>
         <p><strong>${jargonTerm("hundo", "Hundo CP")}:</strong> ${escapeHtml(plan.target.weatherBoosted.hundoCP)}</p>
       </div>
     </div>
@@ -2987,12 +3059,19 @@ export function onDialogKeydown(event, app) {
 // thunk (not a plain object) so this always reads whatever gym/forms/roster
 // state is current at click time, not whatever was in scope when bootstrap()
 // ran.
-function onGymLazyToggle(event, getLazyContext) {
+// PvP joined Gyms here on 2026-08-11: its "Full rankings" <details> was 14,185
+// of #pvp's 15,717 elements. It needs a different builder and different state,
+// so the key now selects the builder rather than always meaning "a gym tier".
+function onLazyToggle(event, getLazyContext) {
   const details = event.target;
   if (details?.tagName !== "DETAILS" || !details.open || !details.hasAttribute?.("data-lazy")) return;
-  const body = details.querySelector?.(":scope > .gym-lazy-body");
+  const body = details.querySelector?.(":scope > .gym-lazy-body, :scope > .lazy-body");
   if (!body) return;
-  body.innerHTML = buildLazyGymBody(details.getAttribute("data-lazy"), getLazyContext());
+  const key = details.getAttribute("data-lazy");
+  const context = getLazyContext();
+  body.innerHTML = key === "pvp-full-rankings"
+    ? buildPvpFullRankings(context)
+    : buildLazyGymBody(key, context);
   details.removeAttribute("data-lazy");
 }
 
@@ -3005,7 +3084,7 @@ function bindInteractions(app, controller, extraClickTargets = [], fullTargets =
   const onChange = (event) => delegate(() => controller.handleChange(event));
   const onInput = (event) => controller.handleInput(event);
   const onKeydown = (event) => onDialogKeydown(event, app);
-  const onToggle = getLazyContext ? (event) => onGymLazyToggle(event, getLazyContext) : null;
+  const onToggle = getLazyContext ? (event) => onLazyToggle(event, getLazyContext) : null;
   // #app plus any full-delegation roots (the body-level overlay root that
   // hosts the move/instance sheets outside the clipped bezel) get the whole
   // event set, so sheet inputs, sprite-error fallbacks, and dialog keydown
@@ -3039,6 +3118,31 @@ function bindInteractions(app, controller, extraClickTargets = [], fullTargets =
 }
 
 
+// `gym` is a top-level chunk field (gyms.json), never part of `state.core`, and
+// leaving it out made the whole shipped anti-<type> band vocabulary unreachable:
+// "anti fighting", "counter machamp" and "what beats Blissey" all returned zero.
+// It only fills in after a Gyms/leaderboard/triage visit — gyms.json is 610.6 KB
+// and deliberately not in ROUTE_CHUNKS.home — which is why searchEmptyState says
+// so out loud instead of showing an unexplained "no matches".
+//
+// Memoized on a COMPOSITE identity, not on `state.core` alone: a cold load
+// re-bootstraps 4-5 times as chunks land (81.3ms per rebuild on home) and core
+// is the same object each time, so keying on core alone would freeze the index
+// at its pre-raid 1,754 entries and permanently drop the 1,595 raid-boss rows.
+let searchIndexCache = null;
+
+function memoizedSearchIndex(state) {
+  const key = { core: state.core, raidTargetTool: state.raidTargetTool, gym: state.gym };
+  if (searchIndexCache
+    && searchIndexCache.core === key.core
+    && searchIndexCache.raidTargetTool === key.raidTargetTool
+    && searchIndexCache.gym === key.gym) return searchIndexCache.index;
+  const index = buildSearchIndex({ ...state.core, raidTargetTool: key.raidTargetTool, gym: key.gym });
+  searchIndexCache = { ...key, index };
+  return index;
+}
+
+
 export function bootstrap({
   windowObject = globalThis.window,
   documentObject = globalThis.document,
@@ -3062,10 +3166,7 @@ export function bootstrap({
     return { status: "fallback", router: null };
   }
 
-  const index = buildSearchIndex({
-    ...state.core,
-    raidTargetTool: state.raidTargetTool,
-  });
+  const index = memoizedSearchIndex(state);
   const validFormIds = new Set(Object.keys(state.core.forms));
   const gymDefenderForms = gymEligibleDefenderForms(state.core.forms);
   const gymDefenderFormIds = new Set(gymDefenderForms.map((form) => form.form_id));
@@ -3187,6 +3288,8 @@ export function bootstrap({
       searchRefresh = bindSearch(documentObject, index, state.core.forms, roster, storage, {
         raidTargetTool: state.raidTargetTool,
         raids: state.raids,
+        // Only so the empty state can say whether band search is live yet.
+        gym: state.gym,
       });
     },
     basics(view) {
@@ -3236,6 +3339,8 @@ export function bootstrap({
       searchRefresh = bindSearch(documentObject, index, state.core.forms, roster, storage, {
         raidTargetTool: state.raidTargetTool,
         raids: state.raids,
+        // Only so the empty state can say whether band search is live yet.
+        gym: state.gym,
       });
     },
     raids(view) {
@@ -3675,6 +3780,13 @@ export function bootstrap({
     forms: state.core.forms,
     ownedFormIds: roster.ownedFormIds,
     ownedOnly: ui.gym.ownedOnly,
+    // Added for #pvp's deferred Full rankings body. Read at open time, like
+    // everything else here: the league filter can change between the render
+    // that shipped the closed <details> and the tap that opens it.
+    pvp: state.pvp,
+    pvpState: ui.pvp,
+    trainerLevel: ui.trainerProfile.level,
+    pvpMoveCatalog: state.core.methodology?.pvpMoveCatalog ?? {},
   }));
   return { status: "ready", router, searchIndex: index, controller, ui, stopInteractions };
 }
