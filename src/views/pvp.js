@@ -174,7 +174,13 @@ function filterSelect(name, label, value, choices) {
 
 
 function controls(state, view) {
-  return `<form class="pvp-controls" data-pvp-filters aria-label="PvP league and ranking filters">
+  // Rankings-only sticky class: #pvp/rankings is the one PvP view long enough
+  // (225 viewports at 390 wide) that its filters scroll out of reach, so only
+  // that route gets position:sticky. Scoped here rather than on the shared
+  // .pvp-controls class, which Teams/Anti-Meta and home.js's view-segments
+  // strip (Attacking/Defending, PvP tabs) also use — those stay static.
+  const stickyClass = view === "rankings" ? " pvp-controls-sticky" : "";
+  return `<form class="pvp-controls${stickyClass}" data-pvp-filters aria-label="PvP league and ranking filters">
     ${filterSelect("league", "League", state.league, PVP_LEAGUE_FILTERS.map((league) => [league, leagueName(league)]))}
     ${view === "rankings" ? `${filterSelect("form", "Form", state.form, [["all", "Regular + Shadow"], ["regular", "Regular only"], ["shadow", "Shadow only"]])}
     ${filterSelect("investment", "Investment", state.investment, [["all", "All tiers"], ["S+", "S+"], ["S", "S"], ["A", "A"], ["B", "B"], ["C", "C"]])}

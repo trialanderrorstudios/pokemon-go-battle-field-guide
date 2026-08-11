@@ -1755,6 +1755,22 @@ h1 {
   background: var(--panel);
 }
 
+/* #pvp/rankings only (class applied in pvp.js's controls()) — this route
+   measures 225 viewports tall at 390 wide and its four filters (League,
+   Form, Investment, Meta) are the only way to shorten that list, so they
+   need to stay reachable past a deep scroll. The app's FIRST position:sticky
+   element; docs/dex-two-panel-spec.md §2.2 plans a second sticky surface for
+   the two-panel dex and will copy this pattern. #app (not body) is the real
+   scroll container (overflow-y:auto, see #app rule above), so `top` is
+   relative to its scrollport, not the page viewport — and its bottom tab bar
+   is position:fixed at the bottom, so there's no top chrome to clear. */
+.pvp-controls-sticky {
+  position: sticky;
+  top: 0;
+  z-index: 2; /* above #app::after's scanline overlay, which sits at z-index:1 */
+  background: var(--panel); /* already opaque; restated so stuck rows don't show through */
+}
+
 .pvp-controls label {
   display: grid;
   gap: 0.3rem;

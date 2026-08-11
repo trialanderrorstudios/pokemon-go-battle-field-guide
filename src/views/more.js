@@ -12,7 +12,7 @@ export const MORE_LISTS = Object.freeze({
   megas: Object.freeze({ title: "Megas, Primals & Super Megas", group: "Collection" }),
   future: Object.freeze({ title: "Future-Proof Investments", group: "Investment" }),
   coverage: Object.freeze({ title: "Type Coverage Planner", group: "Collection" }),
-  collection: Object.freeze({ title: "Living Dex Collection", group: "Collection" }),
+  collection: Object.freeze({ title: "Pokédex — Living Dex", group: "Collection" }),
 });
 
 

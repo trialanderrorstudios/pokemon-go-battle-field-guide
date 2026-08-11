@@ -1,5 +1,5 @@
 export const APP_VERSION = 1;
-export const APP_SHELL_REVISION = "r97";
+export const APP_SHELL_REVISION = "r98";
 export const MANIFEST_SCHEMA_VERSION = 1;
 export const DATA_SCHEMA_VERSION = 1;
 export const RELEASE_STATES = Object.freeze([
@@ -490,10 +490,21 @@ export class ReleaseManager {
         });
       }
     }
+    // Hoisted above the try (not `const`/`let` scoped inside it) so the
+    // catch below can still see whatever the SW already confirmed and
+    // whatever this call already managed to load, instead of only seeing
+    // `this._state` — which is still the constructor default on a normal
+    // boot. See the 2026-08-11 wave-2a failure-ux finding (release-manager.js
+    // catch, was line 545): a transient core.json re-fetch/re-verify glitch
+    // here used to discard a fully valid, durable, offline-ready release and
+    // drop straight to status:"failed" with currentReleaseId:null, even
+    // though the SW's own cache was intact the whole time.
+    let durable = null;
+    let activeManifest = null;
+    let activeData = null;
     try {
-      const durable = stateFromStatus(stored);
-      let activeManifest = stored?.manifest ?? null;
-      let activeData = null;
+      durable = stateFromStatus(stored);
+      activeManifest = stored?.manifest ?? null;
       if (activeManifest) {
         activeManifest = validateReleaseManifest(activeManifest, { appVersion: this.appVersion });
         // Core-only here too: this runs on every boot with a durable release,
@@ -543,6 +554,18 @@ export class ReleaseManager {
         candidate: null, error: null,
       });
     } catch (error) {
+      // Prefer the hoisted `durable`/`activeManifest`/`activeData` (what this
+      // call itself already learned from the SW plus whatever it already
+      // loaded) over `this._state`, which is only meaningfully different
+      // from the constructor default once a transition() has already fired
+      // earlier in this same try — mirrors the fetchCurrentManifest failure
+      // branch a few lines up (durable, activeManifest, activeData).
+      if (durable?.currentReleaseId && durable?.offlineReady) {
+        return this.transition("offline", {
+          ...durable, manifest: activeManifest, data: activeData, candidate: null,
+          error: String(error?.message ?? error),
+        });
+      }
       const keepOffline = this._state.currentReleaseId && this._state.offlineReady;
       return this.transition(keepOffline ? "offline" : "failed", {
         error: String(error?.message ?? error),
@@ -597,14 +620,20 @@ export class ReleaseManager {
           error: message,
         });
       } catch (statusError) {
+        // Double failure: the ROLLBACK_RELEASE command failed AND the
+        // follow-up status() probe meant to reconcile it also failed. That's
+        // a communication glitch, not evidence the release itself is gone —
+        // `prior` (the state going into this rollback attempt) is still
+        // known-good, so fall back to it optimistically instead of nulling
+        // every field (2026-08-11 wave-2a failure-ux finding, low severity).
         return this.transition("failed", {
-          currentReleaseId: null,
-          previousReleaseId: null,
-          offlineReady: false,
-          generation: 0,
-          manifest: null,
-          data: null,
-          candidate: null,
+          currentReleaseId: prior.currentReleaseId,
+          previousReleaseId: prior.previousReleaseId,
+          offlineReady: prior.offlineReady,
+          generation: prior.generation,
+          manifest: prior.manifest,
+          data: prior.data,
+          candidate: prior.candidate,
           error: `${message}; rollback reconciliation failed: ${String(statusError?.message ?? statusError)}`,
         });
       }

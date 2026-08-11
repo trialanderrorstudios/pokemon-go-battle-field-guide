@@ -7,6 +7,9 @@ import { displayMoveName } from "./move-sheet.js";
 
 const OPPONENT_RESULT_CAP = 40;
 
+// Same collator as app.js's NAME_COLLATOR — keep sort order byte-identical.
+const NAME_COLLATOR = new Intl.Collator(undefined, { numeric: true, sensitivity: "base" });
+
 function leagueName(league) {
   return `${league[0].toUpperCase()}${league.slice(1)} League`;
 }
@@ -37,7 +40,7 @@ function manualPicker(roster, forms, manualFormIds) {
   const owned = [...new Set(roster?.ownedFormIds ?? [])]
     .map((formId) => forms[formId])
     .filter(Boolean)
-    .sort((left, right) => left.name.localeCompare(right.name));
+    .sort((left, right) => NAME_COLLATOR.compare(left.name, right.name));
   if (!owned.length) return "<p>No owned Pokémon yet — star some on Raids or PvP first.</p>";
   const atCapacity = manualFormIds.length >= 3;
   return `<div class="placement-controls" role="group" aria-label="Pick up to three owned Pokémon">

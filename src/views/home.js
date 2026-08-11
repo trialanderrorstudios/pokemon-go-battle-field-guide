@@ -429,7 +429,7 @@ export function renderHome({
       <label for="global-search">Search Pokémon, move, type, or raid boss</label>
       <input id="global-search" name="q" type="search" autocomplete="off">
       <div class="search-recents" data-search-recents></div>
-      <div data-search-results aria-live="polite"></div>
+      <div data-search-results></div>
     </form>
     ${renderToday({
     data, roster, defenseLog, storage, gapByFormId, investRows, futureProof, now, profile: { trainerLevel },

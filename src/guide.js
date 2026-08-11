@@ -57,7 +57,7 @@ export const GUIDE_COPY = Object.freeze({
   }),
   dex: Object.freeze({
     title: "One Pokémon, everything the app knows",
-    body: `A dex entry gathers a single Pokémon's gym defense verdict, raid attacker rank, PvP ranks, moves, evolution line, and roster status onto one page. Reached from search or a name link elsewhere in the app — there's no browse list here; the Collection grid under More is that index.`,
+    body: `A dex entry gathers a single Pokémon's gym defense verdict, raid attacker rank, PvP ranks, moves, evolution line, and roster status onto one page. Reached from search, a name link elsewhere in the app, or by tapping a Pokémon on the Pokédex — Living Dex grid under More.`,
   }),
 });
 

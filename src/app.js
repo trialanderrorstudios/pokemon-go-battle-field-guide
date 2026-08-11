@@ -242,6 +242,14 @@ export function routeChunksReady(route, loadedChunkPaths) {
   return (ROUTE_CHUNKS[route] ?? []).every((path) => loadedChunkPaths.has(path));
 }
 
+// True once any chunk this route needs has exhausted its auto-retries (see
+// createRouteChunkLoader's MAX_CHUNK_LOAD_ATTEMPTS) — the honesty gate the
+// route-level error+retry notice renders off, instead of the indefinite
+// loading one.
+export function routeChunkFailed(route, failedChunkPaths) {
+  return (ROUTE_CHUNKS[route] ?? []).some((path) => failedChunkPaths.has(path));
+}
+
 
 // Mirrors pwa.py's VIEW_KEYS: which top-level `state` fields each release
 // file's data lands as, once merged in.
@@ -282,6 +290,17 @@ export function inferChunkPaths(state) {
 // loaded so far for the current release, and fetching a route's missing
 // ones on first visit. Standalone (no DOM) so it's unit-testable directly;
 // startFieldGuide is the only caller and supplies the re-render side effect.
+// Wave-2a HIGH finding (2026-08-11): a failed chunk fetch used to release
+// its claim on every failure, so any rerender of the route (hashchange,
+// popstate, or literally any in-view interaction — checkboxes/filters all
+// call rerender(route)) silently re-fetched forever with no visible sign
+// anything was wrong. Cap it: the first attempts keep quietly retrying (a
+// transient blip clears itself on the next visit, same as before), but once
+// a path exhausts MAX_CHUNK_LOAD_ATTEMPTS it stays claimed (auto-retry
+// stops) and moves into failedChunkPaths so the route can render an honest
+// error+retry affordance instead of spinning forever.
+const MAX_CHUNK_LOAD_ATTEMPTS = 3;
+
 export function createRouteChunkLoader({ releaseManager, getReleaseState, onChunksLoaded = () => {} }) {
   // Two sets, deliberately not one: `claimedChunkPaths` dedups in-flight
   // fetches (a path is claimed the instant a fetch starts); `loadedChunkPaths`
@@ -293,6 +312,10 @@ export function createRouteChunkLoader({ releaseManager, getReleaseState, onChun
   // one Set let that second visit render a full view off absent data.
   let claimedChunkPaths = new Set(["core.json"]);
   let loadedChunkPaths = new Set(["core.json"]);
+  // Paths that hit MAX_CHUNK_LOAD_ATTEMPTS — bootstrap()'s routeChunkFailed()
+  // renders the error+retry notice off this instead of the indefinite loading one.
+  let failedChunkPaths = new Set();
+  let attemptCounts = new Map();
   let extraChunkData = {};
   return {
     // Call whenever a wholesale-new releaseState.data lands (install/update/
@@ -301,64 +324,107 @@ export function createRouteChunkLoader({ releaseManager, getReleaseState, onChun
     reset() {
       claimedChunkPaths = new Set(["core.json"]);
       loadedChunkPaths = new Set(["core.json"]);
+      failedChunkPaths = new Set();
+      attemptCounts = new Map();
       extraChunkData = {};
     },
     get loadedChunkPaths() { return loadedChunkPaths; },
+    get failedChunkPaths() { return failedChunkPaths; },
     get extraChunkData() { return extraChunkData; },
-    async ensureRouteChunks(route) {
-      const releaseState = getReleaseState();
-      const manifest = releaseState?.manifest;
-      if (!manifest) return;
-      const requestReleaseId = manifest.releaseId;
-      const missing = chunksNeededFor(route, claimedChunkPaths);
-      if (!missing.length) return;
-      // Claim immediately so a second visit to the same (or another route
-      // needing an overlapping file) while this fetch is in flight doesn't
-      // start a duplicate request; a failure below releases the claim so
-      // the next visit retries.
-      for (const path of missing) claimedChunkPaths.add(path);
-      let chunk;
-      try {
-        // One file at a time, not releaseManager.loadReleaseFiles(manifest,
-        // missing) in a single call: that method merges every requested
-        // file with a flat Object.assign, and raids-regular.json /
-        // raids-shadow.json both own the top-level "raids" key (pwa.py's
-        // SPLIT_KEY_OWNERS) — whichever loaded second would silently
-        // clobber the other's half instead of the two combining. Fetching
-        // one path per call costs nothing extra (loadReleaseFiles already
-        // awaits its files sequentially), and lets this loop merge `raids`
-        // itself instead of overwriting it.
-        chunk = {};
-        for (const path of missing) {
-          const partial = await releaseManager.loadReleaseFiles(manifest, [path]);
-          // Shallow-merging the two halves is not enough once `raids` carries a
-          // sibling LIST: both chunks ship honorableMentions (9 regular, 2
-          // shadow) and a spread makes the second file's array replace the
-          // first's instead of joining them. Electric's only mention lives in
-          // the regular half, so it vanished whenever shadow loaded second.
-          // Concatenate arrays, spread everything else.
-          if (partial.raids) partial.raids = mergeRaidsHalves(chunk.raids, partial.raids);
-          Object.assign(chunk, partial);
-        }
-      } catch {
-        // A release install/update/rollback may have landed while this fetch
-        // was in flight — that already called reset(), repointing
-        // claimedChunkPaths to a new Set for the new release. Deleting into it
-        // here would strip legitimate claims/loads that belong to the new
-        // release, not this stale failed request.
-        if (getReleaseState()?.manifest?.releaseId !== requestReleaseId) return;
-        for (const path of missing) claimedChunkPaths.delete(path);
-        return; // Fallback/loading copy stays up; the next visit retries.
+    ensureRouteChunks,
+    // The route's "tap to retry" button: un-claims + clears failure state for
+    // this route's still-missing chunks so ensureRouteChunks treats the next
+    // call as a fresh first attempt instead of a no-op (still claimed) or a
+    // silently-bounded one (attempt count already at the cap).
+    retryRoute(route) {
+      for (const path of ROUTE_CHUNKS[route] ?? []) {
+        if (loadedChunkPaths.has(path)) continue;
+        claimedChunkPaths.delete(path);
+        failedChunkPaths.delete(path);
+        attemptCounts.delete(path);
       }
-      // A release install/update/rollback may have landed while this fetch
-      // was in flight — that already called reset(); don't let a stale
-      // release's chunk data merge into the new one.
-      if (getReleaseState()?.manifest?.releaseId !== requestReleaseId) return;
-      for (const path of missing) loadedChunkPaths.add(path);
-      Object.assign(extraChunkData, chunk);
-      onChunksLoaded();
+      return ensureRouteChunks(route);
     },
   };
+  // A named local function, not an object-literal method: retryRoute above
+  // calls it directly (not via `this.ensureRouteChunks`, which would break
+  // once callers detach it — as bootstrap()'s onRouteVisit param always does,
+  // passing `chunkLoader.ensureRouteChunks` around as a bare function ref).
+  async function ensureRouteChunks(route) {
+    const releaseState = getReleaseState();
+    const manifest = releaseState?.manifest;
+    if (!manifest) return;
+    const requestReleaseId = manifest.releaseId;
+    const missing = chunksNeededFor(route, claimedChunkPaths);
+    if (!missing.length) return;
+    // Claim immediately so a second visit to the same (or another route
+    // needing an overlapping file) while this fetch is in flight doesn't
+    // start a duplicate request; a failure below releases the claim so
+    // the next visit retries.
+    for (const path of missing) claimedChunkPaths.add(path);
+    let chunk;
+    try {
+      // One file at a time, not releaseManager.loadReleaseFiles(manifest,
+      // missing) in a single call: that method merges every requested
+      // file with a flat Object.assign, and raids-regular.json /
+      // raids-shadow.json both own the top-level "raids" key (pwa.py's
+      // SPLIT_KEY_OWNERS) — whichever loaded second would silently
+      // clobber the other's half instead of the two combining. Fetching
+      // one path per call costs nothing extra (loadReleaseFiles already
+      // awaits its files sequentially), and lets this loop merge `raids`
+      // itself instead of overwriting it.
+      chunk = {};
+      for (const path of missing) {
+        const partial = await releaseManager.loadReleaseFiles(manifest, [path]);
+        // Shallow-merging the two halves is not enough once `raids` carries a
+        // sibling LIST: both chunks ship honorableMentions (9 regular, 2
+        // shadow) and a spread makes the second file's array replace the
+        // first's instead of joining them. Electric's only mention lives in
+        // the regular half, so it vanished whenever shadow loaded second.
+        // Concatenate arrays, spread everything else.
+        if (partial.raids) partial.raids = mergeRaidsHalves(chunk.raids, partial.raids);
+        Object.assign(chunk, partial);
+      }
+    } catch {
+      // A release install/update/rollback may have landed while this fetch
+      // was in flight — that already called reset(), repointing
+      // claimedChunkPaths to a new Set for the new release. Deleting into it
+      // here would strip legitimate claims/loads that belong to the new
+      // release, not this stale failed request.
+      if (getReleaseState()?.manifest?.releaseId !== requestReleaseId) return;
+      let exhausted = false;
+      for (const path of missing) {
+        const attempts = (attemptCounts.get(path) ?? 0) + 1;
+        attemptCounts.set(path, attempts);
+        if (attempts >= MAX_CHUNK_LOAD_ATTEMPTS) {
+          // Auto-retry stops here — stay claimed so a plain rerender of the
+          // route doesn't just fetch again; only retryRoute() below re-arms it.
+          failedChunkPaths.add(path);
+          exhausted = true;
+        } else {
+          claimedChunkPaths.delete(path); // Fallback/loading copy stays up; the next visit retries.
+        }
+      }
+      // Nothing auto-rerenders bootstrap() itself once a route settles into
+      // "failed" (unlike a loading state, which the next natural rerender —
+      // hashchange, an in-view click — repaints anyway) — fire the same
+      // callback success uses so the error+retry notice shows up without
+      // waiting on an unrelated interaction.
+      if (exhausted) onChunksLoaded();
+      return;
+    }
+    // A release install/update/rollback may have landed while this fetch
+    // was in flight — that already called reset(); don't let a stale
+    // release's chunk data merge into the new one.
+    if (getReleaseState()?.manifest?.releaseId !== requestReleaseId) return;
+    for (const path of missing) {
+      loadedChunkPaths.add(path);
+      failedChunkPaths.delete(path);
+      attemptCounts.delete(path);
+    }
+    Object.assign(extraChunkData, chunk);
+    onChunksLoaded();
+  }
 }
 
 
@@ -379,6 +445,26 @@ function chunkLoadingNotice(label) {
     <p class="boot-state-kicker">Loading</p>
     <p class="boot-state-title">${escapeHtml(label)}</p>
     <span class="boot-bar" aria-hidden="true"><span class="boot-bar-fill"></span></span>
+  </div>`;
+}
+
+
+// Terminal state once a route's chunk fetch has exhausted its auto-retries
+// (wave-2a HIGH finding, 2026-08-11) — replaces the indefinite
+// chunkLoadingNotice above with what actually happened, a note that the rest
+// of the app is unaffected, and a real retry button, instead of a permanent
+// unlabeled spinner with the freshness LED still lit green. Offline gets its
+// own honest wording, not the same "couldn't load" phrasing an actual 404
+// gets — being offline isn't the app breaking.
+function chunkErrorNotice(route, label, offline) {
+  const message = offline
+    ? "You're offline, so this couldn't load. Everything else still works from what's already saved — reconnect and try again."
+    : "This didn't load. Everything else on the page still works from what's already saved.";
+  return `<div class="boot-state" role="status" aria-live="polite">
+    <p class="boot-state-kicker">Couldn't load</p>
+    <p class="boot-state-title">${escapeHtml(label)}</p>
+    <p class="boot-state-note">${escapeHtml(message)}</p>
+    <button type="button" data-action="retry-route-chunks" data-retry-route="${escapeHtml(route)}">Try again</button>
   </div>`;
 }
 
@@ -1191,6 +1277,7 @@ export function createInteractionController({
   renderRoute = () => {},
   releaseManager = null,
   installPrompt = null,
+  onRetryRouteChunks = null,
   onRosterExport = null,
   onClipboardCopy = null,
   onRosterShareCopy = null,
@@ -2286,7 +2373,16 @@ export function createInteractionController({
       } else if (action === "apply-update") await releaseManager?.applyUpdate();
       else if (action === "rollback-release") await releaseManager?.rollback();
       else if (action === "check-update") await releaseManager?.initialize();
-      else if (action === "install-app") {
+      else if (action === "retry-route-chunks") {
+        // Same pattern as apply-update/rollback/check-update just above: on
+        // success the loader's own onChunksLoaded fires a fresh rebootstrap()
+        // (which replaces this whole controller), so no explicit rerender()
+        // here — one would race a just-torn-down DOM. On a below-cap retry
+        // failure the notice stays as-is, which is still accurate (still
+        // hasn't loaded); the next natural rerender or another tap covers it.
+        const route = actionEl.dataset.retryRoute;
+        if (route) await onRetryRouteChunks?.(route);
+      } else if (action === "install-app") {
         if (installPrompt?.prompt) await installPrompt.prompt();
         else ui.installMessage = "On iPhone, use Share → Add to Home Screen.";
         rerender("more");
@@ -3156,9 +3252,14 @@ export function bootstrap({
   // Which release chunk files (see ROUTE_CHUNKS) are already merged into
   // `state`; drives the loading fallback below and what onRouteVisit fetches.
   loadedChunkPaths = inferChunkPaths(state),
+  // Chunks that exhausted their auto-retries — drives the error+retry
+  // fallback below instead of the indefinite loading one.
+  failedChunkPaths = new Set(),
   // Fired (fire-and-forget) whenever a route renders, so the caller can lazy
   // -fetch that route's missing chunks and re-bootstrap once they land.
   onRouteVisit = null,
+  // Wired to the error notice's "Try again" button.
+  onRetryRoute = null,
 } = {}) {
   const app = documentObject?.getElementById?.("app");
   const overlayRoot = documentObject?.getElementById?.("overlay-root") ?? null;
@@ -3250,6 +3351,13 @@ export function bootstrap({
       comparison: selectedFriend ? tradeComparison(state.core.forms, roster, selectedFriend) : null,
     });
   };
+  // Chosen at render time (not at fetch-failure time) so it always reflects
+  // the device's current connectivity — a chunk that failed while offline
+  // reads as "reconnect and try again" as soon as the network's actually
+  // back, not stuck on stale offline copy.
+  const chunkNotice = (route, label) => (routeChunkFailed(route, failedChunkPaths)
+    ? chunkErrorNotice(route, label, windowObject.navigator?.onLine === false)
+    : chunkLoadingNotice(label));
   const renderers = {
     home() {
       // Home is the "what should I do now" surface: today's checklist, where
@@ -3298,7 +3406,7 @@ export function bootstrap({
     eggs() {
       app.innerHTML = interactionNotice(ui) + (state.currentEggs
         ? renderEggs({ currentEggs: state.currentEggs, forms: state.core.forms, acquisitionGuide: state.acquisitionGuide, shinyOdds: state.shinyOdds })
-        : chunkLoadingNotice("Egg Pool"));
+        : chunkNotice("eggs", "Egg Pool"));
     },
     rocket() {
       app.innerHTML = interactionNotice(ui) + (state.currentBosses && state.currentEvents
@@ -3313,7 +3421,7 @@ export function bootstrap({
           // blanking the whole page.
           rocketLineups: state.rocketLineups,
         })
-        : chunkLoadingNotice("Team GO Rocket"));
+        : chunkNotice("rocket", "Team GO Rocket"));
     },
     // formId rides in as `view` — the router's dex carve-out (router.js) is
     // the only route with a dynamic (non-enumerable) view segment. Sections
@@ -3381,12 +3489,12 @@ export function bootstrap({
             data: state,
             weakLaneTypes: new Set(weakLanes(typeCoverage({ raids: state.raids, roster })).map((lane) => lane.attackingType)),
           })
-          : chunkLoadingNotice("Hundo Priority"));
+          : chunkNotice("raids", "Hundo Priority"));
         return;
       }
       app.innerHTML = interactionNotice(ui) + tabs + budgetPointer + (state.raids && state.raidTargetTool
         ? renderRaidSurface(state, ui, roster, activeView)
-        : chunkLoadingNotice("Raids"));
+        : chunkNotice("raids", "Raids"));
     },
     gyms(view) {
       const placementState = { ...state, lineupFormIds: ui.gym.lineupFormIds };
@@ -3412,7 +3520,7 @@ export function bootstrap({
           view,
           lazy: true,
         })}`
-        : chunkLoadingNotice("Gyms"));
+        : chunkNotice("gyms", "Gyms"));
     },
     leaderboard() {
       // Smart default: prefill a blank drop-form Pokémon field with the top
@@ -3472,7 +3580,7 @@ export function bootstrap({
             pvp: state.pvp, pvpTeams: state.pvpTeams, forms: state.core.forms,
             roster, state: ui.swap, moveCatalog, pvpMoveCatalog,
           })
-          : chunkLoadingNotice("Swap"));
+          : chunkNotice("pvp", "Swap"));
         return;
       }
       app.innerHTML = interactionNotice(ui) + tabs + (state.pvp
@@ -3481,7 +3589,7 @@ export function bootstrap({
           pvpAlternatives: state.pvpAlternatives, forms: state.core.forms,
           roster, state: ui.pvp, view, trainerLevel: ui.trainerProfile.level, pvpMoveCatalog,
         })
-        : chunkLoadingNotice("PvP"));
+        : chunkNotice("pvp", "PvP"));
     },
     triage(view) {
       // Every view here is a verdict about the roster, and one computed from
@@ -3516,7 +3624,7 @@ export function bootstrap({
             gym: state.gym,
             friendGapDex,
           })
-          : chunkLoadingNotice("Candy Planner"));
+          : chunkNotice("triage", "Candy Planner"));
         return;
       }
       if (view === "gaps") {
@@ -3531,7 +3639,7 @@ export function bootstrap({
             currentBosses: state.currentBosses,
             currentEvents: state.currentEvents,
           })
-          : chunkLoadingNotice("Roster Gaps"));
+          : chunkNotice("triage", "Roster Gaps"));
         return;
       }
       app.innerHTML = interactionNotice(ui) + tabs + (ready
@@ -3542,7 +3650,7 @@ export function bootstrap({
           showGuide: showTriageGuide(storage),
           weakLaneCount: weakLanes(typeCoverage({ raids: state.raids, roster })).length,
         })
-        : chunkLoadingNotice("Triage"));
+        : chunkNotice("triage", "Triage"));
     },
     more(view) {
       if (view === "delta") {
@@ -3614,7 +3722,7 @@ export function bootstrap({
             loadedChunks: [...loadedChunkPaths].sort(),
           },
         })
-        : chunkLoadingNotice("More")) + interactionNotice(ui);
+        : chunkNotice("more", "More")) + interactionNotice(ui);
     },
   };
   for (const route of Object.keys(renderers)) {
@@ -3735,6 +3843,7 @@ export function bootstrap({
     gymDefenderSpeciesByFormId,
     releaseManager,
     installPrompt,
+    onRetryRouteChunks: onRetryRoute,
     renderRoute(route) {
       renderers[route]?.();
     },
@@ -3860,7 +3969,9 @@ export async function startFieldGuide({
       rosterStore: store,
       uiState: ui,
       loadedChunkPaths: chunkLoader.loadedChunkPaths,
+      failedChunkPaths: chunkLoader.failedChunkPaths,
       onRouteVisit: chunkLoader.ensureRouteChunks,
+      onRetryRoute: chunkLoader.retryRoute,
     });
   }
   // core.json loads eagerly (see ReleaseManager); raids/pvp/gyms/extras load
