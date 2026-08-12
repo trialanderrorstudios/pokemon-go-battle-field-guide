@@ -472,6 +472,15 @@ export function briefingCollapsedKey(fingerprint) {
   return `pogo-briefing-collapsed:${fingerprint}`;
 }
 
+// Per-lane-card collapse (operator ask 2026-08-12: the Shadow and Tier 5
+// cards collapse on their own, not riding the Mega's card or the whole
+// briefing). Raw key is "<fingerprint>::<formId>" so a dismissed card stays
+// dismissed for this rotation only — a new rotation re-opens everything,
+// same contract as the briefing-level key above.
+export function briefingCardCollapsedKey(raw) {
+  return `pogo-briefing-card-collapsed:${raw}`;
+}
+
 function bossTierKey(tier) {
   const key = String(tier ?? "").toLowerCase().replace(/\s+/g, "");
   return key || "standard";
@@ -844,13 +853,27 @@ export function renderFieldBriefing({
   const dateLabel = now.toLocaleDateString("en-US", { weekday: "long", month: "short", day: "numeric" });
   const bossCountLabel = `${bosses.length} boss${bosses.length === 1 ? "" : "es"} in today's rotation`
     + (expiredCount ? ` · ${expiredCount} ended — rotation data awaiting refresh` : "");
-  const cardsHtml = laneCards.map((card) => featuredBossCard({
-    featured: card.featured,
-    plan: card.featured.formId === featured?.formId ? plan : planFor(card.featured.formId),
-    currentBosses, forms, roster, ownedCount, now,
-    shareMessage: card.featured.formId === featured?.formId ? shareMessage : "",
-    showShare: card.featured.formId === featured?.formId,
-  })).join("");
+  const cardsHtml = laneCards.map((card) => {
+    const cardKey = `${fingerprint}::${card.featured.formId}`;
+    const cardCollapsed = storage?.getItem?.(briefingCardCollapsedKey(cardKey)) === "1";
+    const boss = bosses.find((row) => row.formId === card.featured.formId);
+    const inner = featuredBossCard({
+      featured: card.featured,
+      plan: card.featured.formId === featured?.formId ? plan : planFor(card.featured.formId),
+      currentBosses, forms, roster, ownedCount, now,
+      shareMessage: card.featured.formId === featured?.formId ? shareMessage : "",
+      showShare: card.featured.formId === featured?.formId,
+    });
+    return `<div class="briefing-lane-card${cardCollapsed ? " is-collapsed" : ""}">
+      <button type="button" class="briefing-collapsed-line" data-action="toggle-briefing-card" data-briefing-card-key="${escapeHtml(cardKey)}" aria-label="Reopen the ${escapeHtml(card.featured.name)} card">
+        ${spriteHtml(card.featured.formId, forms, card.featured.name, forms?.[card.featured.formId]?.primary_type)}
+        <span class="briefing-collapsed-text"><strong>${escapeHtml(card.featured.name)}</strong><span>${escapeHtml(boss?.tier ?? "")} · dismissed for this rotation</span></span>
+        <span class="briefing-reopen">Reopen ⌃</span>
+      </button>
+      <button type="button" class="briefing-dismiss briefing-lane-dismiss" data-action="toggle-briefing-card" data-briefing-card-key="${escapeHtml(cardKey)}" aria-expanded="${!cardCollapsed}">Dismiss ⌄</button>
+      <div class="briefing-lane-body">${inner}</div>
+    </div>`;
+  }).join("");
   const body = `${cardsHtml
     || `<div class="briefing-section"><p class="briefing-note">${escapeHtml(bestRow?.headline ?? "Not enough data yet — star more Pokémon you own.")}</p></div>`}
     <hr class="briefing-divider">

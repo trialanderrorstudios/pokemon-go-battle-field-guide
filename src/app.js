@@ -28,7 +28,7 @@ import { defenderPoolFromRanking, scorePlacement } from "./placement.js";
 import { jargonTerm } from "./glossary.js";
 import { dismissGuide, renderGuide, showGuide } from "./guide.js";
 import {
-  briefingCollapsedKey, currentRaidPlanCardData, escapeHtml, ownedStarButton, renderHome, viewSegments,
+  briefingCardCollapsedKey, briefingCollapsedKey, currentRaidPlanCardData, escapeHtml, ownedStarButton, renderHome, viewSegments,
 } from "./views/home.js";
 import { renderBasics } from "./views/basics.js";
 import { renderMaxBasics } from "./views/maxbasics.js";
@@ -3072,6 +3072,18 @@ export function createInteractionController({
         const key = actionEl.dataset.briefingKey;
         if (key) {
           const storageKey = briefingCollapsedKey(key);
+          if (storage?.getItem?.(storageKey) === "1") storage?.removeItem?.(storageKey);
+          else storage?.setItem?.(storageKey, "1");
+        }
+        rerenderCurrent();
+      } else if (action === "toggle-briefing-card") {
+        // Per-lane briefing card collapse — same set/remove flip as
+        // toggle-field-briefing above, keyed per rotation + boss so a
+        // dismissed Shadow card stays down without touching the Mega/Tier 5
+        // cards or the whole-briefing collapse.
+        const cardKey = actionEl.dataset.briefingCardKey;
+        if (cardKey) {
+          const storageKey = briefingCardCollapsedKey(cardKey);
           if (storage?.getItem?.(storageKey) === "1") storage?.removeItem?.(storageKey);
           else storage?.setItem?.(storageKey, "1");
         }

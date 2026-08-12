@@ -6603,6 +6603,21 @@ html:not([data-app-booted]) #app .fallback-section {
 .field-briefing.is-collapsed .briefing-collapsed-line { display: flex; }
 .field-briefing.is-collapsed::before { opacity: 0.35; }
 
+/* Per-lane collapsible cards (2026-08-12): each of the Mega / Tier 5 /
+   Shadow cards dismisses on its own, same collapsed-line mechanics as the
+   whole-briefing collapse above. */
+.briefing-lane-card { position: relative; }
+.briefing-lane-card + .briefing-lane-card { border-top: 1px dashed var(--line); }
+.briefing-lane-dismiss {
+  position: absolute;
+  top: 0.55rem;
+  right: 0.55rem;
+  z-index: 1;
+}
+.briefing-lane-card.is-collapsed .briefing-lane-body,
+.briefing-lane-card.is-collapsed .briefing-lane-dismiss { display: none; }
+.briefing-lane-card.is-collapsed .briefing-collapsed-line { display: flex; }
+
 @keyframes stampIn {
   0%   { opacity: 0; transform: scale(0.93) translateY(4px) rotate(-0.6deg); }
   70%  { opacity: 1; transform: scale(1.015) translateY(0) rotate(0.15deg); }
