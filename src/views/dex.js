@@ -1293,10 +1293,27 @@ function ocrIntakeRowHtml(row) {
   const parsed = row.parsed ?? null;
   const unreadable = !parsed || (!parsed.name && parsed.cp == null);
   const classes = `ocr-intake-row${row.accepted ? " is-accepted" : ""}${unreadable ? " is-unreadable" : ""}`;
-  const actions = row.accepted ? "" : `<div class="ocr-row-actions">
-      <button type="button" class="ocr-row-accept-btn" data-ocr-row-accept="${escapeHtml(row.id)}">Accept</button>
+  // A button that silently does nothing is a dead button (operator hit both,
+  // 2026-08-12): Accept requires a saveable draft (species + complete IVs,
+  // the same gate app.js enforces), Edit requires a matched species to open
+  // its quick-add sheet. Anything short of that renders the honest next step
+  // as prose instead of a no-op control.
+  const ivs = row.draft?.ivs ?? {};
+  const ivsComplete = [ivs.atk, ivs.def, ivs.sta]
+    .every((value) => Number.isInteger(value) && value >= 0 && value <= 15);
+  const canEdit = Boolean(parsed?.formId);
+  const canAccept = canEdit && ivsComplete;
+  let actions = "";
+  if (!row.accepted) {
+    if (canEdit) {
+      actions = `<div class="ocr-row-actions">
+      ${canAccept ? `<button type="button" class="ocr-row-accept-btn" data-ocr-row-accept="${escapeHtml(row.id)}">Accept</button>` : ""}
       <button type="button" class="ocr-row-edit-btn" data-ocr-row-edit="${escapeHtml(row.id)}">Edit</button>
-    </div>`;
+    </div>${canAccept ? "" : `<p class="ocr-row-next">Needs IVs — Edit opens the quick-add form to finish.</p>`}`;
+    } else {
+      actions = `<p class="ocr-row-next">Pick the Pokémon from the grid below, then use its quick-add form.</p>`;
+    }
+  }
   return `<li class="${classes}" data-ocr-row-id="${escapeHtml(row.id)}">
     <p class="ocr-row-label">${escapeHtml(row.imageLabel)}</p>
     ${row.accepted ? `<span class="ocr-row-status is-accepted">Added to roster</span>` : ""}

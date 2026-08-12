@@ -6256,6 +6256,13 @@ html:not([data-app-booted]) #app .fallback-section {
   color: var(--amber);
 }
 
+.ocr-row-next {
+  margin-top: 0.4rem;
+  font-size: 0.72rem;
+  color: var(--muted);
+  font-style: italic;
+}
+
 .ocr-scan-done-btn {
   margin-top: 0.6rem;
   min-height: 40px;

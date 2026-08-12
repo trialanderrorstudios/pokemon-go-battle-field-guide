@@ -17,13 +17,32 @@ const CP_MAX = 6000;
 const CP_RE = /\bcp\.?[ \t]*[:\-]?[ \t]*(\d[\d, \t]{0,15})/i;
 // "HP 142 / 142" — the max (denominator) is the stat that matters.
 const HP_RE = /\bhp\.?\s*[:\-]?\s*(\d{1,4})\s*\/\s*(\d{1,4})/i;
+// The game's own layout puts the label AFTER the numbers ("173 / 173 HP") —
+// verified against a real device scan, 2026-08-12.
+const HP_TRAILING_RE = /(\d{1,4})\s*\/\s*(\d{1,4})\s*hp\b/i;
 const WEIGHT_RE = /(\d+(?:\.\d+)?)\s*kg\b/i;
 const HEIGHT_RE = /(\d+(?:\.\d+)?)\s*m\b/i;
 const LABEL_ONLY_RE = /^(weight|height|hp|cp|candy|buddy)\s*:?\s*$/i;
 const REGION_SUFFIX_RE = /^(.*)\s\((Alolan|Galarian|Hisuian|Paldean)\)$/;
 
+// Whole-line fallback for the stylized CP banner: OCR routinely mangles the
+// "C" glyph ("sP5629", "©P5629", "(P5629") or drops it entirely. Anchored to
+// a line that is nothing but <junk>P<digits>, so "173 / 173 HP" and stray
+// numbers can never match.
+const CP_LINE_RE = /^[^a-z0-9]{0,3}[a-z]?p\s*[.:]?\s*(\d[\d, ]{1,8})$/im;
+
 function parseCp(text) {
-  const match = text.match(CP_RE);
+  let noisyBanner = false;
+  let match = text.match(CP_RE);
+  if (!match) {
+    const bannerMatch = text.match(CP_LINE_RE);
+    // "hp"-shaped lines are digits-first and never reach this pattern, but a
+    // literal lone "hp 40" line would — refuse the h prefix explicitly.
+    if (bannerMatch && !/^[^a-z0-9]{0,3}h/i.test(bannerMatch[0])) {
+      match = bannerMatch;
+      noisyBanner = true;
+    }
+  }
   const digits = match ? match[1].replace(/\D/g, "") : "";
   if (!digits) return { value: null, issue: "CP not found.", noisy: false };
   const value = Number(digits);
@@ -33,11 +52,11 @@ function parseCp(text) {
   // Spaced-out digits ("2 4 5 3") mean the OCR engine split what should be
   // one token — that's a genuinely noisier read than a clean run or a
   // comma-formatted thousands separator (which is the game's own format).
-  return { value, issue: null, noisy: /\d\s+\d/.test(match[1]) };
+  return { value, issue: null, noisy: noisyBanner || /\d\s+\d/.test(match[1]) };
 }
 
 function parseHp(text) {
-  const match = text.match(HP_RE);
+  const match = text.match(HP_RE) ?? text.match(HP_TRAILING_RE);
   if (!match) return { value: null, issue: "HP not found." };
   // Current HP can never exceed max — a read like "142 / 14" means OCR
   // dropped a digit somewhere, and which number is wrong is unknowable.
@@ -63,9 +82,40 @@ function isFieldLine(line) {
 
 // Real screens put the species name on its own line, above every labeled
 // field — so the first non-blank line that isn't a recognized field is it.
+// iOS/Android status bars ride along in a full-screen screenshot and OCR as
+// the first "name-looking" line ("3:53 qa . , etl 5G+ 894" — real device
+// scan, 2026-08-12). Time, signal, and battery patterns are never dex names.
+const STATUS_JUNK_RE = /\d{1,2}:\d{2}|\b[2-5]g\+?\b|\blte\b|\bwi-?fi\b|\d{1,3}\s*%/i;
+
+// Nickname decorations: unicode superscripts (the "¹⁰⁰" hundo convention)
+// plus trailing symbol junk (the edit-pencil icon OCRs as stray "/" or "."").
+// ASCII digits stay — Porygon2 is a real name.
+const SUPERSCRIPT_RE = /[\u00b9\u00b2\u00b3\u2070-\u2079]/g;
+
+function cleanNameLine(line) {
+  return String(line ?? "")
+    .replace(SUPERSCRIPT_RE, "")
+    .replace(/[^\w)♀♂'.!\-]+$/u, "")
+    .trim();
+}
+
+function candidateNameLines(text) {
+  const lines = String(text ?? "").split(/\r?\n/).map((line) => cleanNameLine(line));
+  return lines.filter((line) => line && !isFieldLine(line) && !STATUS_JUNK_RE.test(line));
+}
+
 function extractNameLine(text) {
-  const lines = String(text ?? "").split(/\r?\n/).map((line) => line.trim());
-  return lines.find((line) => line && !isFieldLine(line)) ?? null;
+  const lines = String(text ?? "").split(/\r?\n/).map((line) => cleanNameLine(line));
+  // The species name sits directly ABOVE the HP bar in the game's layout —
+  // the strongest positional anchor when no line exact-matches the dex.
+  const hpIndex = lines.findIndex((line) => HP_RE.test(line) || HP_TRAILING_RE.test(line));
+  if (hpIndex > 0) {
+    for (let i = hpIndex - 1; i >= 0; i -= 1) {
+      const line = lines[i];
+      if (line && !isFieldLine(line) && !STATUS_JUNK_RE.test(line)) return line;
+    }
+  }
+  return lines.find((line) => line && !isFieldLine(line) && !STATUS_JUNK_RE.test(line)) ?? null;
 }
 
 // Plain Levenshtein DP, no library. Distance <=2 covers every OCR confusion
@@ -113,6 +163,22 @@ function matchName(rawName, forms) {
   if (lowerName.length > 40) {
     return { formId: null, confidence: null, issue: "name not in dex — nicknamed? pick manually." };
   }
+  // The game shows the bare species name ("Zacian") where the dex only has
+  // parenthetical forms ("Zacian (Hero)"). A unique prefix family is a real
+  // match; an ambiguous one names ITS members as the candidates instead of
+  // whatever the global edit-distance pass would dredge up.
+  const prefixFamily = formList.filter((form) => String(form.name ?? "").toLowerCase().startsWith(`${lowerName} (`));
+  if (prefixFamily.length === 1) {
+    return { formId: prefixFamily[0].form_id, confidence: "high", issue: null };
+  }
+  if (prefixFamily.length > 1) {
+    const familyNames = [...new Set(prefixFamily.map((form) => form.name))].slice(0, 3);
+    return {
+      formId: null,
+      confidence: null,
+      issue: `"${rawName}" has multiple forms — pick manually (${familyNames.join(", ")}).`,
+    };
+  }
   const ranked = formList
     .map((form) => ({ form, distance: levenshtein(lowerName, String(form.name ?? "").toLowerCase()) }))
     .sort((a, b) => a.distance - b.distance || a.form.name.localeCompare(b.form.name));
@@ -137,8 +203,21 @@ export function parseMonScreenText(rawText, { forms } = {}) {
   const issues = [];
   const confidence = {};
 
-  const nameLine = extractNameLine(text);
-  const nameMatch = matchName(nameLine, forms);
+  let nameLine = extractNameLine(text);
+  let nameMatch = matchName(nameLine, forms);
+  if (!nameMatch.formId) {
+    // Any line that exactly matches a dex name (or a unique form family)
+    // beats the positional guess — OCR noise above the name can't hide it.
+    for (const line of candidateNameLines(text)) {
+      if (line === nameLine) continue;
+      const candidate = matchName(line, forms);
+      if (candidate.formId && candidate.confidence === "high") {
+        nameLine = line;
+        nameMatch = candidate;
+        break;
+      }
+    }
+  }
   if (nameMatch.issue) issues.push(nameMatch.issue);
   if (nameMatch.confidence) confidence.formId = nameMatch.confidence;
 
