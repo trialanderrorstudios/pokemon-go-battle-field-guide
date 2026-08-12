@@ -1,8 +1,13 @@
-import { ATTACK_TYPES, effectiveness } from "../raid-target.js";
+import { ATTACK_TYPES, buildRaidPlan, effectiveness } from "../raid-target.js";
 import { spriteHtml } from "../sprites.js";
 import { intersectRosterChanges, releaseDiffDismissedKey } from "../release-diff.js";
 import { renderCommunityDayBriefCard } from "../cd-brief.js";
-import { renderUpcomingSection } from "../upcoming.js";
+// A5: the field briefing + timeline superseded the old "Now and coming up"
+// calendar (upcoming.js) as Home's one rendering of the events feed — see
+// the deletion accounting note above renderFieldTimeline. Not imported here
+// anymore; upcoming.js and its exports are otherwise untouched.
+import { buildCoachSummary } from "../coach.js";
+import { bestInstanceForForm } from "../instances.js";
 // Home absorbed Today and Weekly Coach. Both keep their own modules — this is
 // a consolidation of routes and entrances, not of capability.
 import { renderToday } from "./today.js";
@@ -390,6 +395,447 @@ function releaseDiffCard(diff, roster, storage) {
 }
 
 
+// ══════════════════════════════════════════════════════════════════════
+// A5 — Field briefing + timeline (mockup: docs/mockups/delight-2026-08-11/
+// A5-briefing-plus-timeline.html). The briefing is the timeline's NOW node;
+// one rail runs through both, in one wrapping `.tl` list. Reimplemented
+// against this app's real state/render model — the mockup's JS is reference
+// behaviour only, not portable code.
+//
+// Data constraint: raids.json (the per-boss counter rankings) is
+// deliberately NOT eager on Home (ROUTE_CHUNKS.home / app.js) — it's the
+// single biggest release file and it chain-loads after Home's other four
+// chunks land. buildRaidPlan()/beatability() degrade to band
+// "not-enough-data" until it arrives, same as they always have for Today's
+// "Worth your free daily pass?" row and the Coach's rest-of-week list — so
+// the featured boss below is simply absent on that first paint and appears
+// once the deferred chunk lands and Home re-renders (the existing
+// onRouteVisit chaining home() already relies on). Nothing here requires
+// raids.json to render; it only gets more useful once it's there.
+//
+// Deletion accounting (spec §3 point 5 — the briefing supersedes, it does
+// not stack):
+//   - renderCurrentBosses() ("This week's raid bosses" grid) is no longer
+//     called from renderHome. Every current-rotation boss it listed is now
+//     covered by the briefing's featured boss + skip log (worked from the
+//     same currentBosses feed). The function stays exported — other
+//     surfaces/tests may still reference it — Home just stops calling it.
+//   - renderUpcomingSection() ("Now and coming up (next 14 days)", from
+//     upcoming.js) is no longer called from renderHome. Its two halves
+//     (happening-now backdrops, day-grouped future events) are re-rendered
+//     directly here as the timeline's active-now/starting-tonight/this-week
+//     buckets, in the shared rail markup, instead of a second unrelated
+//     calendar widget underneath.
+//   Not touched (out of this lane's files, cross-lane follow-up only):
+//   today.js's "Worth your free daily pass?" row and views/coach.js's
+//   "This week's raids (N more)" <details> both read the exact same
+//   worthRaiding list this briefing does and now say the same thing twice
+//   on the page. De-duplicating those needs edits inside today.js/
+//   views/coach.js, which are outside the home lane's file allowlist.
+
+const BRIEFING_BAND_STAMP = Object.freeze({
+  "solo-able": "Solo-able",
+  duoable: "Ready",
+  "bring-3-4": "Bring friends",
+  "full-lobby": "Full lobby",
+  "not-enough-data": "Skip for now",
+});
+
+// Bounded display counts — the rotation and the events feed are both
+// unbounded in principle, and the mockup's own "+9 more" footnote pattern
+// is the honest way to keep the DOM budget flat instead of one row per item.
+const SKIP_ROW_DISPLAY_LIMIT = 5;
+const BRING_CARD_LIMIT = 4;
+const THIS_WEEK_HORIZON_DAYS = 7;
+const THIS_WEEK_DISPLAY_LIMIT = 6;
+const ACTIVE_NOW_DISPLAY_LIMIT = 3;
+const STARTING_TONIGHT_DISPLAY_LIMIT = 3;
+const ENDING_TODAY_DISPLAY_LIMIT = 3;
+
+// Collapse persistence is keyed on the rotation's own content, not the date —
+// a stable, sorted join of today's boss formIds. Doesn't need to be a real
+// hash: it only has to change when the set of bosses changes and stay put
+// otherwise, and a canonical joined string already does that in one line.
+export function rotationFingerprint(currentBosses) {
+  return (currentBosses?.bosses ?? [])
+    .map((boss) => boss.formId)
+    .filter(Boolean)
+    .sort()
+    .join(",");
+}
+
+export function briefingCollapsedKey(fingerprint) {
+  return `pogo-briefing-collapsed:${fingerprint}`;
+}
+
+function bossTierKey(tier) {
+  const key = String(tier ?? "").toLowerCase().replace(/\s+/g, "");
+  return key || "standard";
+}
+
+// Real CP when the trainer has logged a detailed roster instance for this
+// counter; "Owned" (never a guessed CP) when they've only starred the
+// species. The type-edge line is always real: it's the same effectiveness
+// multiplier buildRaidPlan already computed to rank this counter.
+function briefingBringCard(counter, roster, forms) {
+  const name = forms?.[counter.formId]?.name ?? counter.pokemon ?? counter.formId;
+  const instance = bestInstanceForForm(roster?.instances, counter.formId);
+  const cpLine = instance?.cp ? `CP ${instance.cp}` : "Owned";
+  const multiplier = Number.isFinite(counter.effectiveness)
+    ? `${Math.round(counter.effectiveness * 10) / 10}× ${counter.attackingType ?? ""}`.trim()
+    : "";
+  return `<div class="bring-card" role="listitem">
+    ${spriteHtml(counter.formId, forms, name, forms?.[counter.formId]?.primary_type)}
+    <span class="bring-card-name">${escapeHtml(name)}</span>
+    <span class="bring-card-cp">${escapeHtml(cpLine)}</span>
+    ${multiplier ? `<span class="bring-card-edge">${escapeHtml(multiplier)}</span>` : ""}
+  </div>`;
+}
+
+// One line per rest-of-rotation boss — never a fabricated tier, always the
+// same real beatability() headline Today/Coach already show for it.
+function skipRow(row, forms) {
+  return `<li class="skip-row">
+    ${spriteHtml(row.formId, forms, row.name, forms?.[row.formId]?.primary_type)}
+    <span class="skip-stamp${row.band === "not-enough-data" ? " is-low" : ""}">${escapeHtml(BRIEFING_BAND_STAMP[row.band] ?? "Check")}</span>
+    <span class="skip-row-text">
+      <p class="skip-row-title">${escapeHtml(row.name)}</p>
+      <p class="skip-row-why">${escapeHtml(row.headline)}</p>
+    </span>
+  </li>`;
+}
+
+function briefingSkipSection(restRows, forms) {
+  if (!restRows.length) return "";
+  const shown = restRows.slice(0, SKIP_ROW_DISPLAY_LIMIT);
+  const overflow = restRows.length - shown.length;
+  return `<div class="briefing-skip">
+    <p class="briefing-skip-title">Filed as skip — rest of the rotation, one line each</p>
+    <ul class="skip-list">${shown.map((row) => skipRow(row, forms)).join("")}</ul>
+    ${overflow > 0 ? `<p class="briefing-footer">+${overflow} more in today's rotation, none ranked better than “${escapeHtml(BRIEFING_BAND_STAMP[shown[shown.length - 1].band] ?? "skip")}.”</p>` : ""}
+  </div>`;
+}
+
+function featuredBossCard({
+  featured, plan, currentBosses, forms, roster, now,
+}) {
+  const boss = (currentBosses?.bosses ?? []).find((row) => row.formId === featured.formId);
+  const bossTypes = plan?.target?.bossTypes ?? [];
+  const endsToday = typeof boss?.endsAt === "string" && !Number.isNaN(Date.parse(boss.endsAt))
+    && new Date(boss.endsAt).toDateString() === now.toDateString();
+  const bringCounters = (plan?.ownedCounters ?? []).slice(0, BRING_CARD_LIMIT);
+  return `<div class="briefing-section">
+    <div class="briefing-boss-head">
+      ${spriteHtml(featured.formId, forms, featured.name, bossTypes[0])}
+      <div class="briefing-boss-heading">
+        <p class="briefing-eyebrow-row">
+          ${boss?.tier ? `<span class="tier-pill" data-tier="${escapeHtml(bossTierKey(boss.tier))}">${escapeHtml(boss.tier)}</span>` : ""}
+          ${endsToday ? `<span class="ends-today">Ends today</span>` : ""}
+        </p>
+        <h3>${escapeHtml(featured.name)}</h3>
+        ${bossTypes.length ? `<p class="briefing-eyebrow-row" style="margin-top:0.3rem;">${bossTypes.map((type) => `<span class="type-chip" data-type="${escapeHtml(type)}">${escapeHtml(type)}</span>`).join("")}</p>` : ""}
+      </div>
+    </div>
+    <p class="briefing-eyebrow-row">
+      <span class="invest-pill">${escapeHtml(BRIEFING_BAND_STAMP[featured.band] ?? "Check")}</span>
+      <span class="acq-flag">from your roster</span>
+    </p>
+    <p class="briefing-note">${escapeHtml(featured.headline)}.${featured.detail ? ` ${escapeHtml(featured.detail)}` : ""}</p>
+    ${bringCounters.length ? `<p class="briefing-bring-label">Bring these — your owned counters</p>
+    <div class="bring-row" role="list" aria-label="Your owned counters for ${escapeHtml(featured.name)}">
+      ${bringCounters.map((counter) => briefingBringCard(counter, roster, forms)).join("")}
+    </div>` : ""}
+  </div>`;
+}
+
+// Empty-roster degrade (spec §3 point 4): no fabricated "bring these" list
+// when there's nothing owned to build one from — the honest fallback is the
+// plain type chart against the rotation's headliner, plus a pointer to
+// intake instead of a verdict this roster can't back yet.
+function emptyRosterDegrade({ currentBosses, forms, raidTargetTool }) {
+  const bosses = currentBosses?.bosses ?? [];
+  const pick = bosses.find((row) => row.tier === "Tier 5")
+    ?? bosses.find((row) => row.tier === "Mega")
+    ?? bosses[0]
+    ?? null;
+  const intakeLink = `<p><a class="safe-escape" href="./#more/roster" data-route="more" data-view="roster">Add the Pokémon you own →</a></p>`;
+  if (!pick) {
+    return `<div class="briefing-section">
+      <p class="briefing-note">No roster yet — add the Pokémon you own to get real raid verdicts here.</p>
+      ${intakeLink}
+    </div>`;
+  }
+  const target = (raidTargetTool?.targets ?? []).find((row) => row.bossFormId === pick.formId);
+  const bossTypes = target?.bossTypes
+    ?? [forms?.[pick.formId]?.primary_type, forms?.[pick.formId]?.secondary_type].filter(Boolean);
+  const weaknesses = bossTypes.length ? topWeaknesses(bossTypes) : [];
+  const name = forms?.[pick.formId]?.name ?? target?.boss ?? pick.formId;
+  return `<div class="briefing-section">
+    <div class="briefing-boss-head">
+      ${spriteHtml(pick.formId, forms, name, bossTypes[0])}
+      <div class="briefing-boss-heading"><h3>${escapeHtml(name)}</h3></div>
+    </div>
+    <p class="briefing-note">${weaknesses.length
+    ? `No roster yet — type chart says bring <strong>${weaknesses.map(escapeHtml).join(", ")}</strong>-type attackers.`
+    : "No roster yet."}</p>
+    ${intakeLink}
+  </div>`;
+}
+
+function briefingVerdictLine(featured, fallbackHeadline) {
+  if (featured) {
+    return `One raid worth your time today: <strong>${escapeHtml(featured.name)}</strong> — ${escapeHtml(featured.headline)}`;
+  }
+  return escapeHtml(fallbackHeadline ?? "Nothing rises above “not enough data” yet in today’s rotation — add owned counters to get a real verdict.");
+}
+
+// The field briefing card itself — date-stamped header, one-line verdict,
+// featured boss (only with a real signal — see worthRaiding gating below),
+// "bring these" from the roster, stamped skip log, collapsible to one filed
+// line. Exported standalone (not just via renderFieldTimeline) so it's
+// directly unit-testable against fixture rotation data.
+export function renderFieldBriefing({
+  currentBosses, raidTargetTool, forms, roster, data, storage, trainerLevel, now = new Date(),
+} = {}) {
+  const bosses = currentBosses?.bosses ?? [];
+  if (!bosses.length) return "";
+  const fingerprint = rotationFingerprint(currentBosses);
+  const collapsed = storage?.getItem?.(briefingCollapsedKey(fingerprint)) === "1";
+  const ownedCount = roster?.ownedFormIds?.length ?? 0;
+
+  // "Real verified worth-it signal" = the same worthRaiding beatability()
+  // list Today's daily-pass row and Coach's week list already read — never
+  // a second opinion computed here. band "not-enough-data" (weak roster, or
+  // raids.json not landed yet) means no real signal, so no featured boss —
+  // honesty over a guess, not a fallback path to work around.
+  const summary = ownedCount ? buildCoachSummary({
+    data, roster, now, trainerLevel,
+  }) : null;
+  const bestRow = summary?.worthRaiding?.[0] ?? null;
+  const hasSignal = Boolean(bestRow && bestRow.band !== "not-enough-data");
+  const featured = hasSignal ? bestRow : null;
+  const restRows = hasSignal ? summary.worthRaiding.slice(1) : [];
+
+  let plan = null;
+  if (featured) {
+    try {
+      plan = buildRaidPlan({
+        targetFormId: featured.formId, ownedFormIds: roster?.ownedFormIds, roster, trainerLevel,
+      }, data);
+    } catch {
+      plan = null; // not in this release's raid target tool — nothing to detail
+    }
+  }
+
+  const dateLabel = now.toLocaleDateString("en-US", { weekday: "long", month: "short", day: "numeric" });
+  const bossCountLabel = `${bosses.length} boss${bosses.length === 1 ? "" : "es"} in today's rotation`;
+  const body = ownedCount === 0
+    ? emptyRosterDegrade({ currentBosses, forms, raidTargetTool })
+    : `${featured
+      ? featuredBossCard({
+        featured, plan, currentBosses, forms, roster, now,
+      })
+      : `<div class="briefing-section"><p class="briefing-note">${escapeHtml(bestRow?.headline ?? "Not enough data yet — star more Pokémon you own.")}</p></div>`}
+    <hr class="briefing-divider">
+    ${briefingSkipSection(restRows, forms)}`;
+
+  const collapsedName = featured?.name ?? (ownedCount === 0 ? "No roster yet" : "Nothing worth a lobby today");
+  return `<div class="field-briefing${collapsed ? " is-collapsed" : ""}" id="fieldBriefing">
+    <button type="button" class="briefing-collapsed-line" data-action="toggle-field-briefing" data-briefing-key="${escapeHtml(fingerprint)}" aria-label="Reopen today's field briefing">
+      ${featured ? spriteHtml(featured.formId, forms, featured.name, plan?.target?.bossTypes?.[0]) : ""}
+      <span class="briefing-collapsed-text"><strong>Briefing: ${escapeHtml(collapsedName)}.</strong><span>${escapeHtml(dateLabel)} · filed for this rotation</span></span>
+      <span class="briefing-reopen">Reopen ⌃</span>
+    </button>
+    <div class="briefing-head">
+      <div class="briefing-head-text">
+        <p class="briefing-kicker">Field briefing</p>
+        <p class="briefing-date">${escapeHtml(dateLabel)}</p>
+        <p class="briefing-docid">${escapeHtml(bossCountLabel)}</p>
+      </div>
+      <button type="button" class="briefing-dismiss" data-action="toggle-field-briefing" data-briefing-key="${escapeHtml(fingerprint)}" aria-expanded="${!collapsed}" aria-controls="fieldBriefing">Dismiss ⌄</button>
+    </div>
+    <div class="briefing-body">
+      <div class="briefing-verdict">
+        <p class="briefing-verdict-eyebrow">The verdict</p>
+        <p class="briefing-verdict-line">${briefingVerdictLine(featured, bestRow?.headline)}</p>
+      </div>
+      <hr class="briefing-divider">
+      ${body}
+    </div>
+  </div>`;
+}
+
+// ── Timeline: everything the briefing above doesn't answer — sourced
+// entirely from current-events data (never raids.json). raid-battles is
+// excluded throughout: that's the weekly boss-rotation signal the briefing
+// above already files, and re-listing it here would double-pin it.
+export function buildTimelineBuckets(events, now = new Date()) {
+  const list = (events ?? [])
+    .filter((event) => event.kind !== "raid-battles")
+    .map((event) => ({ ...event, start: new Date(event.startsAt), end: new Date(event.endsAt) }))
+    .filter((event) => !Number.isNaN(event.start.valueOf()));
+
+  const horizonEnd = new Date(now.getTime() + (THIS_WEEK_HORIZON_DAYS * 86400000));
+  const endingToday = [];
+  const startingTonight = [];
+  const activeNow = [];
+  const thisWeek = [];
+
+  for (const event of list) {
+    const hasEnd = !Number.isNaN(event.end.valueOf());
+    const running = event.start <= now && (!hasEnd || event.end > now);
+    if (running) {
+      if (hasEnd && event.end.toDateString() === now.toDateString()) endingToday.push(event);
+      else activeNow.push(event);
+    } else if (event.start > now) {
+      if (event.start.toDateString() === now.toDateString()) startingTonight.push(event);
+      else if (event.start <= horizonEnd) thisWeek.push(event);
+    }
+  }
+  endingToday.sort((left, right) => left.end - right.end);
+  startingTonight.sort((left, right) => left.start - right.start);
+  activeNow.sort((left, right) => {
+    const leftOpen = Number.isNaN(left.end.valueOf());
+    const rightOpen = Number.isNaN(right.end.valueOf());
+    if (leftOpen !== rightOpen) return leftOpen ? 1 : -1;
+    return leftOpen ? 0 : left.end - right.end;
+  });
+  thisWeek.sort((left, right) => left.start - right.start);
+  return {
+    endingToday, startingTonight, activeNow, thisWeek,
+  };
+}
+
+function timelineItem(contentHtml, stateClass = "") {
+  return `<div class="tl-item${stateClass ? ` ${stateClass}` : ""}">
+    <div class="tl-rail"><div class="tl-dot"></div><div class="tl-line"></div></div>
+    <div class="tl-content">${contentHtml}</div>
+  </div>`;
+}
+
+function timelineNowItem(contentHtml) {
+  return `<div class="tl-item is-now">
+    <div class="tl-rail"><div class="tl-dot-now"></div><div class="tl-line"></div></div>
+    <div class="tl-content">${contentHtml}</div>
+  </div>`;
+}
+
+function timelineCard(event, forms, { badgeClass, badgeText }) {
+  const name = forms?.[event.formId]?.name ?? event.name;
+  const sprite = event.formId
+    ? spriteHtml(event.formId, forms, name, forms?.[event.formId]?.primary_type)
+    : `<span class="tl-glyph" aria-hidden="true">&#9670;</span>`;
+  return `<div class="tl-card${badgeClass === "is-ending" ? " is-urgent" : ""}">
+    <div class="tl-card-head">${sprite}
+      <div>
+        <p class="tl-eyebrow"><span class="tl-badge ${badgeClass}">${escapeHtml(badgeText)}</span></p>
+        <h3>${escapeHtml(name)}</h3>
+      </div>
+    </div>
+    ${event.action ? `<p class="tl-verdict">${escapeHtml(event.action)}</p>` : ""}
+  </div>`;
+}
+
+// gapByFormId (gap-analyzer.js, same lookup upcoming.js's day cards used to
+// carry): { [formId]: { headline, href } } for a boss this roster has no
+// strong counter for. Threaded through so the timeline keeps the one gap
+// teaser Home had — it doesn't invent a new one.
+function timelineRow(event, forms, now, gapByFormId) {
+  const name = forms?.[event.formId]?.name ?? event.name;
+  const when = formatEventWhen(event.startsAt, event.endsAt, now);
+  const gap = event.formId ? gapByFormId?.[event.formId] ?? null : null;
+  return `<div class="tl-row">
+    <p class="tl-row-title">${when ? `<span class="tl-row-time">${escapeHtml(when)}</span>` : ""}<strong>${escapeHtml(name)}</strong></p>
+    ${event.action ? `<p class="tl-row-note">${escapeHtml(event.action)}</p>` : ""}
+    ${gap ? `<p class="tl-row-note"><a class="safe-escape" href="${escapeHtml(gap.href)}">${escapeHtml(gap.headline)} — See Roster Gaps →</a></p>` : ""}
+  </div>`;
+}
+
+// Renders one bucket's items as tl-items, section heading on the first row
+// only, capped at `limit` with a folded "+N more" footnote row past that —
+// the same shape as the mockup's own active-now tail, kept flat instead of
+// letting a long rotation/events feed grow Home's DOM without bound.
+function timelineBucket({
+  label, items, limit, stateClass = "", urgent = false, forms, now, render,
+}) {
+  if (!items.length) return "";
+  const shown = items.slice(0, limit);
+  const overflow = items.length - shown.length;
+  const rows = shown.map((event, index) => {
+    const heading = index === 0 ? `<p class="tl-section${urgent ? " is-urgent" : ""}">${escapeHtml(label)}</p>` : "";
+    return timelineItem(`${heading}${render(event, forms, now)}`, stateClass);
+  });
+  if (overflow > 0) {
+    rows.push(timelineItem(`<div class="tl-footnote"><strong>+${overflow} more</strong> — no rotation-day pressure, see the events calendar for the rest.</div>`, stateClass));
+  }
+  return rows.join("");
+}
+
+// The whole NOW-anchored rail: the briefing as the fixed NOW node (when
+// there's a rotation to anchor it on), then ending-today (beyond the
+// rotation), starting-tonight, active-now, this-week - each sourced from
+// current-events only. The events buckets don't depend on the rotation
+// existing — an empty currentBosses (still possible mid-refresh, or in a
+// release with nothing up) shouldn't also blank out real events data.
+// Returns "" only when there is genuinely nothing to show.
+export function renderFieldTimeline({
+  currentBosses, currentEvents, raidTargetTool, forms, roster, data, storage, trainerLevel, gapByFormId = null, now = new Date(),
+} = {}) {
+  const briefingHtml = renderFieldBriefing({
+    currentBosses, raidTargetTool, forms, roster, data, storage, trainerLevel, now,
+  });
+  const buckets = buildTimelineBuckets(currentEvents?.events, now);
+  const hasEvents = buckets.endingToday.length || buckets.startingTonight.length
+    || buckets.activeNow.length || buckets.thisWeek.length;
+  if (!briefingHtml && !hasEvents) return "";
+
+  const items = briefingHtml ? [timelineNowItem(briefingHtml)] : [];
+  items.push(timelineBucket({
+    label: "Ending today · beyond the rotation",
+    items: buckets.endingToday,
+    limit: ENDING_TODAY_DISPLAY_LIMIT,
+    stateClass: "is-urgent",
+    urgent: true,
+    forms,
+    now,
+    render: (event, formsArg, nowArg) => timelineCard(event, formsArg, {
+      badgeClass: "is-ending", badgeText: `Ends · ${formatEventWhen(event.startsAt, event.endsAt, nowArg)}`,
+    }),
+  }));
+  items.push(timelineBucket({
+    label: "Starting tonight",
+    items: buckets.startingTonight,
+    limit: STARTING_TONIGHT_DISPLAY_LIMIT,
+    stateClass: "is-soon",
+    forms,
+    now,
+    render: (event, formsArg, nowArg) => timelineRow(event, formsArg, nowArg, gapByFormId),
+  }));
+  items.push(timelineBucket({
+    label: "Active now · no scheduled end",
+    items: buckets.activeNow,
+    limit: ACTIVE_NOW_DISPLAY_LIMIT,
+    stateClass: "is-open",
+    forms,
+    now,
+    render: (event, formsArg, nowArg) => timelineRow(event, formsArg, nowArg, gapByFormId),
+  }));
+  items.push(timelineBucket({
+    label: "This week",
+    items: buckets.thisWeek,
+    limit: THIS_WEEK_DISPLAY_LIMIT,
+    forms,
+    now,
+    render: (event, formsArg, nowArg) => timelineRow(event, formsArg, nowArg, gapByFormId),
+  }));
+
+  const nowLabel = now.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
+  return `<div class="tl-now"><span class="tl-now-chip"><span class="tl-now-dot" aria-hidden="true"></span>NOW · ${escapeHtml(nowLabel)}</span></div>
+  <div class="tl">${items.join("")}</div>
+  <p class="tl-honesty">Filed for this rotation — the briefing re-files when the rotation changes, not on every open. End times come straight from today's release data; nothing above is a live clock.</p>`;
+}
+
+
 export function renderHome({
   cutoff,
   offlineStatus = "Offline setup incomplete",
@@ -431,15 +877,16 @@ export function renderHome({
       <div class="search-recents" data-search-recents></div>
       <div data-search-results></div>
     </form>
+    ${renderFieldTimeline({
+    currentBosses, currentEvents, raidTargetTool, forms, roster, data, storage, trainerLevel, gapByFormId, now,
+  })}
     ${renderToday({
     data, roster, defenseLog, storage, gapByFormId, investRows, futureProof, now, profile: { trainerLevel },
   })}
     ${renderCoachSections({ data, roster, now, trainerLevel, buddyPlan })}
-    ${renderUpcomingSection({ currentEvents, forms, gapByFormId, now })}
     ${releaseDiffCard(releaseDiff, roster, storage)}
     ${renderCommunityDayBriefCard({ currentEvents, forms, now })}
     ${whatsNewCard(whatsNew)}
-    ${renderCurrentBosses({ currentBosses, raidTargetTool, forms, now })}
     <h3 class="home-section-title">Where to next?</h3>
     <div class="home-task-grid">
       ${continued}

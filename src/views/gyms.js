@@ -5,6 +5,7 @@ import { jargonTerm } from "../glossary.js";
 import { buildDeploymentMap } from "../gym-availability.js";
 import { bestInstanceForForm } from "../instances.js";
 import { TEAM_SET } from "../storage.js";
+import { ATTACK_TYPES } from "../type-chart.js";
 
 // Team (GO): Bulbapedia's "Team (GO)" article — official team colors.
 // Exported: leaderboard.js's team badge reuses these labels.
@@ -755,8 +756,232 @@ function bandRowsHtml(rows, forms, band) {
   return `<ol class="gym-rank-list gym-band-rank-list">${rows.map((row, i) => bandRow(row, i, forms, band)).join("")}</ol>`;
 }
 
-function bandSpotlightSection(gym, forms, lazy = false) {
-  const bands = gym.bands ?? [];
+// D5 layered coverage (docs/mockups/delight-2026-08-11/D5-layered-coverage.html,
+// operator-verdicted — see docs/delight-implementation-spec-2026-08-11.md §4):
+// glance (18-type grid) -> detail (squad slots per type) -> action (closest-
+// to-done quest rows), replacing the old six-anti-band-only spotlight above.
+// Six of the eighteen attacking types already ship a hand-curated anti-<type>
+// band (gym.bands); the other twelve are computed here, live, the same way
+// the mockup disclosed it would: re-sorting the shipped defenderRanking by
+// its own real `resists` membership. Not a new data source — both paths read
+// fields the pipeline already ships.
+const COVERAGE_BAND_SIZE = 8;
+
+function coverageState(ownedCount, total) {
+  if (!total) return "exposed";
+  const ratio = ownedCount / total;
+  if (ratio >= 0.5) return "covered";
+  if (ratio >= 0.25) return "gap";
+  return "exposed";
+}
+
+// One band per attacking type, real member count preserved — a shipped
+// anti-band keeps however many rows gym_ranking.py gave it; a computed band
+// caps at the same COVERAGE_BAND_SIZE the shipped bands happen to use today,
+// never padded to a fixed slot count for a type with fewer resisters (the
+// D3-vs-D2 slot-count seam the spec calls out resolving).
+function deriveCoverageBands(gym, ownedFormIds) {
+  const ownedSet = new Set(ownedFormIds ?? []);
+  const ranking = gym.defenderRanking ?? [];
+  const rankingByFormId = new Map(ranking.map((row) => [row.formId, row]));
+  const shippedByType = new Map(
+    (gym.bands ?? []).filter((band) => band.kind === "anti").map((band) => [bandThreatType(band), band]),
+  );
+
+  return ATTACK_TYPES.map((type) => {
+    const shipped = shippedByType.get(type);
+    const copy = shipped ? bandCopy(shipped) : {
+      title: `${type} resistors`,
+      blurb: `No shipped ${type} band exists yet, so this re-sorts the same top-${ranking.length}
+        overall ranking by real \`resists\` membership — same defenders, same scores, filtered to
+        who actually resists ${type}.`,
+    };
+    // Shipped rows don't carry origin/acquisition themselves (see gym.bands's
+    // shape), so this looks them up by formId in the top-100 defenderRanking —
+    // but a shipped anti-band exists precisely to surface defenders that are
+    // strong against one type while ranking outside the top 100 overall (see
+    // the Drifblim case below), so this lookup can and does miss. coverageQuestRow
+    // handles the miss explicitly rather than assuming it can't happen.
+    const rawMembers = shipped
+      ? shipped.rows.map((row) => ({
+        formId: row.formId, pokemon: row.pokemon, tier: row.tier, score: row.metric,
+        origin: rankingByFormId.get(row.formId)?.origin, acquisition: rankingByFormId.get(row.formId)?.acquisition,
+        inRanking: rankingByFormId.has(row.formId),
+      }))
+      : ranking.filter((row) => row.resists?.includes(type)).slice(0, COVERAGE_BAND_SIZE).map((row) => ({
+        formId: row.formId, pokemon: row.pokemon, tier: row.tier, score: row.score,
+        origin: row.origin, acquisition: row.acquisition, inRanking: true,
+      }));
+    const members = rawMembers.map((member) => ({ ...member, owned: ownedSet.has(member.formId) }));
+    const total = members.length;
+    const ownedCount = members.filter((member) => member.owned).length;
+    return {
+      type, source: shipped ? "shipped" : "computed", title: copy.title, blurb: copy.blurb,
+      floorNote: shipped?.floorNote ?? "", rankingTotal: ranking.length,
+      members, total, ownedCount, state: coverageState(ownedCount, total),
+    };
+  });
+}
+
+function coverageSummary(bands) {
+  const counts = { covered: 0, gap: 0, exposed: 0 };
+  for (const band of bands) counts[band.state] += 1;
+  return `<div class="d5-summary">
+    <div class="d5-summary-stat" data-state="covered"><b>${counts.covered}</b><span>Covered</span></div>
+    <div class="d5-summary-stat" data-state="gap"><b>${counts.gap}</b><span>Gap</span></div>
+    <div class="d5-summary-stat" data-state="exposed"><b>${counts.exposed}</b><span>Exposed</span></div>
+  </div>`;
+}
+
+// The gap-slot's "closest you own": the best-scoring OWNED member of this
+// SAME band, not a whole-roster nearest-neighbor search. D5's own mockup
+// disclosed that a real nearest-neighbor doesn't scale past one hand-authored
+// example without either a second full data model or ~100 hand-written
+// strings (its "Seam 2") — this is the cheap, honest version that actually
+// scales to all 18 bands: real data, no per-slot authoring, just narrower
+// than a true "closest" would be.
+function closestOwnedInBand(members) {
+  const owned = members.filter((member) => member.owned);
+  if (!owned.length) return null;
+  return owned.reduce((best, member) => (member.score > best.score ? member : best));
+}
+
+function coverageSlot(member, forms, band) {
+  const owned = member.owned;
+  const sprite = spriteHtml(member.formId, forms, member.pokemon, forms?.[member.formId]?.primary_type);
+  const closest = owned ? null : closestOwnedInBand(band.members);
+  return `<div class="d5-slot${owned ? " is-filled" : " is-gap"}">
+    <div class="d5-slot-frame">${sprite}</div>
+    <p class="d5-slot-name">${escapeHtml(member.pokemon)}</p>
+    ${ownedStarButton({ formId: member.formId, name: member.pokemon, owned, route: "gyms" })}
+    ${closest ? `<p class="d5-slot-closest">closest: ${escapeHtml(closest.pokemon)}</p>` : ""}
+  </div>`;
+}
+
+const COVERAGE_STATE_LABEL = Object.freeze({ covered: "Covered", gap: "Gap", exposed: "Exposed" });
+
+// Detail layer body — deferred behind data-lazy like every other collapsible
+// on this page (see coverageCell below and the "coverage" branch in
+// buildLazyGymBody), so 18 bands x up to 8 slots each never builds unless a
+// reader actually opens one.
+function coverageDetailBody(band, forms) {
+  const srcLine = band.source === "shipped"
+    ? `Shipped band &middot; real <code>gyms.json</code> defensive band`
+    : `Computed live &middot; top-${band.rankingTotal} ranked defenders filtered by real <code>resists</code>`;
+  const slots = band.members.map((member) => coverageSlot(member, forms, band)).join("");
+  return `<div class="d5-detail">
+    <div class="d5-detail-head">
+      <div class="d5-detail-title-wrap">
+        <p class="d5-detail-eyebrow">${escapeHtml(band.type)} band &middot; <strong>${escapeHtml(band.title)}</strong></p>
+        <p class="d5-detail-title">${escapeHtml(band.type)} &middot; ${band.ownedCount}/${band.total}</p>
+      </div>
+      <span class="d5-detail-pill" data-state="${band.state}">${COVERAGE_STATE_LABEL[band.state]}</span>
+    </div>
+    <p class="d5-detail-src">${srcLine}</p>
+    <p class="d5-detail-note">${escapeHtml(band.blurb)}</p>
+    ${band.floorNote ? `<p class="d5-detail-note"><strong>Floor:</strong> ${escapeHtml(band.floorNote)}</p>` : ""}
+    <div class="d5-slots">${slots}</div>
+    <div class="d5-legend">
+      <span><i class="d5-legend-swatch d5-legend-swatch--owned"></i>owned</span>
+      <span><i class="d5-legend-swatch d5-legend-swatch--gap"></i>gap</span>
+    </div>
+  </div>`;
+}
+
+// Glance layer cell: a native <details>/<summary> per type, not a button
+// wired to a shared JS-driven panel — the mockup's own click handler is
+// reference behaviour, not portable code (see the delight spec's shared
+// invariants). This reuses the exact mechanism every other collapsible on
+// this page already has (r98's pluggable data-lazy key, buildPvpFullRankings
+// precedent) instead of inventing a second one: no new app.js dispatch, no
+// new persisted ui.gym state. Multiple bands can be open at once, same as
+// the six stacked anti-bands this replaces.
+function coverageCell(band, forms, lazy) {
+  const slug = band.type.toLowerCase();
+  const lazyId = `coverage|${band.type}`;
+  const complete = band.total > 0 && band.ownedCount === band.total;
+  const body = lazy ? lazyGymPlaceholder() : coverageDetailBody(band, forms);
+  return `<details class="d5-band-details${complete ? " is-band-complete" : ""}" id="gym-coverage-${slug}"${lazy ? ` data-lazy="${escapeHtml(lazyId)}"` : ""}>
+    <summary class="d5-cell" data-type="${escapeHtml(band.type)}" data-state="${band.state}">
+      <span class="d5-cell-type">${escapeHtml(band.type)}</span>
+      <span class="d5-cell-frac">${band.ownedCount}/${band.total}</span>
+    </summary>
+    ${body}
+  </details>`;
+}
+
+function coverageGrid(bands, forms, lazy) {
+  return `<div class="d5-grid" id="gym-coverage-grid" role="group" aria-label="18-type coverage grid, tap a type to expand">
+    ${bands.map((band) => coverageCell(band, forms, lazy)).join("")}
+  </div>`;
+}
+
+// Action layer: at most 3 rows, closest-to-done first among bands that
+// aren't already covered — ties broken by raw owned count, then ATTACK_TYPES
+// order, so this is stable across renders with identical data.
+function coverageQuestRows(bands) {
+  return bands
+    .filter((band) => band.state !== "covered" && band.total > 0)
+    .sort((a, b) => (b.ownedCount / b.total - a.ownedCount / a.total) || (b.ownedCount - a.ownedCount))
+    .slice(0, 3);
+}
+
+// router.js's onClick intercepts this in-page anchor before the hash can
+// change, opens a closed target <details> itself via setAttribute("open", "")
+// (see router.js's onClick), which fires a real 'toggle' event — the existing
+// capture-phase toggle listener then builds this band's lazy body exactly as
+// if a reader had tapped it, so "link into band details" needs zero new JS
+// here.
+function coverageQuestRow(band) {
+  const slug = band.type.toLowerCase();
+  const gaps = band.members.filter((member) => !member.owned);
+  const owned = band.members.filter((member) => member.owned);
+  const closer = gaps[0];
+  const note = owned.length
+    ? `${escapeHtml(owned.map((member) => member.pokemon).join(", "))} give${owned.length === 1 ? "s" : ""} you
+      partial cover; ${escapeHtml(gaps.slice(0, 2).map((member) => member.pokemon).join(" and "))}
+      ${gaps.length === 1 ? "is" : "are"} still open.`
+    : `None of the top ${band.total} ${escapeHtml(band.type)} answers are owned yet.`;
+  // Acquisition-honest close: the same originLine() helper every move-numbers
+  // block on this page already uses, so a legendary-raid-only closer says so
+  // here too — not a hand-written flavor sentence per band. A shipped anti-band
+  // can name a closer that isn't in the top-100 defenderRanking at all (see
+  // deriveCoverageBands' inRanking note), in which case origin/acquisition were
+  // never looked up and originLine has nothing to say — say that plainly instead
+  // of silently dropping the line.
+  const originHtml = originLine(closer?.origin, closer?.acquisition);
+  const closerHtml = closer
+    ? `<div class="d5-qcloser"><span class="d5-qcloser-kicker">Closes it</span>
+      <p class="d5-qcloser-name">${escapeHtml(closer.pokemon)}</p>
+      ${originHtml || (closer.inRanking === false
+        ? `<p class="origin-line">Outside the top-${band.rankingTotal} overall ranking — no acquisition route listed here.</p>`
+        : "")}
+    </div>`
+    : "";
+  return `<li class="d5-qrow"><a class="d5-qrow-link" href="#gym-coverage-${slug}">
+    <div class="d5-qhead">
+      <div class="d5-qhead-left">
+        <span class="d5-qchip" data-type="${escapeHtml(band.type)}">${escapeHtml(band.type)}</span>
+        <p class="d5-qtitle">${escapeHtml(band.type)} coverage &rarr; view slots</p>
+      </div>
+      <span class="d5-qfrac">${band.ownedCount}/${band.total}</span>
+    </div>
+    <p class="d5-qnote">${note}</p>
+    ${closerHtml}
+  </a></li>`;
+}
+
+function coverageEmptyRosterNote() {
+  return `<p class="gym-empty">No defender is marked owned yet — every band below shows what full coverage
+    would take, not an alarm about what's missing.
+    <a class="safe-escape" href="./#more/collection" data-route="more" data-view="collection">Mark defenders you own &rarr;</a></p>`;
+}
+
+// A band the pipeline ranks by something other than an attacking type (today
+// just "damage" — see BAND_COPY) doesn't fit the 18-type grid above at all,
+// so it keeps its own pre-D5 rendering rather than being dropped.
+function otherBandsSection(gym, forms, lazy) {
+  const bands = (gym.bands ?? []).filter((band) => band.kind !== "anti");
   if (!bands.length) return "";
   const sections = bands.map((band) => {
     const copy = bandCopy(band);
@@ -770,22 +995,37 @@ function bandSpotlightSection(gym, forms, lazy = false) {
       ${body}
     </details>`;
   }).join("");
-  // core.honesty.doNotClaim tells the reader the bands "floor out low-scoring,
-  // doubly-weak technical resistors (see each band's floorNote)" — the field
-  // ships on every band and nothing under web/ rendered it, so that pointer led
-  // nowhere. Same for coverage: six anti-type bands ship, eighteen attacking
-  // types exist, and the page never said which.
-  const antiBands = bands.filter((band) => band.kind === "anti").length;
-  return `<section class="gym-section" aria-labelledby="gym-bands-title">
-    ${sectionHeading("Same defenders, a narrower question", "Band spotlight", "gym-bands-title")}
-    <p class="gym-note">Overall buries a defender whose real strength is one job — outlasting one
-      attacking type, or hitting hardest once it's sturdy enough to matter. The #1 pick in a band
-      below is often nowhere near the top of Overall — that's what these are for. Open one; Overall
-      above is unchanged.</p>
-    ${antiBands ? `<p class="gym-note">Anti-type bands ship for ${antiBands} of the 18 attacking types
-      — the other ${18 - antiBands} have no band on this page. Each band states its own floor: the
-      cutoff that keeps a technically-true, practically-useless resistor off the top of the list.</p>` : ""}
+  return `<div class="gym-subsection" aria-labelledby="gym-bands-other-title">
+    <h3 id="gym-bands-other-title">Also ranked, not by type</h3>
+    <p class="gym-note">Same defender pool, a narrower question that has nothing to do with an attacking type.</p>
     ${sections}
+  </div>`;
+}
+
+function coverageSection(gym, forms, ownedFormIds, lazy = false) {
+  const bands = deriveCoverageBands(gym, ownedFormIds);
+  if (!bands.length) return "";
+  const hasOwned = (ownedFormIds ?? []).length > 0;
+  const shippedCount = bands.filter((band) => band.source === "shipped").length;
+  const quests = hasOwned ? coverageQuestRows(bands) : [];
+  return `<section class="gym-section" aria-labelledby="gym-bands-title">
+    ${sectionHeading("Glance, detail, action — one surface, three depths", "Band spotlight", "gym-bands-title")}
+    <p class="gym-note">Every attacking type gets its own coverage band now, not just the six the pipeline
+      hand-ships: ${shippedCount} of 18 are real <code>gyms.json</code> bands (source-marked below); the
+      other ${18 - shippedCount} are computed live, filtered by real <code>resists</code> membership on the
+      same top ${bands[0]?.rankingTotal ?? 0} ranking. Tap a type to see its squad slots — owned defenders
+      ring green, gaps show what's still open.</p>
+    ${hasOwned ? "" : coverageEmptyRosterNote()}
+    <h3 class="d5-h3">Glance</h3>
+    ${coverageSummary(bands)}
+    ${coverageGrid(bands, forms, lazy)}
+    <h3 class="d5-h3">Action &mdash; closest to done first</h3>
+    ${quests.length
+      ? `<ul class="d5-quest-list">${quests.map(coverageQuestRow).join("")}</ul>`
+      : `<p class="gym-note">${hasOwned
+          ? "Every band is at least half covered — nothing urgent enough to lead with."
+          : "Mark a defender owned above to see which type to close first."}</p>`}
+    ${otherBandsSection(gym, forms, lazy)}
   ${backToTop()}
   </section>`;
 }
@@ -880,6 +1120,11 @@ export function buildLazyGymBody(lazyId, { gym = {}, forms = {}, ownedFormIds = 
     const bandId = rest.join("|");
     const band = (gym.bands ?? []).find((b) => b.id === bandId);
     return band ? bandRowsHtml(band.rows ?? [], forms, band) : "";
+  }
+  if (kind === "coverage") {
+    const type = rest[0];
+    const band = deriveCoverageBands(gym, ownedFormIds).find((b) => b.type === type);
+    return band ? coverageDetailBody(band, forms) : "";
   }
   if (kind === "lead") {
     // Shape rides in the id (not the shared toggle context) — see the comment
@@ -1095,7 +1340,7 @@ export function renderGyms({
     ${lineupControls}
     ${renderPlacementCoach({ placementResult, ownedIndex, overallIndex, rosterInstances, deploymentMap })}
     ${lineupSection(gym, forms, lineupShape, ownedFormIds, ownedOnly, lazy)}
-    ${bandSpotlightSection(gym, forms, lazy)}
+    ${coverageSection(gym, forms, ownedFormIds, lazy)}
     ${shadowDefenderSection(gym, forms, ownedFormIds, lazy)}
     ${defenseSection(gym, trainerTeam)}
     ${motivationSection()}

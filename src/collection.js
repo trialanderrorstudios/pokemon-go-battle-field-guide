@@ -84,6 +84,22 @@ function speciesIsFlagged(entry, flaggedFormIdSet) {
 }
 
 
+// Species-level caught/shiny/lucky for whichever formId identifies the
+// species (the grid's representative formId or any of its alt/costume
+// forms) — the same "any owned form counts" rule livingDexRows/
+// collectionProgress use, so a card and anything that reads its state agree
+// on species that were caught via a non-representative form.
+export function speciesMarkState(formId, forms, roster) {
+  const entry = livingDexEntries(forms).find((candidate) => candidate.formIds.includes(formId));
+  if (!entry) return { caught: false, isShiny: false, isLucky: false };
+  return {
+    caught: speciesIsCaught(entry, new Set(roster?.ownedFormIds ?? [])),
+    isShiny: speciesIsFlagged(entry, shinyOwnedFormIdSet(roster)),
+    isLucky: speciesIsFlagged(entry, luckyOwnedFormIdSet(roster)),
+  };
+}
+
+
 // Progress readouts: overall + one row per generation the bundled dex data
 // actually spans. Counts are real-or-zero — every number here is a count of
 // entries in livingDexEntries(), never an estimate.
@@ -120,13 +136,30 @@ export function collectionProgress(forms, roster) {
 }
 
 
+// Species-level filter predicate, shared by livingDexRows and (as a plain
+// import) I1's mark-mode exit-animation decision — same "does this row
+// belong in `filter`" question either caller asks.
+export function matchesCollectionFilter(row, filter) {
+  if (filter === "missing") return !row.caught;
+  if (filter === "shiny") return row.isShiny;
+  if (filter === "lucky") return row.isLucky;
+  return true;
+}
+
+
 // Filterable, missing-first-sorted dex grid rows for the Collection view.
 // filter: "all" | "missing" | "shiny" | "lucky". query matches name/dex/form.
-export function livingDexRows(forms, roster, { query = "", filter = "all" } = {}) {
+// exitingFormIds (I1 mark mode): species whose card just stopped matching
+// `filter` but should render one more time, flagged `exiting: true`, so the
+// view can play a one-shot exit animation before the row actually leaves on
+// the next render. One direction only (documented scope cut) — a row newly
+// matching the filter never fades in early.
+export function livingDexRows(forms, roster, { query = "", filter = "all", exitingFormIds } = {}) {
   const owned = new Set(roster?.ownedFormIds ?? []);
   const shiny = shinyOwnedFormIdSet(roster);
   const lucky = luckyOwnedFormIdSet(roster);
   const normalizedQuery = query.trim().toLowerCase();
+  const exiting = exitingFormIds instanceof Set ? exitingFormIds : new Set(exitingFormIds ?? []);
 
   const rows = livingDexEntries(forms).map((entry) => ({
     ...entry,
@@ -135,17 +168,43 @@ export function livingDexRows(forms, roster, { query = "", filter = "all" } = {}
     isLucky: speciesIsFlagged(entry, lucky),
   }));
 
-  const filtered = rows.filter((row) => {
-    if (normalizedQuery && !`${row.name} #${row.dex} ${row.region}`.toLowerCase().includes(normalizedQuery)) {
-      return false;
-    }
-    if (filter === "missing") return !row.caught;
-    if (filter === "shiny") return row.isShiny;
-    if (filter === "lucky") return row.isLucky;
-    return true;
-  });
+  const filtered = rows
+    .filter((row) => {
+      if (normalizedQuery && !`${row.name} #${row.dex} ${row.region}`.toLowerCase().includes(normalizedQuery)) {
+        return false;
+      }
+      return matchesCollectionFilter(row, filter) || exiting.has(row.formId);
+    })
+    .map((row) => ({ ...row, exiting: exiting.has(row.formId) && !matchesCollectionFilter(row, filter) }));
 
   // Missing-first: uncaught species surface before caught ones, dex order
   // within each group.
   return filtered.sort((left, right) => Number(left.caught) - Number(right.caught) || left.dex - right.dex);
+}
+
+
+// Up to `limit` living-dex species whose name contains `query` (I1's grid
+// search autocomplete). Name-substring only — narrower than the shipped
+// search field's name/dex/region match, an intentional scope cut carried
+// over from the mockup (the field itself keeps matching all three).
+export function collectionSuggestions(forms, query, limit = 6) {
+  const normalizedQuery = query.trim().toLowerCase();
+  if (!normalizedQuery) return [];
+  return livingDexEntries(forms)
+    .filter((entry) => entry.name.toLowerCase().includes(normalizedQuery))
+    .slice(0, limit);
+}
+
+
+// I1 long-press mini-sheet mark semantics: unmarking caught always clears
+// shiny/lucky too (a released mon can't retain either); marking shiny or
+// lucky always force-sets caught (you can't own a shiny you never caught).
+// Pure so the three-way interaction is unit-testable without a DOM.
+export function nextMarkState({ caught, shiny, lucky }, mark, value) {
+  if (mark === "caught") {
+    return value ? { caught: true, shiny, lucky } : { caught: false, shiny: false, lucky: false };
+  }
+  if (mark === "shiny") return { caught: caught || value, shiny: value, lucky };
+  if (mark === "lucky") return { caught: caught || value, shiny, lucky: value };
+  return { caught, shiny, lucky };
 }

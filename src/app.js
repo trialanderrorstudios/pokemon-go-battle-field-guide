@@ -27,7 +27,7 @@ import {
 import { defenderPoolFromRanking, scorePlacement } from "./placement.js";
 import { jargonTerm } from "./glossary.js";
 import { dismissGuide, renderGuide, showGuide } from "./guide.js";
-import { escapeHtml, ownedStarButton, renderHome, viewSegments } from "./views/home.js";
+import { briefingCollapsedKey, escapeHtml, ownedStarButton, renderHome, viewSegments } from "./views/home.js";
 import { renderBasics } from "./views/basics.js";
 import { renderMaxBasics } from "./views/maxbasics.js";
 import { renderTypes, typeChip } from "./views/types.js";
@@ -35,7 +35,7 @@ import { weaknessesOf } from "./type-chart.js";
 import { renderGlossary } from "./views/glossary.js";
 import { handleSpriteError, spriteHtml } from "./sprites.js";
 import { buildLazyGymBody, renderGyms } from "./views/gyms.js";
-import { renderDex } from "./views/dex.js";
+import { blankQuickAddDraft, renderDex } from "./views/dex.js";
 import { renderLeaderboard } from "./views/leaderboard.js";
 import { MORE_LISTS, renderMore } from "./views/more.js";
 import { buildMoveIndex } from "./moves.js";
@@ -44,8 +44,9 @@ import { renderInstanceSheet } from "./views/instance-sheet.js";
 import { STANDARD_TARGET_DEFENSE, instanceBreakpointReports } from "./breakpoints.js";
 import { clearBuddyPlan, loadBuddyPlan, saveBuddyPlan } from "./buddy.js";
 import {
-  bestInstanceForForm, buildInstance, instanceLevel, reviseInstanceCp,
+  bestInstanceForForm, buildImportedInstance, buildInstance, instanceLevel, reviseInstanceCp, solveLevel,
 } from "./instances.js";
+import { nextMarkState } from "./collection.js";
 import { parsePokeGenieCsv } from "./poke-genie-import.js";
 import {
   buildLeaderboard,
@@ -1130,6 +1131,40 @@ function blankInstanceDraft() {
 }
 
 
+// I2 dex-entry inline quick-add: populate the flat draft shape
+// views/dex.js owns (blankQuickAddDraft(), imported above) from a saved
+// instance, for the edit flow. Not a reuse of blankInstanceDraft/
+// draftFromInstance above — that's the separate, pre-existing instanceSheet
+// modal (More > Roster / Triage's "view details" sheet), untouched here.
+function quickAddDraftFromInstance(instance) {
+  return {
+    ...blankQuickAddDraft(),
+    cp: String(instance.cp),
+    ivs: { atk: instance.ivs.atk, def: instance.ivs.def, sta: instance.ivs.sta },
+    fastMove: instance.fastMove ?? null,
+    chargedMoves: [instance.chargedMoves?.[0] ?? null, instance.chargedMoves?.[1] ?? null],
+    editingId: instance.id,
+  };
+}
+
+// Mark-mode session tally at or above this many new catches offers the
+// existing backup exporter on the next About visit (spec §7 default
+// proposal; trigger condition only — backup.js's nudge machinery is
+// unchanged).
+const MARK_SESSION_BACKUP_NUDGE_THRESHOLD = 10;
+// Long-press duration (ms) before mark mode opens the shiny/lucky mini-sheet
+// for a card, same threshold the mockup verified feels intentional vs. a tap.
+const MARK_LONG_PRESS_MS = 500;
+// .i1-card.card-exit's own animation duration (app.css) — the cleanup timer
+// below waits this long before actually dropping the exiting card, so the
+// CSS animation gets to play before the DOM catches up.
+const MARK_CARD_EXIT_MS = 280;
+// I1 long-press mini-sheet: views/collection.js renders it inline (its own
+// collectionSheet()), keyed off ui.collectionSheetFormId below — app.js only
+// owns the open/close/mark dispatch, not the markup (unlike move/instance
+// sheets, this one isn't a body-level overlay).
+
+
 function blankDefenseLogDraft(now = Date.now()) {
   const date = new Date(now);
   const year = date.getFullYear();
@@ -1222,6 +1257,23 @@ export function createInteractionState({
     interactionMessage: "",
     moveSheet: null,
     instanceSheet: null,
+    // I1 grid mark mode (views/collection.js field names — data.collectionMarkMode
+    // etc.): default off = taps navigate.
+    collectionMarkMode: false,
+    collectionMarkSessionFormIds: [],
+    collectionSuggestOpen: false,
+    // I1 long-press mini-sheet: the formId it's open for, or null. Rendered
+    // by views/collection.js's own collectionSheet(), not app.js.
+    collectionSheetFormId: null,
+    // I1 filter exit animation: formIds a mark just toggled out of the active
+    // filter, rendered exiting for exactly one pass (see applyMarkState).
+    collectionExitingFormIds: [],
+    // I2 dex-entry inline quick-add — the flat draft shape views/dex.js owns
+    // (blankQuickAddDraft()), normalized per-formId at render time (see the
+    // dex() renderer). quickAddFormId is bookkeeping only (which entry the
+    // draft belongs to) — it is never passed to the view.
+    quickAdd: null,
+    quickAddFormId: null,
     rosterShareOpen: false,
     diagnostics: { copyStatus: "", copyPayload: "", storageEstimate: undefined },
     textSize: loadTextSize(storage),
@@ -1322,6 +1374,88 @@ export function createInteractionController({
   };
   const mutateRoster = (buildNext) => enqueueRosterWrite(buildNext);
   let failureRoute = ui.lastTask?.route ?? "home";
+
+  // I1 long-press bookkeeping. Pointer-event timing state, not render state —
+  // deliberately kept out of `ui` (nothing here is meant to survive/replay
+  // across a render). markSuppressClick eats the synthetic click a long-press
+  // leaves behind on touch devices; it must be cleared wherever the mini-
+  // sheet closes, not just in the grid's own click handler — the sheet covers
+  // the grid at pointerup, so that click never reaches the grid to clear it
+  // itself (mockup bug, fixed there; ported here — see closeMarkSheet below).
+  let markLongPressTimer = null;
+  let markSuppressClick = false;
+  let markLongPressCardEl = null;
+
+  // Shared caught/shiny/lucky toggle for I1 (grid tap + mini-sheet), reusing
+  // the exact roster-field shape the existing single-form quick-toggles use
+  // (data-owned-form-id / data-shiny-toggle-form-id / data-lucky-toggle-form-id
+  // below) — same flat ownedFormIds/shinyOwnedFormIds/luckyOwnedFormIds sets,
+  // just driven by nextMarkState()'s three-way caught/shiny/lucky rule
+  // (collection.js) instead of a single-flag flip. Tracks the mark-mode
+  // session tally (net catches currently marked, mirroring the mockup's Set
+  // semantics: grows on catch, shrinks on release) when mode is on, and stages
+  // collectionExitingFormIds for the render that plays a card's exit
+  // animation (.card-exit, app.css) before it disappears. That animation is
+  // `forwards`, so the card stays in the DOM as an invisible ghost until
+  // something clears the staged id and re-renders — a timer here does that
+  // after the animation's real duration (immediately under reduced motion,
+  // where the CSS animation is itself disabled).
+  const applyMarkState = async (formId, mark, value) => {
+    if (!validFormIds.has(formId)) return null;
+    const before = {
+      caught: (roster.ownedFormIds ?? []).includes(formId),
+      shiny: (roster.shinyOwnedFormIds ?? []).includes(formId),
+      lucky: (roster.luckyOwnedFormIds ?? []).includes(formId),
+    };
+    const next = nextMarkState(before, mark, value);
+    failureRoute = "more";
+    await mutateRoster((current) => {
+      const owned = new Set(current.ownedFormIds ?? []);
+      const counts = { ...(current.ownedFormCounts ?? {}) };
+      const shiny = new Set(current.shinyOwnedFormIds ?? []);
+      const lucky = new Set(current.luckyOwnedFormIds ?? []);
+      if (next.caught) {
+        owned.add(formId);
+        if (!Number.isInteger(counts[formId])) counts[formId] = 1;
+      } else {
+        owned.delete(formId);
+        delete counts[formId];
+      }
+      if (next.shiny) shiny.add(formId); else shiny.delete(formId);
+      if (next.lucky) lucky.add(formId); else lucky.delete(formId);
+      return {
+        ...current,
+        schemaVersion: ROSTER_SCHEMA,
+        ownedFormIds: [...owned].sort(),
+        ownedFormCounts: Object.fromEntries(
+          Object.entries(counts).sort(([left], [right]) => left.localeCompare(right)),
+        ),
+        shinyOwnedFormIds: [...shiny].sort(),
+        luckyOwnedFormIds: [...lucky].sort(),
+      };
+    });
+    if (ui.collectionMarkMode) {
+      if (next.caught && !before.caught && !ui.collectionMarkSessionFormIds.includes(formId)) {
+        ui.collectionMarkSessionFormIds.push(formId);
+      } else if (!next.caught && before.caught) {
+        ui.collectionMarkSessionFormIds = ui.collectionMarkSessionFormIds.filter((id) => id !== formId);
+      }
+    }
+    const changed = next.caught !== before.caught || next.shiny !== before.shiny || next.lucky !== before.lucky;
+    ui.collectionExitingFormIds = changed ? [formId] : [];
+    if (changed) {
+      const reduceMotion = globalThis.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches ?? false;
+      setTimeout(() => {
+        ui.collectionExitingFormIds = [];
+        rerenderCurrent();
+      }, reduceMotion ? 0 : MARK_CARD_EXIT_MS);
+    }
+    return { before, after: next };
+  };
+  const closeMarkSheet = () => {
+    ui.collectionSheetFormId = null;
+    markSuppressClick = false; // see the comment on markSuppressClick above
+  };
   const persistTask = async (route, nextUi) => {
     failureRoute = route;
     const filters = taskFilters(route, nextUi);
@@ -1358,6 +1492,37 @@ export function createInteractionController({
       ui.interactionMessage = `Could not save changes: ${error?.message ?? error}`;
       rerender(failureRoute);
     },
+    // I1 long-press: pointerdown on a grid card while mark mode is on arms a
+    // timer; pointerup/leave/cancel (below) disarm it if it hasn't fired yet.
+    // Synchronous and outside the click/change queue on purpose — it only
+    // touches local timer/ui state, never the roster.
+    handleMarkPointerDown(event) {
+      const cardEl = event?.target?.closest?.(".collection-card[data-form-id]");
+      if (!ui.collectionMarkMode || !cardEl) return;
+      if (markLongPressTimer) clearTimeout(markLongPressTimer);
+      const formId = cardEl.dataset.formId;
+      markLongPressCardEl = cardEl;
+      markLongPressTimer = setTimeout(() => {
+        markLongPressTimer = null;
+        markLongPressCardEl = null;
+        markSuppressClick = true;
+        ui.collectionSheetFormId = formId;
+        rerenderCurrent();
+      }, MARK_LONG_PRESS_MS);
+    },
+    // bindInteractions registers pointerleave with capture:true (it doesn't
+    // bubble) so this sees every descendant's pointerleave, not just the
+    // root's own — the target check below scopes disarm to actually leaving
+    // the pressed card (mockup scopes its listener to #grid) instead of
+    // ignoring everything short of leaving the whole app root.
+    handleMarkPointerCancel(event) {
+      if (event?.type === "pointerleave" && event.target !== markLongPressCardEl) return;
+      if (markLongPressTimer) {
+        clearTimeout(markLongPressTimer);
+        markLongPressTimer = null;
+      }
+      markLongPressCardEl = null;
+    },
     handleInput(event) {
       const rosterSearch = event?.target?.closest?.("[data-roster-search]");
       if (rosterSearch) {
@@ -1376,6 +1541,9 @@ export function createInteractionController({
       const collectionSearch = event?.target?.closest?.("[data-collection-search]");
       if (collectionSearch) {
         ui.collectionQuery = String(collectionSearch.value ?? "").slice(0, 80);
+        // I1 autocomplete: (re)open the suggestion dropdown while typing; a
+        // suggestion select or outside interaction is the only way it closes.
+        ui.collectionSuggestOpen = true;
         const caret = Math.min(
           Number.isInteger(collectionSearch.selectionStart) ? collectionSearch.selectionStart : ui.collectionQuery.length,
           ui.collectionQuery.length,
@@ -1385,6 +1553,22 @@ export function createInteractionController({
         const nextSearch = ownerDocument?.querySelector?.("[data-collection-search]");
         nextSearch?.focus?.({ preventScroll: true });
         nextSearch?.setSelectionRange?.(caret, caret);
+        return;
+      }
+      // I2 quick-add CP field: numpad-input text field, refocused post-render
+      // the same way the search fields above are (rerender replaces the DOM).
+      const quickAddCpInput = event?.target?.closest?.("[data-cp-input]");
+      if (quickAddCpInput && ui.quickAdd) {
+        ui.quickAdd.cp = String(quickAddCpInput.value ?? "");
+        const caret = Math.min(
+          Number.isInteger(quickAddCpInput.selectionStart) ? quickAddCpInput.selectionStart : ui.quickAdd.cp.length,
+          ui.quickAdd.cp.length,
+        );
+        const ownerDocument = quickAddCpInput.ownerDocument;
+        rerenderCurrent();
+        const nextInput = ownerDocument?.querySelector?.("[data-cp-input]");
+        nextInput?.focus?.({ preventScroll: true });
+        nextInput?.setSelectionRange?.(caret, caret);
         return;
       }
       const swapOpponentQuery = event?.target?.closest?.("[data-swap-opponent-query]");
@@ -1403,6 +1587,37 @@ export function createInteractionController({
     },
     async handleChange(event) {
       const target = event?.target;
+      // I2 quick-add IV/move selects — native <select> (picker wheel), fires
+      // "change" on commit, not "input".
+      const quickAddIvSelect = target?.closest?.("[data-iv-select]");
+      if (quickAddIvSelect && ui.quickAdd) {
+        const stat = quickAddIvSelect.dataset.stat;
+        ui.quickAdd.ivs[stat] = quickAddIvSelect.value === "" ? null : Number(quickAddIvSelect.value);
+        const ownerDocument = quickAddIvSelect.ownerDocument;
+        rerenderCurrent();
+        // Refocus the same select post-render (mockup's comment: keeps
+        // keyboard/arrow stepping working), same treatment as the CP input.
+        ownerDocument?.querySelector?.(`[data-iv-select][data-stat="${stat}"]`)?.focus?.({ preventScroll: true });
+        return;
+      }
+      const quickAddMoveSelect = target?.closest?.("[data-move-select]");
+      if (quickAddMoveSelect && ui.quickAdd) {
+        const slot = quickAddMoveSelect.dataset.moveSelect;
+        const value = quickAddMoveSelect.value || null;
+        if (slot === "fast") {
+          ui.quickAdd.fastMove = value;
+        } else if (slot === "charged1") {
+          ui.quickAdd.chargedMoves[0] = value;
+          // The game won't let a Pokémon carry the same charged move twice.
+          if (value && ui.quickAdd.chargedMoves[1] === value) ui.quickAdd.chargedMoves[1] = null;
+        } else if (slot === "charged2") {
+          ui.quickAdd.chargedMoves[1] = value;
+        }
+        const ownerDocument = quickAddMoveSelect.ownerDocument;
+        rerenderCurrent();
+        ownerDocument?.querySelector?.(`[data-move-select="${slot}"]`)?.focus?.({ preventScroll: true });
+        return;
+      }
       const raidType = target?.closest?.("[data-raid-type]");
       if (raidType) {
         const nextUi = structuredClone(ui);
@@ -1801,6 +2016,223 @@ export function createInteractionController({
     },
     async handleClick(event) {
       const target = event?.target;
+      // I1 autocomplete outside-close (mockup: any pointerdown outside the
+      // search wrap closes it, not just picking a suggestion). No forced
+      // render here — every click that reaches this handler already
+      // triggers one downstream (a matched action's own rerender, or a
+      // route change), so the flag just needs to be correct by then.
+      if (ui.collectionSuggestOpen && !target?.closest?.(".i1-search-wrap")) {
+        ui.collectionSuggestOpen = false;
+      }
+      // I1 grid mark mode — spec-pinned seam: an early branch ahead of route
+      // dispatch in this SAME delegated root click handler, not a per-card
+      // listener and not a capture-phase one. Cards are anchors
+      // (dexCard() in views/collection.js); default off = the anchor's own
+      // click navigates normally (r97 behaviour), untouched below.
+      const markCard = target?.closest?.(".collection-card[data-form-id]");
+      if (ui.collectionMarkMode && markCard && !ui.collectionSheetFormId) {
+        event.preventDefault?.();
+        if (markSuppressClick) {
+          markSuppressClick = false;
+          return;
+        }
+        const formId = markCard.dataset.formId;
+        await applyMarkState(formId, "caught", !(roster.ownedFormIds ?? []).includes(formId));
+        rerender("more");
+        return;
+      }
+      const modeToggle = target?.closest?.("[data-collection-mode-toggle]");
+      if (modeToggle) {
+        const turningOn = !ui.collectionMarkMode;
+        ui.collectionMarkMode = turningOn;
+        closeMarkSheet();
+        if (markLongPressTimer) {
+          clearTimeout(markLongPressTimer);
+          markLongPressTimer = null;
+        }
+        if (turningOn) {
+          ui.collectionMarkSessionFormIds = [];
+        } else if (ui.collectionMarkSessionFormIds.length >= MARK_SESSION_BACKUP_NUDGE_THRESHOLD) {
+          // Trigger condition only — reuses the existing backup nudge flag/
+          // banner (backup.js), same as the shiny/lucky "forced" toggles
+          // above reuse the existing quick-toggle fields.
+          ui.backupNudge = true;
+        }
+        rerender("more");
+        return;
+      }
+      const collectionSuggestSelect = target?.closest?.("[data-collection-suggest-form-id]");
+      if (collectionSuggestSelect) {
+        const suggestedFormId = collectionSuggestSelect.dataset.collectionSuggestFormId;
+        const suggestedName = forms[suggestedFormId]?.name;
+        if (suggestedName) ui.collectionQuery = suggestedName.slice(0, 80);
+        ui.collectionSuggestOpen = false;
+        rerender("more");
+        return;
+      }
+      // I1 mini-sheet: outside/backdrop tap and the explicit Close button both
+      // close it; mark buttons flip caught/shiny/lucky via the same
+      // three-way rule the grid tap uses (nextMarkState, collection.js).
+      // Markup is views/collection.js's own collectionSheet(), rendered
+      // inline from ui.collectionSheetFormId — app.js only dispatches here.
+      if (ui.collectionSheetFormId) {
+        const backdrop = target?.closest?.("[data-collection-sheet-backdrop]");
+        if (backdrop && target === backdrop) {
+          closeMarkSheet();
+          rerenderCurrent();
+          return;
+        }
+        const sheetClose = target?.closest?.('[data-action="close-collection-sheet"]');
+        if (sheetClose) {
+          closeMarkSheet();
+          rerenderCurrent();
+          return;
+        }
+        const markButton = target?.closest?.("[data-collection-sheet-mark]");
+        if (markButton) {
+          const key = markButton.dataset.collectionSheetMark;
+          const formId = ui.collectionSheetFormId;
+          const currentValue = key === "shiny" ? (roster.shinyOwnedFormIds ?? []).includes(formId)
+            : key === "lucky" ? (roster.luckyOwnedFormIds ?? []).includes(formId)
+            : (roster.ownedFormIds ?? []).includes(formId);
+          await applyMarkState(formId, key, !currentValue);
+          rerenderCurrent();
+          return;
+        }
+      }
+      // I2 dex-entry inline quick-add — draft shape and blankQuickAddDraft()
+      // are owned by views/dex.js (imported above); this is the dispatch side
+      // against it plus the real instances.js store. Scoped to .quickadd-card
+      // so its own data-action="save-instance" etc. can't fall into the
+      // differently-shaped instanceSheet modal's same-named branch further
+      // down this function (that modal is a separate, pre-existing surface:
+      // More > Roster / Triage's "view details" sheet, untouched here — its
+      // own "Shiny, lucky, nickname & more" link still opens it from here).
+      const editQuickAddInstance = target?.closest?.("[data-edit-instance]");
+      if (editQuickAddInstance && ui.quickAdd) {
+        const instanceId = editQuickAddInstance.dataset.editInstance;
+        // Re-tap mid-edit is a no-op — it would otherwise silently discard
+        // in-progress form changes back to the saved values.
+        if (ui.quickAdd.editingId !== instanceId) {
+          const instance = (roster.instances ?? []).find(
+            (row) => row.id === instanceId && row.formId === ui.quickAddFormId,
+          );
+          if (instance) ui.quickAdd = quickAddDraftFromInstance(instance);
+        }
+        rerenderCurrent();
+        return;
+      }
+      const quickAddCard = target?.closest?.(".quickadd-card");
+      if (quickAddCard && ui.quickAdd) {
+        const qa = ui.quickAdd;
+        const candidateFill = target?.closest?.("[data-candidate-fill]");
+        if (candidateFill) {
+          const [atk, def, sta] = candidateFill.dataset.candidateFill.split(",").map(Number);
+          qa.ivs = { atk, def, sta };
+          rerenderCurrent();
+          return;
+        }
+        // "Use optimal" ×2 (offense/defense): views/dex.js resolves the pair
+        // via its own bestRaidRow()/gymVerdict() (private to that module) and
+        // renders it onto the button as data-use-optimal-fast/
+        // data-use-optimal-charged alongside data-use-optimal="offense|defense"
+        // — this dispatch side only reads those two dataset names. Falls
+        // through as a no-op if either attr is ever missing.
+        const useOptimal = target?.closest?.("[data-use-optimal]");
+        if (useOptimal) {
+          const fastMove = useOptimal.dataset.useOptimalFast;
+          const chargedMove = useOptimal.dataset.useOptimalCharged;
+          if (fastMove && chargedMove) {
+            qa.fastMove = fastMove;
+            qa.chargedMoves = [chargedMove, null];
+          }
+          rerenderCurrent();
+          return;
+        }
+        const qaAction = target?.closest?.("[data-action]")?.dataset?.action;
+        if (qaAction === "cancel-edit") {
+          ui.quickAdd = blankQuickAddDraft();
+          rerenderCurrent();
+          return;
+        }
+        if (qaAction === "remove-instance") {
+          if (qa.editingId) qa.removeConfirmPending = true;
+          rerenderCurrent();
+          return;
+        }
+        if (qaAction === "cancel-remove") {
+          qa.removeConfirmPending = false;
+          rerenderCurrent();
+          return;
+        }
+        if (qaAction === "confirm-remove") {
+          if (qa.editingId) {
+            const removedId = qa.editingId;
+            failureRoute = "dex";
+            await mutateRoster((current) => ({
+              ...current,
+              instances: (current.instances ?? []).filter((row) => row.id !== removedId),
+            }));
+            ui.quickAdd = blankQuickAddDraft();
+          }
+          rerenderCurrent();
+          return;
+        }
+        if (qaAction === "save-instance") {
+          const form = forms[ui.quickAddFormId];
+          const cpNumber = Number(qa.cp);
+          const ivsComplete = [qa.ivs.atk, qa.ivs.def, qa.ivs.sta]
+            .every((value) => Number.isInteger(value) && value >= 0 && value <= 15);
+          if (!form || !Number.isInteger(cpNumber) || cpNumber <= 0 || !ivsComplete
+            || solveLevel(form, qa.ivs, cpNumber) === null) {
+            // Honest inline rejection already rendered from this same draft
+            // (views/dex.js) — nothing valid to save yet.
+            rerenderCurrent();
+            return;
+          }
+          const chosenCharged = qa.chargedMoves.filter(Boolean);
+          const hasMoves = Boolean(qa.fastMove) && chosenCharged.length >= 1 && chosenCharged.length <= 2;
+          failureRoute = "dex";
+          let savedId = null;
+          if (qa.editingId) {
+            const editingId = qa.editingId;
+            savedId = editingId;
+            await mutateRoster((current) => {
+              const original = (current.instances ?? []).find((row) => row.id === editingId);
+              if (!original) return current;
+              const updated = {
+                ...original,
+                cp: cpNumber,
+                ivs: { atk: qa.ivs.atk, def: qa.ivs.def, sta: qa.ivs.sta },
+                fastMove: hasMoves ? qa.fastMove : null,
+                chargedMoves: hasMoves ? chosenCharged : [],
+                updatedAt: new Date().toISOString(),
+              };
+              return {
+                ...current,
+                // Update in place (spec §2 I2) — views/dex.js renders
+                // formInstances in array order with no sort, so a
+                // filter+push would visibly bump the edited row to the end.
+                instances: (current.instances ?? []).map((row) => (row.id === editingId ? updated : row)),
+              };
+            });
+          } else {
+            const built = hasMoves
+              ? buildInstance(form, { cp: cpNumber, ivs: qa.ivs, fastMove: qa.fastMove, chargedMoves: chosenCharged })
+              : buildImportedInstance(form, { cp: cpNumber, ivs: qa.ivs });
+            savedId = built.id;
+            await mutateRoster((current) => ({ ...current, instances: [...(current.instances ?? []), built] }));
+          }
+          ui.quickAdd = {
+            ...blankQuickAddDraft(),
+            // Transient stamp text (never written onto the persisted
+            // instance — see blankQuickAddDraft()'s own comment).
+            stamp: { instanceId: savedId, text: qa.editingId ? "Updated" : "Saved" },
+          };
+          rerenderCurrent();
+          return;
+        }
+      }
       const moveTrigger = target?.closest?.("[data-move-id]");
       if (moveTrigger) {
         ui.moveSheet = moveTrigger.dataset.moveId;
@@ -2349,6 +2781,18 @@ export function createInteractionController({
       } else if (action === "toggle-today-task") {
         const taskId = actionEl.dataset.todayTaskId;
         if (taskId) toggleTodayTask(taskId, storage);
+        rerenderCurrent();
+      } else if (action === "toggle-field-briefing") {
+        // views/home.js reads storage.getItem(briefingCollapsedKey(fingerprint))
+        // === "1" for collapsed; both the collapsed-line reopen button and the
+        // Dismiss button share this one action, so flip whatever's there now
+        // (dismissGuide/showGuide above use the identical set/remove pattern).
+        const key = actionEl.dataset.briefingKey;
+        if (key) {
+          const storageKey = briefingCollapsedKey(key);
+          if (storage?.getItem?.(storageKey) === "1") storage?.removeItem?.(storageKey);
+          else storage?.setItem?.(storageKey, "1");
+        }
         rerenderCurrent();
       } else if (action === "scroll-to") {
         // The Shadow lane starts ~9,000px down a ~19,800px view: 14 screens of
@@ -3195,6 +3639,16 @@ function bindInteractions(app, controller, extraClickTargets = [], fullTargets =
     // any broken sprite <img> for its fallback circle without inline JS.
     root.addEventListener("error", handleSpriteError, true);
     if (onToggle) root.addEventListener("toggle", onToggle, true);
+    // I1 long-press (mark mode only): arms on pointerdown, disarms on any of
+    // the ways a press can end without completing. pointerleave doesn't
+    // bubble, so it's registered on the capture phase (same trick as the
+    // "error"/"toggle" listeners just above) — handleMarkPointerCancel scopes
+    // it to actually leaving the pressed card, not just leaving the root.
+    root.addEventListener("pointerdown", (event) => controller.handleMarkPointerDown(event));
+    for (const type of ["pointerup", "pointercancel"]) {
+      root.addEventListener(type, (event) => controller.handleMarkPointerCancel(event));
+    }
+    root.addEventListener("pointerleave", (event) => controller.handleMarkPointerCancel(event), true);
   }
   // The update banner lives in the persistent chrome outside #app (it must
   // survive route innerHTML swaps), so it needs its own click hookup into
@@ -3432,6 +3886,13 @@ export function bootstrap({
     // lands. Also wires the global search box, a no-op unless the formId is
     // unknown (renderDex's fallback shell embeds one — see dex.js).
     dex(view) {
+      // I2 quick-add draft is normalized here, per-formId, on every dex
+      // render: navigating to a different entry (or the first visit) resets
+      // it to a blank add-mode draft rather than carrying a stale one over.
+      if (ui.quickAddFormId !== view) {
+        ui.quickAddFormId = view;
+        ui.quickAdd = blankQuickAddDraft();
+      }
       app.innerHTML = interactionNotice(ui) + renderDex({
         formId: view,
         forms: state.core.forms,
@@ -3443,6 +3904,7 @@ export function bootstrap({
         acquisitionGuide: state.acquisitionGuide,
         currentEggs: state.currentEggs,
         roster,
+        quickAdd: ui.quickAdd,
       });
       searchRefresh = bindSearch(documentObject, index, state.core.forms, roster, storage, {
         raidTargetTool: state.raidTargetTool,
@@ -3689,6 +4151,11 @@ export function bootstrap({
           rosterQuery: ui.rosterQuery,
           collectionQuery: ui.collectionQuery,
           collectionFilter: ui.collectionFilter,
+          collectionMarkMode: ui.collectionMarkMode,
+          collectionMarkTally: ui.collectionMarkSessionFormIds.length,
+          collectionSuggestOpen: ui.collectionSuggestOpen,
+          collectionSheetFormId: ui.collectionSheetFormId,
+          collectionExitingFormIds: ui.collectionExitingFormIds,
           rosterShareOpen: ui.rosterShareOpen,
           textSize: ui.textSize,
           theme: ui.theme,
@@ -3812,6 +4279,9 @@ export function bootstrap({
           starTier: ui.instanceSheet.starTier ?? null,
         });
       }
+      // I1's mini-sheet is NOT spliced here — views/collection.js renders it
+      // inline (collectionSheet(), keyed off collectionSheetFormId in the
+      // "more" payload above), unlike move/instance sheets above.
       if (overlayRoot) overlayRoot.innerHTML = overlayHtml;
       updateLeds(documentObject, releaseState, roster);
       updateBanner(documentObject, releaseState, storage);
