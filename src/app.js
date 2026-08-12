@@ -6,6 +6,7 @@ import {
   buildSearchIndex, loadRecentSearches, removeRecentSearch, saveRecentSearch, search,
 } from "./search.js";
 import {
+  blankRoster,
   ROSTER_SCHEMA,
   createIndexedDbAdapter,
   importRoster,
@@ -2362,6 +2363,22 @@ export function createInteractionController({
       // incomplete row (ivs are never OCR-derivable — see ocr-intake.js)
       // silently doesn't save rather than throwing. Never auto-saved: this
       // only runs on an explicit tap.
+      const ocrRowPick = target?.closest?.("[data-ocr-row-pick]");
+      if (ocrRowPick) {
+        const row = ui.ocrIntake?.rows?.find((candidate) => candidate.id === ocrRowPick.dataset.ocrRowPick);
+        const pickedFormId = ocrRowPick.dataset.ocrPickFormId;
+        const form = forms[pickedFormId];
+        if (row?.parsed && form) {
+          row.parsed.formId = pickedFormId;
+          row.parsed.name = form.name;
+          row.parsed.candidates = [];
+          // The "pick one" issue is answered now — drop it, keep the rest.
+          row.issues = (row.issues ?? []).filter((issue) => !/pick (one|manually)/i.test(issue));
+          if (row.parsed.issues) row.parsed.issues = row.parsed.issues.filter((issue) => !/pick (one|manually)/i.test(issue));
+        }
+        rerenderCurrent();
+        return;
+      }
       const ocrRowAccept = target?.closest?.("[data-ocr-row-accept]");
       if (ocrRowAccept) {
         const rowId = ocrRowAccept.dataset.ocrRowAccept;
@@ -2730,8 +2747,16 @@ export function createInteractionController({
       const deleteInstance = target?.closest?.("[data-delete-instance-id]");
       if (deleteInstance) {
         const instanceId = deleteInstance.dataset.deleteInstanceId;
+        // One tap now deletes from list rows too (dex quick-add, 2026-08-12
+        // transferred-mon cleanup ask), so a real confirm guards every path.
+        if (!api.onConfirm?.("Remove this Pokémon from your roster? This can't be undone.")) {
+          return;
+        }
+        const fromSheet = Boolean(ui.instanceSheet);
         const returnRoute = ui.instanceSheet?.returnRoute ?? "more";
-        failureRoute = returnRoute;
+        // Without a sheet the tap came from a dex quick-add row — the only
+        // non-sheet surface carrying data-delete-instance-id.
+        failureRoute = fromSheet ? returnRoute : "dex";
         await mutateRoster((current) => ({
           ...current,
           instances: (current.instances ?? []).filter((row) => row.id !== instanceId),
@@ -2740,7 +2765,9 @@ export function createInteractionController({
           if (returnRoute === "triage") ui.instanceSheet = null;
           else ui.instanceSheet.draft = blankInstanceDraft();
         }
-        rerender(returnRoute);
+        if (ui.quickAdd?.editingId === instanceId) ui.quickAdd = blankQuickAddDraft();
+        if (fromSheet) rerender(returnRoute);
+        else rerenderCurrent();
         return;
       }
       const ivBarPip = target?.closest?.("[data-instance-iv-bar-stat]");
@@ -3315,6 +3342,18 @@ export function createInteractionController({
         const payload = exportFeedback(storage);
         (api.onFeedbackExport ?? onFeedbackExport)?.(payload);
         rerender("more");
+      } else if (action === "clear-roster-data") {
+        // Whole-roster wipe (2026-08-12 operator ask). Double confirm — this
+        // is the one action in the app that destroys everything at once.
+        if (api.onConfirm?.("Clear ALL roster data on this device — every owned mark, shiny/lucky flag, and saved Pokémon? This can't be undone.")
+          && api.onConfirm?.("Last check: no backup will be made automatically. Really clear everything?")) {
+          failureRoute = "more";
+          await mutateRoster(() => blankRoster());
+          ui.quickAdd = blankQuickAddDraft();
+          ui.quickAddFormId = null;
+          if (ui.instanceSheet) ui.instanceSheet = null;
+          rerender("more");
+        }
       } else if (action === "backup-export") {
         const envelope = buildBackupEnvelope({
           roster: structuredClone(roster),

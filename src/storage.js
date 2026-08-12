@@ -82,6 +82,12 @@ const EMPTY_ROSTER = Object.freeze({
   shinyOwnedFormIds: Object.freeze([]),
   luckyOwnedFormIds: Object.freeze([]),
 });
+// Clear-all (More > Backup danger zone) resets to this same blank shape the
+// first launch starts from — one definition, structuredClone per caller.
+export function blankRoster() {
+  return structuredClone(EMPTY_ROSTER);
+}
+
 const INSTANCE_FIELDS = new Set([
   "id", "formId", "cp", "ivs", "fastMove", "chargedMoves", "nickname", "addedAt", "updatedAt",
   "isShiny", "isLucky", "megaUnlocked", "megaLevel",

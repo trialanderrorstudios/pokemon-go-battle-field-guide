@@ -1210,6 +1210,7 @@ function quickAddInstanceRowHtml(form, instance, editingId, stamp) {
     ${showcaseLine}
     <p>${movesLine}</p>
     <button type="button" class="instance-edit-btn"${editAttr}${isEditing ? " disabled" : ""}>${isEditing ? "Editing…" : "Edit"}</button>
+    <button type="button" class="instance-remove-btn" data-delete-instance-id="${escapeHtml(instance.id)}">Remove</button>
   </li>`;
 }
 
@@ -1310,6 +1311,12 @@ function ocrIntakeRowHtml(row) {
       ${canAccept ? `<button type="button" class="ocr-row-accept-btn" data-ocr-row-accept="${escapeHtml(row.id)}">Accept</button>` : ""}
       <button type="button" class="ocr-row-edit-btn" data-ocr-row-edit="${escapeHtml(row.id)}">Edit</button>
     </div>${canAccept ? "" : `<p class="ocr-row-next">Needs IVs — Edit opens the quick-add form to finish.</p>`}`;
+    } else if (parsed?.candidates?.length) {
+      // The parser's own shortlist (form family or closest names) as one-tap
+      // picks — operator hit a row with "pick manually" and nothing to tap.
+      actions = `<div class="ocr-row-actions ocr-row-candidates">
+      ${parsed.candidates.map((candidate) => `<button type="button" class="ocr-row-pick-btn" data-ocr-row-pick="${escapeHtml(row.id)}" data-ocr-pick-form-id="${escapeHtml(candidate.formId)}">${escapeHtml(candidate.name)}</button>`).join("")}
+    </div>`;
     } else {
       actions = `<p class="ocr-row-next">Pick the Pokémon from the grid below, then use its quick-add form.</p>`;
     }

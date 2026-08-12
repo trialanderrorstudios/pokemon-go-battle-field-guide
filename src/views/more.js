@@ -340,6 +340,10 @@ function backupSection(data) {
     <button type="button" data-action="backup-export">Back up my data</button>
     <label class="file-action">Choose backup file<input type="file" accept="application/json,.json" data-action="backup-import"></label>
     ${previewCard}
+    <div class="roster-danger-zone">
+      <p><strong>Clear roster data</strong> — removes every owned mark, shiny/lucky flag, and saved Pokémon on this device. Gym log, streaks, and display prefs stay. Export a backup first if in doubt.</p>
+      <button type="button" class="roster-clear-btn" data-action="clear-roster-data">Clear all roster data</button>
+    </div>
   </section>`;
 }
 

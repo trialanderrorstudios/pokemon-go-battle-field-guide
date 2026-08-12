@@ -145,7 +145,30 @@ function regionFirstAlt(name) {
   return match ? `${match[2]} ${match[1]}`.toLowerCase() : null;
 }
 
-function matchName(rawName, forms) {
+const TYPE_NAMES = Object.freeze([
+  "normal", "fire", "water", "electric", "grass", "ice", "fighting", "poison",
+  "ground", "flying", "psychic", "bug", "rock", "ghost", "dragon", "dark",
+  "steel", "fairy",
+]);
+
+// The mon screen prints the typing as literal words ("FAIRY / STEEL") — the
+// strongest disambiguator inside a form family (real device scan 2026-08-12:
+// Zacian Hero is pure Fairy, Crowned Sword is Fairy/Steel).
+function typesInText(text) {
+  const lower = String(text ?? "").toLowerCase();
+  return new Set(TYPE_NAMES.filter((type) => new RegExp(`\\b${type}\\b`).test(lower)));
+}
+
+function formTypeSet(form) {
+  return new Set([form.primary_type, form.secondary_type]
+    .filter(Boolean).map((type) => String(type).toLowerCase()));
+}
+
+function candidateEntry(form) {
+  return { formId: form.form_id, name: form.name };
+}
+
+function matchName(rawName, forms, scannedTypes = null) {
   if (!rawName) return { formId: null, confidence: null, issue: "Name not found." };
   const lowerName = rawName.toLowerCase();
   const formList = Object.values(forms ?? {});
@@ -172,11 +195,23 @@ function matchName(rawName, forms) {
     return { formId: prefixFamily[0].form_id, confidence: "high", issue: null };
   }
   if (prefixFamily.length > 1) {
-    const familyNames = [...new Set(prefixFamily.map((form) => form.name))].slice(0, 3);
+    // Try the scanned typing first: if exactly one family member's own type
+    // set matches the type words OCR'd off the screen, that IS the form.
+    if (scannedTypes?.size) {
+      const typed = prefixFamily.filter((form) => {
+        const set = formTypeSet(form);
+        return set.size === scannedTypes.size && [...set].every((type) => scannedTypes.has(type));
+      });
+      if (typed.length === 1) {
+        return { formId: typed[0].form_id, confidence: "high", issue: null };
+      }
+    }
+    const family = prefixFamily.slice(0, 4);
     return {
       formId: null,
       confidence: null,
-      issue: `"${rawName}" has multiple forms — pick manually (${familyNames.join(", ")}).`,
+      candidates: family.map(candidateEntry),
+      issue: `"${rawName}" has multiple forms — pick one below.`,
     };
   }
   const ranked = formList
@@ -187,10 +222,12 @@ function matchName(rawName, forms) {
   if (best.distance <= 2 && tiedAtBest.length === 1) {
     return { formId: best.form.form_id, confidence: "low", issue: null };
   }
-  const candidates = [...new Set(ranked.slice(0, 3).map((entry) => entry.form.name))];
+  const closest = ranked.slice(0, 3).map((entry) => entry.form);
+  const candidates = [...new Set(closest.map((form) => form.name))];
   return {
     formId: null,
     confidence: null,
+    candidates: closest.map(candidateEntry),
     issue: `name not in dex — nicknamed? pick manually (closest: ${candidates.join(", ")}).`,
   };
 }
@@ -203,14 +240,15 @@ export function parseMonScreenText(rawText, { forms } = {}) {
   const issues = [];
   const confidence = {};
 
+  const scannedTypes = typesInText(text);
   let nameLine = extractNameLine(text);
-  let nameMatch = matchName(nameLine, forms);
+  let nameMatch = matchName(nameLine, forms, scannedTypes);
   if (!nameMatch.formId) {
     // Any line that exactly matches a dex name (or a unique form family)
     // beats the positional guess — OCR noise above the name can't hide it.
     for (const line of candidateNameLines(text)) {
       if (line === nameLine) continue;
-      const candidate = matchName(line, forms);
+      const candidate = matchName(line, forms, scannedTypes);
       if (candidate.formId && candidate.confidence === "high") {
         nameLine = line;
         nameMatch = candidate;
@@ -240,6 +278,7 @@ export function parseMonScreenText(rawText, { forms } = {}) {
   return {
     name: nameLine,
     formId: nameMatch.formId,
+    candidates: nameMatch.candidates ?? [],
     cp: cpResult.value,
     hp: hpResult.value,
     weightKg: weightResult.value,
