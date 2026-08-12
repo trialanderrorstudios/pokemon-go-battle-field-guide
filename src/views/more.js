@@ -341,10 +341,37 @@ function backupSection(data) {
     <label class="file-action">Choose backup file<input type="file" accept="application/json,.json" data-action="backup-import"></label>
     ${previewCard}
     <div class="roster-danger-zone">
+      <p><strong>Bulk remove by pattern</strong> — a regular expression matched (case-insensitive) against each saved Pokémon's nickname and species name. Preview always comes first; nothing deletes until you confirm the exact list.</p>
+      ${bulkRemoveCard(data.bulkRemove, data.roster, data.forms)}
       <p><strong>Clear roster data</strong> — removes every owned mark, shiny/lucky flag, and saved Pokémon on this device. Gym log, streaks, and display prefs stay. Export a backup first if in doubt.</p>
       <button type="button" class="roster-clear-btn" data-action="clear-roster-data">Clear all roster data</button>
     </div>
   </section>`;
+}
+
+// Preview-then-confirm bulk removal (operator ask 2026-08-12: "bulk clean
+// out ... based on regex"). The preview IS the safety: the confirm button
+// names the exact count and the list shows what dies, so a pattern typo is
+// visible before anything is destroyed.
+function bulkRemoveCard(bulkRemove, roster, forms) {
+  const state = bulkRemove ?? { pattern: "", error: "", matches: null };
+  const matches = state.matches;
+  const previewList = Array.isArray(matches) && matches.length
+    ? `<ul class="bulk-remove-list">${matches.slice(0, 20).map((match) => `<li>${escapeHtml(match.label)}</li>`).join("")}</ul>
+      ${matches.length > 20 ? `<p class="bulk-remove-note">…and ${matches.length - 20} more.</p>` : ""}
+      <button type="button" class="roster-clear-btn" data-action="bulk-remove-confirm">Remove these ${matches.length} Pokémon</button>`
+    : "";
+  const emptyNote = Array.isArray(matches) && !matches.length
+    ? `<p class="bulk-remove-note">No saved Pokémon match that pattern.</p>` : "";
+  return `<div class="bulk-remove-card">
+    <label class="bulk-remove-label">Pattern
+      <input type="text" autocapitalize="none" autocorrect="off" spellcheck="false" value="${escapeHtml(state.pattern ?? "")}" data-bulk-remove-pattern placeholder="e.g. ^transfer|bidoof">
+    </label>
+    <button type="button" data-action="bulk-remove-preview">Preview matches</button>
+    ${state.error ? `<p class="bulk-remove-error" role="alert">${escapeHtml(state.error)}</p>` : ""}
+    ${previewList}
+    ${emptyNote}
+  </div>`;
 }
 
 

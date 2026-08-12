@@ -1321,6 +1321,7 @@ export function createInteractionState({
     // open.
     ocrIntake: blankOcrIntakeState(),
     rosterShareOpen: false,
+    bulkRemove: { pattern: "", error: "", matches: null },
     diagnostics: { copyStatus: "", copyPayload: "", storageEstimate: undefined },
     textSize: loadTextSize(storage),
     theme: loadTheme(storage),
@@ -1601,6 +1602,15 @@ export function createInteractionController({
       markLongPressCardEl = null;
     },
     handleInput(event) {
+      const bulkPattern = event?.target?.closest?.("[data-bulk-remove-pattern]");
+      if (bulkPattern) {
+        ui.bulkRemove.pattern = String(bulkPattern.value ?? "").slice(0, 120);
+        // Stale preview must not survive a changed pattern — the confirm
+        // button's count would lie about what the pattern now matches.
+        ui.bulkRemove.matches = null;
+        ui.bulkRemove.error = "";
+        return;
+      }
       const rosterSearch = event?.target?.closest?.("[data-roster-search]");
       if (rosterSearch) {
         ui.rosterQuery = String(rosterSearch.value ?? "").slice(0, 80);
@@ -2219,6 +2229,9 @@ export function createInteractionController({
             rows.push({
               id: crypto.randomUUID(),
               imageLabel: file.name || `Screenshot ${index + 1}`,
+              // The verbatim engine output: the only way a parse-miss report
+              // can carry the evidence (operator round-trips otherwise).
+              rawText: text,
               parsed,
               // The narrow OCR-derivable subset only (draftFromParse() — see
               // ocr-intake.js). data-ocr-row-edit is the caller that merges
@@ -3342,6 +3355,47 @@ export function createInteractionController({
         const payload = exportFeedback(storage);
         (api.onFeedbackExport ?? onFeedbackExport)?.(payload);
         rerender("more");
+      } else if (action === "bulk-remove-preview") {
+        const pattern = ui.bulkRemove.pattern ?? "";
+        let matcher = null;
+        try {
+          matcher = new RegExp(pattern, "i");
+        } catch (error) {
+          ui.bulkRemove.error = `Invalid pattern: ${error?.message ?? error}`;
+          ui.bulkRemove.matches = null;
+          rerender("more");
+          return;
+        }
+        if (!pattern.trim()) {
+          ui.bulkRemove.error = "Enter a pattern first.";
+          ui.bulkRemove.matches = null;
+          rerender("more");
+          return;
+        }
+        ui.bulkRemove.error = "";
+        ui.bulkRemove.matches = (roster.instances ?? [])
+          .filter((instance) => {
+            const species = forms[instance.formId]?.name ?? instance.formId;
+            return matcher.test(instance.nickname ?? "") || matcher.test(species);
+          })
+          .map((instance) => ({
+            id: instance.id,
+            label: `${instance.nickname || forms[instance.formId]?.name || instance.formId} — CP ${instance.cp}`,
+          }));
+        rerender("more");
+      } else if (action === "bulk-remove-confirm") {
+        const matches = ui.bulkRemove.matches ?? [];
+        if (matches.length
+          && api.onConfirm?.(`Remove ${matches.length} Pokémon matching /${ui.bulkRemove.pattern}/i from your roster? This can't be undone.`)) {
+          const doomed = new Set(matches.map((match) => match.id));
+          failureRoute = "more";
+          await mutateRoster((current) => ({
+            ...current,
+            instances: (current.instances ?? []).filter((row) => !doomed.has(row.id)),
+          }));
+          ui.bulkRemove = { pattern: "", error: "", matches: null };
+          rerender("more");
+        }
       } else if (action === "clear-roster-data") {
         // Whole-roster wipe (2026-08-12 operator ask). Double confirm — this
         // is the one action in the app that destroys everything at once.
@@ -4368,6 +4422,7 @@ export function bootstrap({
         collectionExitingFormIds: ui.collectionExitingFormIds,
         ocrIntake: ui.ocrIntake,
         rosterShareOpen: ui.rosterShareOpen,
+        bulkRemove: ui.bulkRemove,
         textSize: ui.textSize,
         theme: ui.theme,
         trainerProfile: ui.trainerProfile,

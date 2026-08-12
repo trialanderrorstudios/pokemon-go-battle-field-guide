@@ -6263,6 +6263,38 @@ html:not([data-app-booted]) #app .fallback-section {
   border-radius: 0.6rem;
 }
 
+.ocr-row-raw { margin-top: 0.4rem; font-size: 0.7rem; }
+.ocr-row-raw summary { color: var(--muted); cursor: pointer; }
+.ocr-row-raw pre {
+  margin: 0.3rem 0 0;
+  padding: 0.5rem;
+  border: 1px solid var(--line);
+  border-radius: 0.5rem;
+  background: var(--screen-bg);
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 14rem;
+  overflow-y: auto;
+}
+
+.bulk-remove-card { margin: 0.5rem 0 1rem; }
+.bulk-remove-label { display: block; font-size: 0.74rem; color: var(--muted); margin-bottom: 0.4rem; }
+.bulk-remove-label input {
+  display: block;
+  width: 100%;
+  margin-top: 0.25rem;
+  min-height: 44px;
+  padding: 0.4rem 0.6rem;
+  border-radius: 0.55rem;
+  border: 1px solid var(--line);
+  background: var(--screen-bg);
+  color: var(--text);
+  font-family: var(--dx-mono);
+}
+.bulk-remove-error { color: var(--danger); font-size: 0.74rem; }
+.bulk-remove-note { color: var(--muted); font-size: 0.74rem; }
+.bulk-remove-list { margin: 0.4rem 0; padding-left: 1.1rem; font-size: 0.78rem; }
+
 .roster-clear-btn {
   min-height: 44px;
   padding: 0.5rem 0.9rem;

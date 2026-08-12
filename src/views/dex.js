@@ -1327,6 +1327,7 @@ function ocrIntakeRowHtml(row) {
     ${unreadable ? `<p class="ocr-row-degrade">${escapeHtml(OCR_ROW_DEGRADE_COPY)}</p>` : ocrRowFieldsHtml(parsed)}
     ${ocrRowIssuesHtml(row.issues)}
     ${actions}
+    ${row.rawText ? `<details class="ocr-row-raw"><summary>What the scanner saw</summary><pre>${escapeHtml(row.rawText)}</pre></details>` : ""}
   </li>`;
 }
 

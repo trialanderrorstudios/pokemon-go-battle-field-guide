@@ -31,6 +31,23 @@ const REGION_SUFFIX_RE = /^(.*)\s\((Alolan|Galarian|Hisuian|Paldean)\)$/;
 // numbers can never match.
 const CP_LINE_RE = /^[^a-z0-9]{0,3}[a-z]?p\s*[.:]?\s*(\d[\d, ]{1,8})$/im;
 
+// Last-ditch banner read: when the stylized "CP" glyphs are lost entirely,
+// the value survives as a bare 3-5 digit line ABOVE the species name (the
+// only place the layout puts a large standalone number). Status-bar lines
+// are already junk-filtered; the 3-digit floor keeps a stray battery "90"
+// out. Low confidence by definition.
+function bareBannerCp(text) {
+  const lines = String(text ?? "").split(/\r?\n/).map((line) => line.trim());
+  const hpIndex = lines.findIndex((line) => HP_RE.test(line) || HP_TRAILING_RE.test(line));
+  const stop = hpIndex > 0 ? hpIndex : lines.length;
+  for (let i = 0; i < stop; i += 1) {
+    if (STATUS_JUNK_RE.test(lines[i])) continue;
+    const match = lines[i].match(/^[^a-z0-9]{0,3}(\d[\d, ]{2,6})[^a-z0-9]{0,3}$/i);
+    if (match) return match;
+  }
+  return null;
+}
+
 function parseCp(text) {
   let noisyBanner = false;
   let match = text.match(CP_RE);
@@ -40,6 +57,13 @@ function parseCp(text) {
     // literal lone "hp 40" line would — refuse the h prefix explicitly.
     if (bannerMatch && !/^[^a-z0-9]{0,3}h/i.test(bannerMatch[0])) {
       match = bannerMatch;
+      noisyBanner = true;
+    }
+  }
+  if (!match) {
+    const bare = bareBannerCp(text);
+    if (bare) {
+      match = bare;
       noisyBanner = true;
     }
   }
