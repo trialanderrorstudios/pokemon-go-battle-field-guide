@@ -1144,6 +1144,7 @@ function quickAddDraftFromInstance(instance) {
     fastMove: instance.fastMove ?? null,
     chargedMoves: [instance.chargedMoves?.[0] ?? null, instance.chargedMoves?.[1] ?? null],
     editingId: instance.id,
+    megaUnlocked: Boolean(instance.megaUnlocked),
   };
 }
 
@@ -1385,6 +1386,13 @@ export function createInteractionController({
   let markLongPressTimer = null;
   let markSuppressClick = false;
   let markLongPressCardEl = null;
+  // I2 IV drag-bar coalescing: a native range fires "input" on every drag
+  // tick. The draft updates immediately below so the number stays honest,
+  // but the full rerender (tick-bar gradient + solver text) is coalesced to
+  // one per animation frame instead of one per tick — a raw per-tick
+  // rerender replaces the dragged node's DOM out from under the pointer and
+  // kills the gesture mid-drag.
+  let ivRangeRerenderHandle = null;
 
   // Shared caught/shiny/lucky toggle for I1 (grid tap + mini-sheet), reusing
   // the exact roster-field shape the existing single-form quick-toggles use
@@ -1549,7 +1557,7 @@ export function createInteractionController({
           ui.collectionQuery.length,
         );
         const ownerDocument = collectionSearch.ownerDocument;
-        rerender("more");
+        rerenderCurrent();
         const nextSearch = ownerDocument?.querySelector?.("[data-collection-search]");
         nextSearch?.focus?.({ preventScroll: true });
         nextSearch?.setSelectionRange?.(caret, caret);
@@ -1569,6 +1577,34 @@ export function createInteractionController({
         const nextInput = ownerDocument?.querySelector?.("[data-cp-input]");
         nextInput?.focus?.({ preventScroll: true });
         nextInput?.setSelectionRange?.(caret, caret);
+        return;
+      }
+      // I2 pressable IV bar (dex.js's ivRangeHtml) — a native range fires
+      // "input" continuously while dragging, unlike the <select> it sits next
+      // to (which only fires "change" on commit). Same draft path as the
+      // data-iv-select handler above, so the two controls stay in sync each
+      // render; same refocus-after-rerender treatment too.
+      const ivRange = event?.target?.closest?.("[data-iv-range]");
+      if (ivRange && ui.quickAdd) {
+        const stat = ivRange.dataset.stat;
+        ui.quickAdd.ivs[stat] = Number(ivRange.value);
+        const ownerDocument = ivRange.ownerDocument;
+        const view = ownerDocument?.defaultView;
+        const refocus = () => ownerDocument?.querySelector?.(`[data-iv-range][data-stat="${stat}"]`)?.focus?.({ preventScroll: true });
+        if (typeof view?.requestAnimationFrame === "function") {
+          // The range's own thumb tracks the pointer natively between
+          // frames — only the gradient/solver text need the coalesced
+          // rerender, so cancel any frame still pending from the last tick.
+          if (ivRangeRerenderHandle !== null) view.cancelAnimationFrame?.(ivRangeRerenderHandle);
+          ivRangeRerenderHandle = view.requestAnimationFrame(() => {
+            ivRangeRerenderHandle = null;
+            rerenderCurrent();
+            refocus();
+          });
+        } else {
+          rerenderCurrent();
+          refocus();
+        }
         return;
       }
       const swapOpponentQuery = event?.target?.closest?.("[data-swap-opponent-query]");
@@ -1616,6 +1652,15 @@ export function createInteractionController({
         const ownerDocument = quickAddMoveSelect.ownerDocument;
         rerenderCurrent();
         ownerDocument?.querySelector?.(`[data-move-select="${slot}"]`)?.focus?.({ preventScroll: true });
+        return;
+      }
+      // I2 quick-add mega/primal capability checkbox (dex.js's
+      // megaUnlockedFieldHtml) — round-trips through draft.megaUnlocked, then
+      // buildInstance on save (see the save-instance dispatch below).
+      const megaUnlockedField = target?.closest?.("[data-mega-unlocked]");
+      if (megaUnlockedField && ui.quickAdd) {
+        ui.quickAdd.megaUnlocked = Boolean(megaUnlockedField.checked);
+        rerenderCurrent();
         return;
       }
       const raidType = target?.closest?.("[data-raid-type]");
@@ -1713,18 +1758,6 @@ export function createInteractionController({
       if (weatherChoice) {
         ui.weather = saveWeather(storage, weatherChoice.value);
         rerender("raids");
-        return;
-      }
-      const gymLineup = target?.closest?.("[data-gym-lineup]");
-      if (gymLineup) {
-        const nextUi = structuredClone(ui);
-        nextUi.gym.lineupFormIds = normalizeGymLineup(
-          [...(gymLineup.selectedOptions ?? [])].map((selectedOption) => selectedOption.value),
-          gymDefenderFormIds,
-          gymDefenderSpeciesByFormId,
-        );
-        await persistTask("gyms", nextUi);
-        rerender("gyms");
         return;
       }
       const gymLineupAdd = target?.closest?.("[data-gym-lineup-add]");
@@ -2038,7 +2071,7 @@ export function createInteractionController({
         }
         const formId = markCard.dataset.formId;
         await applyMarkState(formId, "caught", !(roster.ownedFormIds ?? []).includes(formId));
-        rerender("more");
+        rerenderCurrent();
         return;
       }
       const modeToggle = target?.closest?.("[data-collection-mode-toggle]");
@@ -2058,7 +2091,7 @@ export function createInteractionController({
           // above reuse the existing quick-toggle fields.
           ui.backupNudge = true;
         }
-        rerender("more");
+        rerenderCurrent();
         return;
       }
       const collectionSuggestSelect = target?.closest?.("[data-collection-suggest-form-id]");
@@ -2067,7 +2100,7 @@ export function createInteractionController({
         const suggestedName = forms[suggestedFormId]?.name;
         if (suggestedName) ui.collectionQuery = suggestedName.slice(0, 80);
         ui.collectionSuggestOpen = false;
-        rerender("more");
+        rerenderCurrent();
         return;
       }
       // I1 mini-sheet: outside/backdrop tap and the explicit Close button both
@@ -2208,6 +2241,11 @@ export function createInteractionController({
                 chargedMoves: hasMoves ? chosenCharged : [],
                 updatedAt: new Date().toISOString(),
               };
+              // Same convention buildInstance uses below: only carry the flag
+              // when set, so unchecking it in the edit draft actually clears
+              // it instead of the ...original spread leaving a stale true.
+              if (qa.megaUnlocked) updated.megaUnlocked = true;
+              else delete updated.megaUnlocked;
               return {
                 ...current,
                 // Update in place (spec §2 I2) — views/dex.js renders
@@ -2218,8 +2256,15 @@ export function createInteractionController({
             });
           } else {
             const built = hasMoves
-              ? buildInstance(form, { cp: cpNumber, ivs: qa.ivs, fastMove: qa.fastMove, chargedMoves: chosenCharged })
-              : buildImportedInstance(form, { cp: cpNumber, ivs: qa.ivs });
+              ? buildInstance(form, {
+                cp: cpNumber, ivs: qa.ivs, fastMove: qa.fastMove, chargedMoves: chosenCharged, megaUnlocked: qa.megaUnlocked,
+              })
+              : buildImportedInstance(form, {
+                // megaUnlocked rides the moveless path too — the checkbox is
+                // interactive whether or not moves are set, and dropping it
+                // here was the last leg of the sweep's data-loss finding.
+                cp: cpNumber, ivs: qa.ivs, megaUnlocked: qa.megaUnlocked,
+              });
             savedId = built.id;
             await mutateRoster((current) => ({ ...current, instances: [...(current.instances ?? []), built] }));
           }
@@ -2433,7 +2478,7 @@ export function createInteractionController({
       const collectionFilterControl = target?.closest?.("[data-collection-filter]");
       if (collectionFilterControl) {
         ui.collectionFilter = collectionFilterControl.dataset.collectionFilter;
-        rerender("more");
+        rerenderCurrent();
         return;
       }
       const textSizeControl = target?.closest?.("[data-text-size]");
@@ -2536,7 +2581,19 @@ export function createInteractionController({
           searchRefresh();
           return;
         }
-        const route = ownedControl.dataset.ownedRoute === "gyms" ? "gyms" : "raids";
+        const ownedRoute = ownedControl.dataset.ownedRoute;
+        // Only raids/gyms stamp a lastTask and navigate there — that's their
+        // own surface's star, meant to jump you to the task you starred it
+        // for. Every other surface (dex, and anything future) is a plain
+        // roster toggle in place, same as search's branch above: it must
+        // never fall through to a navigation it didn't ask for (the bug this
+        // fixes sent every dex-entry star to Raids).
+        if (ownedRoute !== "raids" && ownedRoute !== "gyms") {
+          await mutateRoster((current) => ({ ...current, schemaVersion: ROSTER_SCHEMA, ...toggleOwnedFields(current) }));
+          rerenderCurrent();
+          return;
+        }
+        const route = ownedRoute;
         failureRoute = route;
         const nextUi = structuredClone(ui);
         const filters = taskFilters(route, nextUi);
@@ -3379,8 +3436,19 @@ function raidTargetSurface(state, ui, roster) {
   const allTargets = state.raidTargetTool?.targets ?? [];
   const category = allowed(ui.raid.targetCategory, RAID_TARGET_CATEGORY_SET, "all");
   const targets = raidTargetsForCategory(allTargets, state.core?.forms ?? state.forms ?? {}, category);
+  // Honest-swap notice: same class of bug the ?boss= deep-link path already
+  // guards against (app.js's bossNotFound) — a category change or a boss
+  // rotating out of the live tier list must not silently swap the counters
+  // out from under the reader with zero on-screen trace of what happened.
+  let targetSwapNotice = "";
   if (!targets.some((row) => row.bossFormId === ui.raid.targetFormId)) {
+    const droppedBoss = allTargets.find((row) => row.bossFormId === ui.raid.targetFormId)?.boss;
     ui.raid.targetFormId = targets[0]?.bossFormId ?? "";
+    const nextBoss = targets[0]?.boss;
+    const categoryLabel = RAID_TARGET_CATEGORIES.find(([value]) => value === category)?.[1] ?? category;
+    if (droppedBoss && nextBoss) {
+      targetSwapNotice = `<p class="raid-target-swap-notice" role="alert">${escapeHtml(droppedBoss)} isn't in the "${escapeHtml(categoryLabel)}" category — showing ${escapeHtml(nextBoss)} instead.</p>`;
+    }
   }
   if (!ui.raid.targetFormId) return "<p>No raid targets are available in this release.</p>";
   const plan = buildRaidPlan({
@@ -3418,6 +3486,7 @@ function raidTargetSurface(state, ui, roster) {
   };
   return `<section class="raid-target-view" aria-labelledby="raid-target-title">
     <h2 id="raid-target-title">Raid Target</h2>
+    ${targetSwapNotice}
     <div class="pvp-controls">
       <label>Boss category<select data-raid-target-category>${RAID_TARGET_CATEGORIES.map(([value, label]) => option(value, label, category)).join("")}</select></label>
       <label>Exact boss form<select data-raid-target>${targets.map((target) => option(target.bossFormId, target.boss, ui.raid.targetFormId)).join("")}</select></label>
@@ -3812,6 +3881,94 @@ export function bootstrap({
   const chunkNotice = (route, label) => (routeChunkFailed(route, failedChunkPaths)
     ? chunkErrorNotice(route, label, windowObject.navigator?.onLine === false)
     : chunkLoadingNotice(label));
+  // Shared by renderers.more(view) and renderers.dex(view)'s no-formId
+  // fallback (bare #dex is now the living-dex grid's home — router.js's
+  // more/collection -> dex redirect). Factored out rather than called via
+  // renderers.more directly: by the time dex(view) runs, the route-wrapping
+  // loop below has already replaced renderers.more with a version that
+  // stamps currentRoute = "more", which would desync rerenderCurrent() and
+  // the staleness banner from the actual #dex URL still in the address bar.
+  const renderMoreRoute = (view) => {
+    if (view === "delta") {
+      app.innerHTML = deltaView();
+      return;
+    }
+    if (view === "trades") {
+      app.innerHTML = interactionNotice(ui) + tradesView();
+      return;
+    }
+    // Storage estimate is async and only needs fetching once per session;
+    // cache it on ui.diagnostics and rerender More when it resolves. Only
+    // #more/about renders it, so only that view pays for the call.
+    if (view === "about" && ui.diagnostics.storageEstimate === undefined) {
+      ui.diagnostics.storageEstimate = null;
+      windowObject.navigator?.storage?.estimate?.()
+        .then((estimate) => {
+          ui.diagnostics.storageEstimate = estimate ?? false;
+          if (currentRoute === "more") renderers.more(currentView);
+        })
+        .catch(() => { ui.diagnostics.storageEstimate = false; });
+    }
+    // Only the library lists read extras.json. The menu, roster, settings
+    // and about views are pure local state, so they must not sit behind a
+    // chunk fetch — More is the nav destination. The collection grid is the
+    // same: forms + roster only (verified in docs/dex-two-panel-spec.md §2.1),
+    // and it now ALSO renders on bare #dex, where extras.json never loads —
+    // gating it stranded cold #dex on a loading state forever (caught by the
+    // publish e2e, 2026-08-12, after three green unit suites missed it).
+    const needsChunks = Boolean(MORE_LISTS[view]) && view !== "collection";
+    app.innerHTML = (!needsChunks || routeChunksReady("more", loadedChunkPaths)
+      ? renderMore({
+        ...state.core,
+        budgets: state.budgets,
+        megasPrimals: state.megasPrimals,
+        futureProof: state.futureProof,
+        coveragePlanner: state.coveragePlanner,
+        view,
+        roster,
+        rosterQuery: ui.rosterQuery,
+        collectionQuery: ui.collectionQuery,
+        collectionFilter: ui.collectionFilter,
+        collectionMarkMode: ui.collectionMarkMode,
+        collectionMarkTally: ui.collectionMarkSessionFormIds.length,
+        collectionSuggestOpen: ui.collectionSuggestOpen,
+        collectionSheetFormId: ui.collectionSheetFormId,
+        collectionExitingFormIds: ui.collectionExitingFormIds,
+        rosterShareOpen: ui.rosterShareOpen,
+        textSize: ui.textSize,
+        theme: ui.theme,
+        trainerProfile: ui.trainerProfile,
+        friendCodeInput: ui.friendCodeInput,
+        friendCodeError: ui.friendCodeError,
+        friendCodesMessage: ui.friendCodesMessage,
+        friends: ui.friends,
+        friendDraft: ui.friendDraft,
+        stardust: ui.stardust,
+        backupNudge: ui.backupNudge,
+        backupImportPreview: ui.backupImportPreview,
+        pushFlag: isPushFlagEnabled(storage),
+        pushPermission: pushState({
+          flagEnabled: isPushFlagEnabled(storage),
+          permission: windowObject.Notification?.permission,
+        }),
+        release: releaseView(releaseState),
+        update: { ...releaseState, label: releaseLabel(releaseState) },
+        diagnostics: {
+          entries: loadDiagnostics(storage),
+          copyStatus: ui.diagnostics.copyStatus,
+          copyPayload: ui.diagnostics.copyPayload,
+          storageEstimate: ui.diagnostics.storageEstimate,
+          swControllerState: !windowObject.navigator?.serviceWorker
+            ? "unsupported"
+            : (windowObject.navigator.serviceWorker.controller ? "controlled" : "not controlled"),
+          selfRepairAt: Number(storage?.getItem?.(SELF_REPAIR_GUARD_KEY)) || null,
+          // Which release chunks have actually merged into state this
+          // session — "why is Coach stuck loading" support signal.
+          loadedChunks: [...loadedChunkPaths].sort(),
+        },
+      })
+      : chunkNotice("more", "More")) + interactionNotice(ui);
+  };
   const renderers = {
     home() {
       // Home is the "what should I do now" surface: today's checklist, where
@@ -3886,6 +4043,14 @@ export function bootstrap({
     // lands. Also wires the global search box, a no-op unless the formId is
     // unknown (renderDex's fallback shell embeds one — see dex.js).
     dex(view) {
+      // Bare #dex (no formId) is the living-dex grid's home now (router.js's
+      // more/collection -> dex redirect) — render the same collection view
+      // #more/collection used to, rather than renderDex's "unknown form"
+      // fallback shell.
+      if (!view) {
+        renderMoreRoute("collection");
+        return;
+      }
       // I2 quick-add draft is normalized here, per-formId, on every dex
       // render: navigating to a different entry (or the first visit) resets
       // it to a blank add-mode draft rather than carrying a stale one over.
@@ -3920,13 +4085,25 @@ export function bootstrap({
       // silently overridden back to it.
       let activeView = view;
       const bossParam = new URLSearchParams(windowObject.location?.search ?? "").get("boss");
-      if (activeView !== "hundo" && bossParam && validFormIds.has(bossParam)) {
-        ui.raid.targetFormId = bossParam;
-        activeView = "target";
-        const url = new URL(windowObject.location.href);
-        url.searchParams.delete("boss");
-        url.hash = "#raids/target";
-        windowObject.history.replaceState({}, "", url.href);
+      // An explicitly-requested boss that fails validFormIds must not fall
+      // through to whatever ui.raid.targetFormId already held (raidState's
+      // own Mewtwo default) — that would silently show a different Pokemon's
+      // counters for a request that named a specific one. Only render the
+      // honest "no data" notice for a real request; a plain #raids/target
+      // visit with no ?boss= at all keeps rendering its existing target.
+      let bossNotFound = false;
+      if (activeView !== "hundo" && bossParam) {
+        if (validFormIds.has(bossParam)) {
+          ui.raid.targetFormId = bossParam;
+          activeView = "target";
+          const url = new URL(windowObject.location.href);
+          url.searchParams.delete("boss");
+          url.hash = "#raids/target";
+          windowObject.history.replaceState({}, "", url.href);
+        } else {
+          bossNotFound = true;
+          activeView = "target";
+        }
       }
       // The strip is rendered here, not inside renderRaidSurface: Hundo is a
       // sibling view from another module, and a tab strip you cannot use to
@@ -3952,6 +4129,11 @@ export function bootstrap({
             weakLaneTypes: new Set(weakLanes(typeCoverage({ raids: state.raids, roster })).map((lane) => lane.attackingType)),
           })
           : chunkNotice("raids", "Hundo Priority"));
+        return;
+      }
+      if (bossNotFound) {
+        app.innerHTML = interactionNotice(ui) + tabs
+          + `<div class="raids-view"><aside class="fallback-section" role="alert">No current data for that boss.</aside></div>`;
         return;
       }
       app.innerHTML = interactionNotice(ui) + tabs + budgetPointer + (state.raids && state.raidTargetTool
@@ -4115,81 +4297,7 @@ export function bootstrap({
         : chunkNotice("triage", "Triage"));
     },
     more(view) {
-      if (view === "delta") {
-        app.innerHTML = deltaView();
-        return;
-      }
-      if (view === "trades") {
-        app.innerHTML = interactionNotice(ui) + tradesView();
-        return;
-      }
-      // Storage estimate is async and only needs fetching once per session;
-      // cache it on ui.diagnostics and rerender More when it resolves. Only
-      // #more/about renders it, so only that view pays for the call.
-      if (view === "about" && ui.diagnostics.storageEstimate === undefined) {
-        ui.diagnostics.storageEstimate = null;
-        windowObject.navigator?.storage?.estimate?.()
-          .then((estimate) => {
-            ui.diagnostics.storageEstimate = estimate ?? false;
-            if (currentRoute === "more") renderers.more(currentView);
-          })
-          .catch(() => { ui.diagnostics.storageEstimate = false; });
-      }
-      // Only the library lists read extras.json. The menu, roster, settings
-      // and about views are pure local state, so they must not sit behind a
-      // chunk fetch — More is the nav destination.
-      const needsChunks = Boolean(MORE_LISTS[view]);
-      app.innerHTML = (!needsChunks || routeChunksReady("more", loadedChunkPaths)
-        ? renderMore({
-          ...state.core,
-          budgets: state.budgets,
-          megasPrimals: state.megasPrimals,
-          futureProof: state.futureProof,
-          coveragePlanner: state.coveragePlanner,
-          view,
-          roster,
-          rosterQuery: ui.rosterQuery,
-          collectionQuery: ui.collectionQuery,
-          collectionFilter: ui.collectionFilter,
-          collectionMarkMode: ui.collectionMarkMode,
-          collectionMarkTally: ui.collectionMarkSessionFormIds.length,
-          collectionSuggestOpen: ui.collectionSuggestOpen,
-          collectionSheetFormId: ui.collectionSheetFormId,
-          collectionExitingFormIds: ui.collectionExitingFormIds,
-          rosterShareOpen: ui.rosterShareOpen,
-          textSize: ui.textSize,
-          theme: ui.theme,
-          trainerProfile: ui.trainerProfile,
-          friendCodeInput: ui.friendCodeInput,
-          friendCodeError: ui.friendCodeError,
-          friendCodesMessage: ui.friendCodesMessage,
-          friends: ui.friends,
-          friendDraft: ui.friendDraft,
-          stardust: ui.stardust,
-          backupNudge: ui.backupNudge,
-          backupImportPreview: ui.backupImportPreview,
-          pushFlag: isPushFlagEnabled(storage),
-          pushPermission: pushState({
-            flagEnabled: isPushFlagEnabled(storage),
-            permission: windowObject.Notification?.permission,
-          }),
-          release: releaseView(releaseState),
-          update: { ...releaseState, label: releaseLabel(releaseState) },
-          diagnostics: {
-            entries: loadDiagnostics(storage),
-            copyStatus: ui.diagnostics.copyStatus,
-            copyPayload: ui.diagnostics.copyPayload,
-            storageEstimate: ui.diagnostics.storageEstimate,
-            swControllerState: !windowObject.navigator?.serviceWorker
-              ? "unsupported"
-              : (windowObject.navigator.serviceWorker.controller ? "controlled" : "not controlled"),
-            selfRepairAt: Number(storage?.getItem?.(SELF_REPAIR_GUARD_KEY)) || null,
-            // Which release chunks have actually merged into state this
-            // session — "why is Coach stuck loading" support signal.
-            loadedChunks: [...loadedChunkPaths].sort(),
-          },
-        })
-        : chunkNotice("more", "More")) + interactionNotice(ui);
+      renderMoreRoute(view);
     },
   };
   for (const route of Object.keys(renderers)) {

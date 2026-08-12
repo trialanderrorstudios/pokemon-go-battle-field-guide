@@ -167,7 +167,7 @@ function requireValidCp(form, ivs, cp) {
 // flags (round 9 collection tracking) — omitted entirely when false/unset,
 // same convention as nickname. Throws a friendly, user-facing RangeError on
 // invalid input.
-export function buildInstance(form, { cp, ivs, fastMove, chargedMoves, nickname, isShiny, isLucky } = {}) {
+export function buildInstance(form, { cp, ivs, fastMove, chargedMoves, nickname, isShiny, isLucky, megaUnlocked } = {}) {
   if (!form?.form_id) throw new RangeError("Unknown Pokémon form.");
   const moveError = validateMoves(form, fastMove, chargedMoves);
   if (moveError) throw new RangeError(moveError);
@@ -183,6 +183,11 @@ export function buildInstance(form, { cp, ivs, fastMove, chargedMoves, nickname,
     ...(trimmedNickname ? { nickname: trimmedNickname } : {}),
     ...(isShiny ? { isShiny: true } : {}),
     ...(isLucky ? { isLucky: true } : {}),
+    // Mega/Primal quick-add capability flag (dex.js's I2 quick-add sheet,
+    // species-gated there) — same omit-when-false convention as
+    // isShiny/isLucky above, so a mega-less species' instances never carry
+    // this key at all.
+    ...(megaUnlocked ? { megaUnlocked: true } : {}),
     addedAt: new Date().toISOString(),
   };
 }
@@ -194,7 +199,7 @@ export function buildInstance(form, { cp, ivs, fastMove, chargedMoves, nickname,
 // edit sheet. isLucky is the one Poke Genie collection flag with a real CSV
 // column (see poke-genie-import.js); isShiny isn't in that export, so
 // callers only pass it from other sources.
-export function buildImportedInstance(form, { cp, ivs, nickname, isShiny, isLucky } = {}) {
+export function buildImportedInstance(form, { cp, ivs, nickname, isShiny, isLucky, megaUnlocked } = {}) {
   if (!form?.form_id) throw new RangeError("Unknown Pokémon form.");
   const cpNumber = requireValidCp(form, ivs, cp);
   const trimmedNickname = typeof nickname === "string" ? nickname.trim() : "";
@@ -206,6 +211,9 @@ export function buildImportedInstance(form, { cp, ivs, nickname, isShiny, isLuck
     ...(trimmedNickname ? { nickname: trimmedNickname } : {}),
     ...(isShiny ? { isShiny: true } : {}),
     ...(isLucky ? { isLucky: true } : {}),
+    // Same omit-when-false convention as buildInstance:190 — the moveless
+    // quick-add save path (app.js's I2 sheet) routes through here too.
+    ...(megaUnlocked ? { megaUnlocked: true } : {}),
     addedAt: new Date().toISOString(),
   };
 }

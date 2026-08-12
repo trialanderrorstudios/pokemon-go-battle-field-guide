@@ -139,14 +139,13 @@ export const TIPS = Object.freeze([
 
   // Source: Pokémon GO's official Trainer Battle mechanics — GamePress's
   // "Attack-Based Charged Move Priority" writeup on the Attack-stat tiebreak,
-  // retrieved 2026-07. Points to this app's existing Swap page rather than
-  // re-teaching full PvP theory here.
+  // retrieved 2026-07.
   Object.freeze({
     id: "pvp-cmp",
     category: "pvp",
     title: "CMP decides who moves first on a simultaneous charged move",
     verified: "2026-07",
-    body: `CMP ("Charge Move Priority") is what decides which Pokémon's ${jargonTerm("charged-move", "charged move")} lands first when both trainers fire one at the same moment — the Pokémon with the higher Attack stat at that moment wins the race. It matters most for close mirror matchups; the Battle Swap page (see the ? button there) walks through applying this live, so it isn't repeated in full here.`,
+    body: `CMP ("Charge Move Priority") is what decides which Pokémon's ${jargonTerm("charged-move", "charged move")} lands first when both trainers fire one at the same moment — the Pokémon with the higher Attack stat at that moment wins the race. It matters most in close mirror matchups: a shield-baiting move, a stat boost from a prior charged move, or a well-timed swap can flip which side has the higher Attack stat and win that tiebreak.`,
   }),
   // Source: standard PvP fast-move energy/damage mechanics; pointer to this
   // app's own Swap tool rather than restating full theory, retrieved 2026-07.

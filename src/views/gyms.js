@@ -896,12 +896,22 @@ function coverageDetailBody(band, forms) {
 // precedent) instead of inventing a second one: no new app.js dispatch, no
 // new persisted ui.gym state. Multiple bands can be open at once, same as
 // the six stacked anti-bands this replaces.
-function coverageCell(band, forms, lazy) {
+// forceOpen (band.type present in the persisted open-band set) mirrors
+// gym-tier-section's own forceOpen: build the real body eagerly and stamp
+// `open` on the <details>, instead of trusting native <details open> state to
+// survive a re-render — every roster-mutating interaction on this page does a
+// full innerHTML replace (renderers.gyms in app.js), which throws away
+// whatever a reader had toggled open with their own tap. data-band-type lets
+// app.js's existing capture-phase 'toggle' listener (onLazyToggle) key a
+// persisted ui.gym.openBands set off this element without parsing data-lazy,
+// which is absent once forceOpen skips it.
+function coverageCell(band, forms, lazy, openBandSet) {
   const slug = band.type.toLowerCase();
   const lazyId = `coverage|${band.type}`;
   const complete = band.total > 0 && band.ownedCount === band.total;
-  const body = lazy ? lazyGymPlaceholder() : coverageDetailBody(band, forms);
-  return `<details class="d5-band-details${complete ? " is-band-complete" : ""}" id="gym-coverage-${slug}"${lazy ? ` data-lazy="${escapeHtml(lazyId)}"` : ""}>
+  const forceOpen = openBandSet?.has(band.type) ?? false;
+  const body = lazy && !forceOpen ? lazyGymPlaceholder() : coverageDetailBody(band, forms);
+  return `<details class="d5-band-details${complete ? " is-band-complete" : ""}" id="gym-coverage-${slug}" data-band-type="${escapeHtml(band.type)}"${forceOpen ? " open" : ""}${lazy && !forceOpen ? ` data-lazy="${escapeHtml(lazyId)}"` : ""}>
     <summary class="d5-cell" data-type="${escapeHtml(band.type)}" data-state="${band.state}">
       <span class="d5-cell-type">${escapeHtml(band.type)}</span>
       <span class="d5-cell-frac">${band.ownedCount}/${band.total}</span>
@@ -910,9 +920,9 @@ function coverageCell(band, forms, lazy) {
   </details>`;
 }
 
-function coverageGrid(bands, forms, lazy) {
+function coverageGrid(bands, forms, lazy, openBandSet) {
   return `<div class="d5-grid" id="gym-coverage-grid" role="group" aria-label="18-type coverage grid, tap a type to expand">
-    ${bands.map((band) => coverageCell(band, forms, lazy)).join("")}
+    ${bands.map((band) => coverageCell(band, forms, lazy, openBandSet)).join("")}
   </div>`;
 }
 
@@ -1002,9 +1012,10 @@ function otherBandsSection(gym, forms, lazy) {
   </div>`;
 }
 
-function coverageSection(gym, forms, ownedFormIds, lazy = false) {
+function coverageSection(gym, forms, ownedFormIds, lazy = false, openBands = []) {
   const bands = deriveCoverageBands(gym, ownedFormIds);
   if (!bands.length) return "";
+  const openBandSet = new Set(openBands ?? []);
   const hasOwned = (ownedFormIds ?? []).length > 0;
   const shippedCount = bands.filter((band) => band.source === "shipped").length;
   const quests = hasOwned ? coverageQuestRows(bands) : [];
@@ -1018,7 +1029,7 @@ function coverageSection(gym, forms, ownedFormIds, lazy = false) {
     ${hasOwned ? "" : coverageEmptyRosterNote()}
     <h3 class="d5-h3">Glance</h3>
     ${coverageSummary(bands)}
-    ${coverageGrid(bands, forms, lazy)}
+    ${coverageGrid(bands, forms, lazy, openBandSet)}
     <h3 class="d5-h3">Action &mdash; closest to done first</h3>
     ${quests.length
       ? `<ul class="d5-quest-list">${quests.map(coverageQuestRow).join("")}</ul>`
@@ -1326,6 +1337,9 @@ export function renderGyms({
   // page content straight from this function) is unaffected; app.js's real
   // route render opts in. See buildLazyGymBody for the on-demand rebuild.
   lazy = false,
+  // Band types (e.g. "Fighting") to render already-open, e.g. from a
+  // persisted ui.gym.openBands set — see coverageCell for why this exists.
+  openBands = [],
 } = {}) {
   const deploymentMap = buildDeploymentMap(defenseLog, now);
   const defending = view === "defend";
@@ -1340,7 +1354,7 @@ export function renderGyms({
     ${lineupControls}
     ${renderPlacementCoach({ placementResult, ownedIndex, overallIndex, rosterInstances, deploymentMap })}
     ${lineupSection(gym, forms, lineupShape, ownedFormIds, ownedOnly, lazy)}
-    ${coverageSection(gym, forms, ownedFormIds, lazy)}
+    ${coverageSection(gym, forms, ownedFormIds, lazy, openBands)}
     ${shadowDefenderSection(gym, forms, ownedFormIds, lazy)}
     ${defenseSection(gym, trainerTeam)}
     ${motivationSection()}

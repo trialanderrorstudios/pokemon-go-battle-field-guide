@@ -84,7 +84,7 @@ const EMPTY_ROSTER = Object.freeze({
 });
 const INSTANCE_FIELDS = new Set([
   "id", "formId", "cp", "ivs", "fastMove", "chargedMoves", "nickname", "addedAt", "updatedAt",
-  "isShiny", "isLucky",
+  "isShiny", "isLucky", "megaUnlocked",
 ]);
 
 
@@ -277,6 +277,13 @@ function normalizeInstance(value, index, validFormIds) {
       `instances[${index}].isLucky must be a boolean if present.`, "invalid_instance", { field: "instances", index },
     );
   }
+  // megaUnlocked follows the same additive, omit-when-false convention as
+  // isShiny/isLucky (see instances.js buildInstance).
+  if (value.megaUnlocked !== undefined && typeof value.megaUnlocked !== "boolean") {
+    throw new RosterImportError(
+      `instances[${index}].megaUnlocked must be a boolean if present.`, "invalid_instance", { field: "instances", index },
+    );
+  }
   if (typeof value.addedAt !== "string" || Number.isNaN(Date.parse(value.addedAt))) {
     throw new RosterImportError(
       `instances[${index}].addedAt must be an ISO date string.`, "invalid_instance", { field: "instances", index },
@@ -300,6 +307,7 @@ function normalizeInstance(value, index, validFormIds) {
     ...(value.nickname !== undefined ? { nickname: value.nickname } : {}),
     ...(value.isShiny ? { isShiny: true } : {}),
     ...(value.isLucky ? { isLucky: true } : {}),
+    ...(value.megaUnlocked ? { megaUnlocked: true } : {}),
     addedAt: value.addedAt,
     ...(value.updatedAt !== undefined ? { updatedAt: value.updatedAt } : {}),
   };
@@ -409,6 +417,7 @@ export function stableRosterJson(roster) {
       ...(instance.nickname ? { nickname: instance.nickname } : {}),
       ...(instance.isShiny ? { isShiny: true } : {}),
       ...(instance.isLucky ? { isLucky: true } : {}),
+      ...(instance.megaUnlocked ? { megaUnlocked: true } : {}),
       addedAt: instance.addedAt,
       ...(instance.updatedAt ? { updatedAt: instance.updatedAt } : {}),
     }))

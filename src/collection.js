@@ -141,6 +141,7 @@ export function collectionProgress(forms, roster) {
 // belong in `filter`" question either caller asks.
 export function matchesCollectionFilter(row, filter) {
   if (filter === "missing") return !row.caught;
+  if (filter === "owned") return row.caught;
   if (filter === "shiny") return row.isShiny;
   if (filter === "lucky") return row.isLucky;
   return true;
@@ -148,7 +149,7 @@ export function matchesCollectionFilter(row, filter) {
 
 
 // Filterable, missing-first-sorted dex grid rows for the Collection view.
-// filter: "all" | "missing" | "shiny" | "lucky". query matches name/dex/form.
+// filter: "all" | "missing" | "owned" | "shiny" | "lucky". query matches name/dex/form.
 // exitingFormIds (I1 mark mode): species whose card just stopped matching
 // `filter` but should render one more time, flagged `exiting: true`, so the
 // view can play a one-shot exit animation before the row actually leaves on

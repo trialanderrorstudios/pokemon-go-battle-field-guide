@@ -152,7 +152,7 @@ function bossSection(form, raidTargetTool) {
   return `<section class="dex-section" aria-labelledby="dex-boss-title">
     <h3 id="dex-boss-title">As a raid boss</h3>
     <p>Hundo CP ${escapeHtml(target.normal?.hundoCP)}${target.weatherBoosted?.hundoCP ? ` (${escapeHtml(target.weatherBoosted.hundoCP)} weather-boosted)` : ""}</p>
-    <p><a class="safe-escape" data-route="raids" data-view="target" href="./?boss=${encodeURIComponent(form.form_id)}#raids">See counters →</a></p>
+    <p><a class="safe-escape" href="./?boss=${encodeURIComponent(form.form_id)}#raids">See counters →</a></p>
   </section>`;
 }
 
@@ -266,7 +266,7 @@ function availabilitySection(form, currentEggs) {
 export function blankQuickAddDraft() {
   return {
     cp: "", ivs: { atk: null, def: null, sta: null }, fastMove: null, chargedMoves: [null, null],
-    editingId: null, removeConfirmPending: false, stamp: null,
+    editingId: null, removeConfirmPending: false, stamp: null, megaUnlocked: false,
   };
 }
 
@@ -293,11 +293,40 @@ function moveCostPhrase(kind, elite, eventOnly) {
 }
 
 
-function bestRaidRow(form, raids) {
+// Elite/CD-classic label for a move the instance already holds (defect fix
+// below): "a Community Day move" when THIS FORM's own raid row researched
+// that availabilityClass for it. The class is curated per form_id (see
+// data/curated/move-availability.json), not intrinsic to the move id alone —
+// 22 moves ship a different class on different forms (e.g. BRUTAL_SWING is
+// Hydreigon's own communityDayClassic headline charged move, but a plain
+// eliteOnly pick on Absol, which never gets its own raid row for it). Scanning
+// ANY row carrying the move id (regardless of formId) borrows a stranger
+// form's researched class — same seam gyms.js's moveWithElite avoids by
+// working off one already-form-scoped row. Falls back to the generic "Elite
+// TM move" label when this form has no row researching the class.
+function eliteMoveLabel(moveId, form, raids) {
   const rows = [...(raids?.regular ?? []), ...(raids?.shadow ?? [])].filter((row) => row.formId === form.form_id);
-  if (!rows.length) return null;
-  return rows.reduce((best, row) => (row.rank < best.rank ? row : best));
+  const hit = rows.find((row) => row.fastMove === moveId || row.chargedMove === moveId);
+  const cls = hit && (hit.fastMove === moveId ? (hit.fastAvailabilityClass ?? hit.availabilityClass) : (hit.chargedAvailabilityClass ?? hit.availabilityClass));
+  return cls === "communityDayClassic" ? "a Community Day move" : "an Elite TM move";
 }
+
+
+// Multi-role optimal offense (operator design, supersedes single-headline
+// bestRaidRow): every ranked attacking-type role for this form, ordered by
+// super-effective DPS (each row's own dps.superEffective) — DPS is the axis
+// that answers "which of my ranked types should I actually bring", where rank
+// only compares within one type's own field (Salamence: Dragon DPS 45.8 but
+// rank #14, vs Dark DPS 35.8 at rank #10 — rank order would show Dark first).
+function offenseRoles(form, raids) {
+  return [...(raids?.regular ?? []), ...(raids?.shadow ?? [])]
+    .filter((row) => row.formId === form.form_id)
+    .sort((a, b) => (b.dps?.superEffective ?? 0) - (a.dps?.superEffective ?? 0));
+}
+
+// Offense role cards cap at 3 (spec: "cap 3 rows + '+N more roles'") so the
+// block stays bounded for forms ranked across many attacking types.
+const OFFENSE_ROLE_CAP = 3;
 
 
 function raidHonorableMentions(form, raids) {
@@ -342,10 +371,14 @@ function defenseEliteLine(row) {
 // Checks the honourable-mention (Elite) pairs FIRST: an instance that already
 // carries a restricted move is diffed on its real, already-spent capability
 // (rankIfUsed as that attacking type), never told to go "back" to the merely
-// obtainable headline pair — spec's REQUIRED Regieleki rule. The "needs X"
-// branch below never silently proposes dropping an elite move the instance
-// already carries; it names that trade explicitly.
-function instanceOffenseDiff(form, instance, headlineRow, mentionRows) {
+// obtainable headline pair — spec's REQUIRED Regieleki rule. Then checks
+// EVERY ranked role (multi-role offense, spec item 2): the instance's pair
+// might be its strongest set, or a weaker-but-still-ranked role it happens to
+// run — "matches whichever role it runs", not just the DPS-strongest one.
+// Only once neither matches does it fall back to the "needs X" branch below,
+// which compares against the strongest role (roles[0]) the way the old
+// single-headline diff always did.
+function instanceOffenseDiff(form, instance, roles, mentionRows, raids) {
   const name = escapeHtml(instance.nickname || form.name);
   if (!instance.fastMove || !instance.chargedMoves?.length) {
     return { html: `${name}: moves not set — use the form below to add them.`, optimal: false };
@@ -360,25 +393,50 @@ function instanceOffenseDiff(form, instance, headlineRow, mentionRows) {
       };
     }
   }
-  if (!headlineRow) return { html: `${name}: not a ranked raid attacker to compare against.`, optimal: false };
-  const fastOk = instance.fastMove === headlineRow.fastMove;
-  const chargedOk = instance.chargedMoves.includes(headlineRow.chargedMove);
-  if (fastOk && chargedOk) {
+  if (!roles.length) return { html: `${name}: not a ranked raid attacker to compare against.`, optimal: false };
+  const matchedIndex = roles.findIndex((row) => instance.fastMove === row.fastMove && instance.chargedMoves.includes(row.chargedMove));
+  if (matchedIndex !== -1) {
+    const row = roles[matchedIndex];
+    if (matchedIndex === 0) {
+      return {
+        html: `${name} knows ${escapeHtml(displayMoveName(instance.fastMove))} + ${escapeHtml(displayMoveName(row.chargedMove))} — <b>already optimal for ${escapeHtml(row.attackingType.toLowerCase())} offense</b>.`,
+        optimal: true,
+      };
+    }
+    const strongest = roles[0];
     return {
-      html: `${name} knows ${escapeHtml(displayMoveName(instance.fastMove))} + ${escapeHtml(displayMoveName(headlineRow.chargedMove))} — <b>already optimal for ${escapeHtml(headlineRow.attackingType.toLowerCase())} offense</b>.`,
+      html: `${name} knows ${escapeHtml(displayMoveName(instance.fastMove))} + ${escapeHtml(displayMoveName(row.chargedMove))} — <b>optimal for its ${escapeHtml(row.attackingType)} role (rank #${escapeHtml(row.rank)})</b> — its strongest set is ${escapeHtml(strongest.attackingType)} (${escapeHtml(displayMoveName(strongest.fastMove))} + ${escapeHtml(displayMoveName(strongest.chargedMove))}).`,
       optimal: true,
     };
   }
-  const hasEliteCharged = instance.chargedMoves.some((moveId) => (form.elite_moves ?? []).includes(moveId));
-  const trade = hasEliteCharged
+  const headlineRow = roles[0];
+  const fastOk = instance.fastMove === headlineRow.fastMove;
+  const chargedOk = instance.chargedMoves.includes(headlineRow.chargedMove);
+  const heldEliteCharged = instance.chargedMoves.find((moveId) => (form.elite_moves ?? []).includes(moveId)) ?? null;
+  const trade = heldEliteCharged
     ? ` — this trades away an Elite-TM move you already have, which can't be re-earned without spending another one`
     : "";
   if (fastOk || chargedOk) {
     const missingKind = fastOk ? "Charged" : "Fast";
     const missingMove = fastOk ? headlineRow.chargedMove : headlineRow.fastMove;
+    // DEFECT FIX (operator's live Cinderace report): the inverted Regieleki
+    // case — the instance's held charged move is elite/CD-flagged and is
+    // NOT the headline optimal (the optimal is a plain move that merely
+    // ranks higher) — must never read as a neutral "a Charged TM away"
+    // swap. Replacing an elite-flagged move loses it (re-obtainable only via
+    // another Elite TM), so this is a tradeoff statement, not a plain "needs
+    // X" line.
+    if (missingKind === "Charged" && heldEliteCharged) {
+      const heldName = escapeHtml(displayMoveName(heldEliteCharged));
+      const optimalName = escapeHtml(displayMoveName(missingMove));
+      return {
+        html: `${name} runs ${heldName} — ${eliteMoveLabel(heldEliteCharged, form, raids)}. ${optimalName} ranks higher in this model, but a TM that replaces ${heldName} costs an Elite TM to undo. Your call.`,
+        optimal: false,
+      };
+    }
     const cost = moveCostPhrase(missingKind, fastOk ? headlineRow.eliteChargedTM : headlineRow.eliteFastTM, fastOk ? headlineRow.eventOnlyChargedTM : headlineRow.eventOnlyFastTM);
     return {
-      html: `${name} has the right ${fastOk ? "fast" : "charged"} move — <span class="needs">${cost} away</span> from ${escapeHtml(displayMoveName(missingMove))}${missingKind === "Charged" ? trade : ""}.`,
+      html: `${name} has the right ${fastOk ? "fast" : "charged"} move — <span class="needs">${cost} away</span> from ${escapeHtml(displayMoveName(missingMove))}.`,
       optimal: false,
     };
   }
@@ -442,25 +500,43 @@ function optimalYoursHtml(formInstances, diffFn) {
 }
 
 
-// Optimal block: offense pair (raids) + defense pair (gyms) with one-line
-// whys and availability badges, above the flat Raid attacker/Gym defense
-// lists further down the page (spec §2 item 3).
+// One role card: moveset, rank, DPS, availability badges (spec item 2). The
+// strongest (DPS-first) card gets the "its strongest set" callout so the
+// your-moves diff's cross-reference ("its strongest set is Dragon…") has a
+// visible anchor on the page, not just prose.
+function offenseRoleCardHtml(row, isStrongest) {
+  const cls = row.availabilityClass;
+  const fast = raidMoveBadge(row.fastMove, { kind: "Fast", elite: row.eliteFastTM, eventOnly: row.eventOnlyFastTM, availabilityClass: cls });
+  const charged = raidMoveBadge(row.chargedMove, { kind: "Charged", elite: row.eliteChargedTM, eventOnly: row.eventOnlyChargedTM, availabilityClass: cls });
+  const dps = row.dps?.superEffective;
+  const dpsLine = Number.isFinite(dps)
+    ? `<p class="optimal-dps">${escapeHtml(dps.toFixed(1))} SE DPS${isStrongest ? ` <span class="optimal-strongest-badge">its strongest set</span>` : ""}</p>`
+    : "";
+  return `<div class="optimal-role" data-role-type="${escapeHtml(row.attackingType)}">
+    <div class="optimal-head"><span class="optimal-kind">Offense · ${escapeHtml(row.attackingType)}</span><span class="optimal-rank">Rank ${escapeHtml(row.rank)} · ${escapeHtml(row.investmentTier)} tier</span></div>
+    <p class="optimal-moves">${fast} + ${charged}</p>
+    ${dpsLine}
+    <p class="optimal-why">${escapeHtml(row.whyRanked)}</p>
+  </div>`;
+}
+
+
+// Optimal block: offense (raids, multi-role — spec item 2) + defense pair
+// (gyms, stays single) with one-line whys and availability badges, above the
+// flat Raid attacker/Gym defense lists further down the page (spec §2 item
+// 3).
 function optimalBlockHtml(form, gym, raids, raidsLoaded, formInstances) {
-  const headlineRow = raidsLoaded ? bestRaidRow(form, raids) : null;
+  const roles = raidsLoaded ? offenseRoles(form, raids) : [];
+  const shownRoles = roles.slice(0, OFFENSE_ROLE_CAP);
+  const moreRoles = roles.length - shownRoles.length;
   const mentionRows = raidsLoaded ? raidHonorableMentions(form, raids) : [];
   const offenseBody = !raidsLoaded
     ? `<div class="optimal-head"><span class="optimal-kind">Offense</span></div><p class="dex-loading">Loading…</p>`
-    : headlineRow
-      ? (() => {
-          const cls = headlineRow.availabilityClass;
-          const fast = raidMoveBadge(headlineRow.fastMove, { kind: "Fast", elite: headlineRow.eliteFastTM, eventOnly: headlineRow.eventOnlyFastTM, availabilityClass: cls });
-          const charged = raidMoveBadge(headlineRow.chargedMove, { kind: "Charged", elite: headlineRow.eliteChargedTM, eventOnly: headlineRow.eventOnlyChargedTM, availabilityClass: cls });
-          return `<div class="optimal-head"><span class="optimal-kind">Offense · ${escapeHtml(headlineRow.attackingType)}</span><span class="optimal-rank">Rank ${escapeHtml(headlineRow.rank)} · ${escapeHtml(headlineRow.investmentTier)} tier</span></div>
-            <p class="optimal-moves">${fast} + ${charged}</p>
-            <p class="optimal-why">${escapeHtml(headlineRow.whyRanked)}</p>`;
-        })()
+    : shownRoles.length
+      ? shownRoles.map((row, index) => offenseRoleCardHtml(row, index === 0)).join("")
+        + (moreRoles > 0 ? `<p class="optimal-more-roles">+${escapeHtml(moreRoles)} more role${moreRoles === 1 ? "" : "s"}</p>` : "")
       : `<div class="optimal-head"><span class="optimal-kind">Offense</span></div><p class="optimal-why">Not a ranked raid attacker in this release.</p>`;
-  const offenseYours = `${raidsLoaded ? offenseEliteLines(form, raids) : ""}${optimalYoursHtml(formInstances, (instance) => instanceOffenseDiff(form, instance, headlineRow, mentionRows))}`;
+  const offenseYours = `${raidsLoaded ? offenseEliteLines(form, raids) : ""}${optimalYoursHtml(formInstances, (instance) => instanceOffenseDiff(form, instance, roles, mentionRows, raids))}`;
 
   let defenseRow = null;
   let defenseOf = null;
@@ -486,16 +562,24 @@ function optimalBlockHtml(form, gym, raids, raidsLoaded, formInstances) {
 }
 
 
-// Decorative appraisal-style readout next to each IV select — filled ticks up
-// to the chosen value. Not interactive; the <select> is the real input.
-function ivPipDisplay(value) {
-  const ticks = [];
-  for (let value_ = 0; value_ <= 15; value_ += 1) {
-    const filled = value !== null && value_ <= value;
-    const current = value_ === value;
-    ticks.push(`<span class="iv-pip-tick${filled ? " is-filled" : ""}${current ? " is-current" : ""}"></span>`);
-  }
-  return `<div class="iv-pip-display" aria-hidden="true">${ticks.join("")}</div>`;
+// Pressable IV bar (feature 3): a native range replaces the old decorative
+// 16-tick readout with one continuous 44px-tall touch target — 44x44 is the
+// WCAG 2.5.5 minimum target size, and 16 individual tick slivers per stat (48
+// across all three) each fell well under it. The <select> stays as the
+// picker-wheel path (spec §1); range and select both write draft.ivs[key], so
+// each render leaves them showing the same value — the actual bidirectional
+// sync (range "input" -> draft, select "change" -> draft) is app.js wiring,
+// out of this lane. aria-labelledby points at the same <label id> the
+// <select>'s `for` targets, so both controls share one accessible name
+// instead of each getting their own.
+function ivRangeHtml(labelId, key, value) {
+  const rangeId = `iv-range-${key}`;
+  // ponytail: a range input has no "unset" value; blank draft state renders
+  // as 0 (rather than skipping the control), matching the select's own
+  // fallback once a stat is actually touched. aria-valuetext still says
+  // "not set" so a screen reader doesn't report a false 0 IV.
+  const rangeValue = value ?? 0;
+  return `<input type="range" id="${rangeId}" class="iv-range" min="0" max="15" step="1" value="${rangeValue}" data-iv-range data-stat="${key}" aria-labelledby="${labelId}" aria-valuetext="${value === null ? "not set" : value}">`;
 }
 
 
@@ -503,13 +587,14 @@ function ivPipDisplay(value) {
 // "bounded choices are native <select>").
 function ivFieldHtml(label, key, value) {
   const id = `iv-select-${key}`;
+  const labelId = `iv-field-label-${key}`;
   const options = [`<option value=""${value === null ? " selected" : ""}>—</option>`];
   for (let v = 0; v <= 15; v += 1) options.push(`<option value="${v}"${v === value ? " selected" : ""}>${v}</option>`);
   return `<div class="iv-field">
-    <label class="iv-field-label" for="${id}">${escapeHtml(label)}</label>
+    <label id="${labelId}" class="iv-field-label" for="${id}">${escapeHtml(label)}</label>
     <div class="iv-field-row">
       <select id="${id}" class="iv-select" data-iv-select data-stat="${key}">${options.join("")}</select>
-      ${ivPipDisplay(value)}
+      ${ivRangeHtml(labelId, key, value)}
     </div></div>`;
 }
 
@@ -591,7 +676,46 @@ function quickAddActionsHtml(editingId, removeConfirmPending, canSave) {
 }
 
 
-function quickAddBodyHtml(form, draft, offensePair, defensePair) {
+// Mega/Primal sibling detection (feature 4): same dex number as this form,
+// any OTHER form_id in this release containing "mega" or "primal" — the way
+// sibling forms are actually keyed here (0006-mega-x/0006-mega-y share dex 6
+// with 0006-normal; 0383-primal shares dex 383 with 0383-normal). Not
+// form.tags: this release's primal forms carry a "mega" tag, not "primal"
+// (0382-primal's tags are ["legendary","mega"]) — tags can't tell the two
+// families apart here, formId can.
+function hasMegaSibling(form, forms) {
+  if (!form?.dex) return false;
+  return Object.values(forms ?? {}).some((candidate) => (
+    candidate.form_id !== form.form_id
+    && candidate.dex === form.dex
+    && /mega|primal/i.test(candidate.form_id)
+  ));
+}
+
+
+// Capability, not state: a mega/primal form is a temporary in-battle
+// transformation the player triggers, not something a caught Pokémon
+// permanently "is" — so this reads "Mega unlocked" (can be triggered), never
+// "Is Mega". Rendered only for species with an actual mega/primal sibling
+// this release; most forms never show this control. data-mega-unlocked is
+// this lane's own attribute (mirrors data-iv-select/data-iv-range) — the
+// toggle wiring and the megaUnlocked round-trip through the draft live in
+// app.js, out of this lane.
+function megaUnlockedFieldHtml(form, forms, checked) {
+  if (!hasMegaSibling(form, forms)) return "";
+  return `<label class="mega-unlocked-field">
+    <input type="checkbox" data-mega-unlocked${checked ? " checked" : ""}>
+    Mega unlocked
+  </label>`;
+}
+
+
+function quickAddBodyHtml(form, draft, offensePairs, defensePair, forms) {
+  // Move-select glyphs ("⚔ optimal offense", spec §5) mark against the
+  // single strongest role only — the dropdown option text has no room to
+  // name which of several roles a move belongs to, and the strongest set is
+  // the one card the offense block gives visible pride of place to.
+  const offensePair = offensePairs[0] ?? null;
   const cp = draft.cp ?? "";
   const cpNumber = Number(cp);
   const validCp = Number.isInteger(cpNumber) && cpNumber > 0;
@@ -626,8 +750,20 @@ function quickAddBodyHtml(form, draft, offensePair, defensePair) {
   const cpFieldHtml = `<label class="cp-input">CP<input type="text" inputmode="numeric" pattern="[0-9]*" autocomplete="off" data-cp-input value="${escapeHtml(cp)}"></label>
     <p class="cp-caption-chip">Opens numeric keypad on device</p>`;
 
+  // Hundo button (feature 2): one tap to 15/15/15, same one-tap family as
+  // "Use optimal" below. Reuses the existing data-candidate-fill wiring
+  // (app.js already sets qa.ivs to whatever "atk,def,sta" the attribute
+  // carries — see the CP-only candidate chips above) rather than inventing a
+  // second attribute/handler for the same "set all three IVs" action. The
+  // typed CP still gets solved against 15/15/15 on the next render via the
+  // same levelHint logic above, so this doubles as an honest hundo checker.
+  // "Use optimal" is per-role for offense (spec item 2: "Use Dragon set /
+  // Use Dark set") — one button per shown role card, same
+  // data-use-optimal-fast/-charged attribute contract as before. Defense
+  // stays a single button (spec: "Defense stays single").
   const useOptimalHtml = `<div class="explore-row use-optimal-row">
-    ${offensePair ? `<button type="button" class="explore-chip" data-use-optimal="offense" data-use-optimal-fast="${escapeHtml(offensePair.fastMove)}" data-use-optimal-charged="${escapeHtml(offensePair.chargedMove)}">Use optimal (offense)</button>` : ""}
+    <button type="button" class="explore-chip" data-candidate-fill="15,15,15">Hundo (15/15/15)</button>
+    ${offensePairs.map((pair) => `<button type="button" class="explore-chip" data-use-optimal="offense" data-use-optimal-fast="${escapeHtml(pair.fastMove)}" data-use-optimal-charged="${escapeHtml(pair.chargedMove)}">Use ${escapeHtml(pair.type)} set</button>`).join("")}
     ${defensePair ? `<button type="button" class="explore-chip" data-use-optimal="defense" data-use-optimal-fast="${escapeHtml(defensePair.fastMove)}" data-use-optimal-charged="${escapeHtml(defensePair.chargedMove)}">Use optimal (defense)</button>` : ""}
     </div>`;
 
@@ -654,6 +790,7 @@ function quickAddBodyHtml(form, draft, offensePair, defensePair) {
     + ivFieldHtml("Defense", "def", ivs.def)
     + ivFieldHtml("HP", "sta", ivs.sta)
     + levelHint
+    + megaUnlockedFieldHtml(form, forms, Boolean(draft.megaUnlocked))
     + `<p class="quickadd-moves-title">Moves</p>`
     + useOptimalHtml
     + fastFieldHtml + charged1FieldHtml + charged2FieldHtml
@@ -684,14 +821,14 @@ function quickAddInstanceRowHtml(form, instance, editingId, stamp) {
 }
 
 
-function rosterSection(form, roster, quickAdd, raids, raidsLoaded, gym) {
+function rosterSection(form, roster, quickAdd, raids, raidsLoaded, gym, forms) {
   const owned = new Set(roster.ownedFormIds ?? []);
   const isOwned = owned.has(form.form_id);
   const formInstances = (roster.instances ?? []).filter((instance) => instance.formId === form.form_id);
   const draft = quickAdd ?? blankQuickAddDraft();
-  const headlineRow = raidsLoaded ? bestRaidRow(form, raids) : null;
+  const roles = raidsLoaded ? offenseRoles(form, raids) : [];
   const defenseRow = gym ? (gymVerdict(form, gym).row ?? null) : null;
-  const offensePair = headlineRow ? { fastMove: headlineRow.fastMove, chargedMove: headlineRow.chargedMove } : null;
+  const offensePairs = roles.slice(0, OFFENSE_ROLE_CAP).map((row) => ({ type: row.attackingType, fastMove: row.fastMove, chargedMove: row.chargedMove }));
   const defensePair = defenseRow ? { fastMove: defenseRow.bestFastMove, chargedMove: defenseRow.bestChargedMove } : null;
 
   return `<section class="dex-section" aria-labelledby="dex-roster-title">
@@ -702,7 +839,7 @@ function rosterSection(form, roster, quickAdd, raids, raidsLoaded, gym) {
     <ul class="instance-list">${formInstances.map((instance) => quickAddInstanceRowHtml(form, instance, draft.editingId, draft.stamp)).join("")}</ul>
     <div class="quickadd-card${draft.editingId !== null ? " is-editing-card" : ""}">
       ${quickAddTitleHtml(form, formInstances, draft.editingId)}
-      ${quickAddBodyHtml(form, draft, offensePair, defensePair)}
+      ${quickAddBodyHtml(form, draft, offensePairs, defensePair, forms)}
     </div>
     <p><button type="button" class="dex-instance-link" data-open-instance-sheet-form-id="${escapeHtml(form.form_id)}">Shiny, lucky, nickname &amp; more →</button></p>
     <p class="dex-backup-pointer"><a class="safe-escape" data-route="more" data-view="about" href="./#more/about">Back up your roster (full-device backup) →</a></p>
@@ -753,7 +890,7 @@ export function renderDex({
     <a class="safe-escape" href="./#more/collection" data-route="more" data-view="collection">Back to Collection</a>
     ${identitySection(form, forms)}
     ${statsSection(form)}
-    ${rosterSection(form, roster, quickAdd, raids, raidsLoaded, gym)}
+    ${rosterSection(form, roster, quickAdd, raids, raidsLoaded, gym, forms)}
     ${gymSection(form, gym)}
     ${raidAttackerSection(form, raids, raidsLoaded)}
     ${bossSection(form, raidTargetTool)}
@@ -768,4 +905,4 @@ export function renderDex({
 
 // Exported for tests: relative-property checks only (never absolute ranks),
 // per the repo rule against pinning gym/raid model output.
-export { gymVerdict, bandPlacements };
+export { gymVerdict, bandPlacements, eliteMoveLabel };

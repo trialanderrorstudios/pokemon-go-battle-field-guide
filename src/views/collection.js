@@ -7,6 +7,7 @@ import {
 const FILTERS = Object.freeze([
   { id: "all", label: "All" },
   { id: "missing", label: "Missing" },
+  { id: "owned", label: "Owned" },
   { id: "shiny", label: "Shiny" },
   { id: "lucky", label: "Lucky" },
 ]);

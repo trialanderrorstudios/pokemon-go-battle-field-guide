@@ -40,11 +40,17 @@ const RETIRED_ROUTES = Object.freeze({
   drill: "basics/drill",
   tricks: "basics/tricks",
   maxbasics: "basics/max",
-  // Bare #dex (no formId) has nothing to render — #more/collection is already
-  // the living-dex grid, so it's the destination rather than a second browse
-  // page. This key only matches the exact bare hash: "dex/0426-normal" never
-  // equals "dex", so a real deep link passes straight through untouched.
-  dex: "more/collection",
+  // Dex is a bottom-nav tab now, so bare #dex is the living-dex grid's
+  // canonical home and #more/collection is the retired hash — the redirect
+  // that used to run the other way (dex -> more/collection) is inverted.
+  // This is also step one toward docs/dex-two-panel-spec.md, which wants bare
+  // #dex as the index at tablet widths. The key is the exact two-segment
+  // string "more/collection" (matched whole, before the "/" split below), so
+  // every other #more/<view> — "more/roster", "more/settings" — passes
+  // through untouched, and a real #dex/<formId> deep link never collides with
+  // it (DEX_FORM_ID_PATTERN's shape check happens on a completely different
+  // code path, below).
+  "more/collection": "dex",
 });
 
 // Legacy ?list=<id>#more bookmarks. Their hash is already valid, so
@@ -264,15 +270,23 @@ export function createRouter({
     }
     const link = event.target.closest("a[data-route]");
     if (!link || link.target === "_blank") return;
-    const route = link.dataset.route;
-    if (!ROUTE_SET.has(route)) return;
+    if (!ROUTE_SET.has(link.dataset.route)) return;
     const destination = new URL(link.href, windowObject.location.href);
     if (
       destination.origin !== windowObject.location.origin
       || destination.pathname !== safeBase
     ) return;
     event.preventDefault();
-    navigate(route, { view: resolveRoute(destination.href, safeBase).view });
+    // Resolve route AND view from the href itself, not from the anchor's own
+    // data-route/data-view — those go stale exactly the way this app's own
+    // RETIRED_ROUTES table proves they can (e.g. a lingering
+    // href="./#more/collection" data-route="more" anchor: resolveRoute
+    // redirects that href to route "dex", but its stale dataset still says
+    // "more"). navigate() must agree with the address bar resolveRoute is
+    // about to write, or the reader lands on the wrong screen for the URL
+    // that's now showing.
+    const resolved = resolveRoute(destination.href, safeBase);
+    navigate(resolved.route, { view: resolved.view });
   }
 
   // An in-page anchor is not a route. The Defend view's jump links

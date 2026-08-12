@@ -778,20 +778,41 @@ function timelineNowItem(contentHtml) {
   </div>`;
 }
 
+// A row's own destination depends on what it names, same split upcoming.js's
+// eventItem() already draws: a row with a formId names a Pokemon this app has
+// a raid-target answer for, so it goes straight there via the plain deep-link
+// form app.js's search suggestions use (?boss=<formId>#raids, no data-route —
+// that hash-only href never round-trips through the router's data-route
+// click handler). A row without one is a generic feed event — its only
+// destination is the source article, tucked behind a <details> disclosure
+// rather than surfacing raw leekduck.com hrefs on tap, and only when it
+// clears ALLOWED_EVENT_LINK (safeEventLink).
+function timelineDetails(event, verdictClass) {
+  const safeLink = safeEventLink(event.link);
+  if (!safeLink) return "";
+  return `<details class="tl-details">
+    <summary>Details</summary>
+    <p class="${verdictClass}"><a class="event-external-link" href="${escapeHtml(safeLink)}" target="_blank" rel="noopener">Full details ↗ (leaves the app)</a></p>
+  </details>`;
+}
+
 function timelineCard(event, forms, { badgeClass, badgeText }) {
   const name = forms?.[event.formId]?.name ?? event.name;
   const sprite = event.formId
     ? spriteHtml(event.formId, forms, name, forms?.[event.formId]?.primary_type)
     : `<span class="tl-glyph" aria-hidden="true">&#9670;</span>`;
-  return `<div class="tl-card${badgeClass === "is-ending" ? " is-urgent" : ""}">
-    <div class="tl-card-head">${sprite}
+  const cardClass = `tl-card${badgeClass === "is-ending" ? " is-urgent" : ""}`;
+  const body = `<div class="tl-card-head">${sprite}
       <div>
         <p class="tl-eyebrow"><span class="tl-badge ${badgeClass}">${escapeHtml(badgeText)}</span></p>
         <h3>${escapeHtml(name)}</h3>
       </div>
     </div>
-    ${event.action ? `<p class="tl-verdict">${escapeHtml(event.action)}</p>` : ""}
-  </div>`;
+    ${event.action ? `<p class="tl-verdict">${escapeHtml(event.action)}</p>` : ""}`;
+  if (event.formId) {
+    return `<a class="${cardClass}" href="./?boss=${encodeURIComponent(event.formId)}#raids">${body}</a>`;
+  }
+  return `<div class="${cardClass}">${body}${timelineDetails(event, "tl-verdict")}</div>`;
 }
 
 // gapByFormId (gap-analyzer.js, same lookup upcoming.js's day cards used to
@@ -802,15 +823,35 @@ function timelineRow(event, forms, now, gapByFormId) {
   const name = forms?.[event.formId]?.name ?? event.name;
   const when = formatEventWhen(event.startsAt, event.endsAt, now);
   const gap = event.formId ? gapByFormId?.[event.formId] ?? null : null;
-  return `<div class="tl-row">
-    <p class="tl-row-title">${when ? `<span class="tl-row-time">${escapeHtml(when)}</span>` : ""}<strong>${escapeHtml(name)}</strong></p>
-    ${event.action ? `<p class="tl-row-note">${escapeHtml(event.action)}</p>` : ""}
-    ${gap ? `<p class="tl-row-note"><a class="safe-escape" href="${escapeHtml(gap.href)}">${escapeHtml(gap.headline)} — See Roster Gaps →</a></p>` : ""}
-  </div>`;
+  const body = `<p class="tl-row-title">${when ? `<span class="tl-row-time">${escapeHtml(when)}</span>` : ""}<strong>${escapeHtml(name)}</strong></p>
+    ${event.action ? `<p class="tl-row-note">${escapeHtml(event.action)}</p>` : ""}`;
+  // gap note is a sibling after the row, never inside it — nesting it inside
+  // the boss row's own <a class="tl-row"> would put an <a> inside an <a>,
+  // which the parser force-closes (dropping the note out of the row box).
+  const gapNote = gap ? `<p class="tl-row-note"><a class="safe-escape" href="${escapeHtml(gap.href)}">${escapeHtml(gap.headline)} — See Roster Gaps →</a></p>` : "";
+  if (event.formId) {
+    return `<a class="tl-row" href="./?boss=${encodeURIComponent(event.formId)}#raids">${body}</a>${gapNote}`;
+  }
+  return `<div class="tl-row">${body}${gapNote}${timelineDetails(event, "tl-row-note")}</div>`;
+}
+
+// The overflow past `limit` used to point at "the events calendar" —
+// upcoming.js's renderUpcomingSection(), which A5's deletion accounting
+// (see the file-top note) retired from renderHome. Nothing on Home renders
+// that surface anymore, so a link/mention of it is a dead end, not a lazy
+// disclosure. The items themselves are still real data the feed already
+// carries, so the overflow line names them directly — a <details> disclosure
+// the reader can open right here, each name linking to its own raid target
+// when it has a formId, same rule as every other row in this rail.
+function overflowNames(overflowItems, forms) {
+  return overflowItems.map((event) => {
+    const name = escapeHtml(forms?.[event.formId]?.name ?? event.name);
+    return event.formId ? `<a href="./?boss=${encodeURIComponent(event.formId)}#raids">${name}</a>` : name;
+  }).join(", ");
 }
 
 // Renders one bucket's items as tl-items, section heading on the first row
-// only, capped at `limit` with a folded "+N more" footnote row past that —
+// only, capped at `limit` with a folded "+N more" disclosure row past that —
 // the same shape as the mockup's own active-now tail, kept flat instead of
 // letting a long rotation/events feed grow Home's DOM without bound.
 function timelineBucket({
@@ -818,13 +859,16 @@ function timelineBucket({
 }) {
   if (!items.length) return "";
   const shown = items.slice(0, limit);
-  const overflow = items.length - shown.length;
+  const overflowItems = items.slice(shown.length);
   const rows = shown.map((event, index) => {
     const heading = index === 0 ? `<p class="tl-section${urgent ? " is-urgent" : ""}">${escapeHtml(label)}</p>` : "";
     return timelineItem(`${heading}${render(event, forms, now)}`, stateClass);
   });
-  if (overflow > 0) {
-    rows.push(timelineItem(`<div class="tl-footnote"><strong>+${overflow} more</strong> — no rotation-day pressure, see the events calendar for the rest.</div>`, stateClass));
+  if (overflowItems.length > 0) {
+    rows.push(timelineItem(`<details class="tl-footnote">
+      <summary><strong>+${overflowItems.length} more</strong></summary>
+      <p>${overflowNames(overflowItems, forms)}</p>
+    </details>`, stateClass));
   }
   return rows.join("");
 }
