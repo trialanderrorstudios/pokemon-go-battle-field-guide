@@ -151,3 +151,41 @@ export async function createOcrEngine() {
     },
   };
 }
+
+
+// Second-pass CP read (real-device finding 2026-08-12: the stylized CP
+// banner OCRs to garbage like "me We56" in a full-screen pass — the digits
+// only survive when the banner is cropped out and upscaled). Center 60% of
+// the width (clock sits at the left edge, battery at the right), top ~3-18%
+// of the height, 2x upscale. Browser-only (createImageBitmap/canvas);
+// returns null anywhere it can't run or can't find an in-range number —
+// single attempt, no retry, same honesty contract as the engine itself.
+export async function cpBannerRetry(engine, file, documentObject = globalThis.document) {
+  if (typeof createImageBitmap !== "function" || !documentObject?.createElement) return null;
+  try {
+    const bitmap = await createImageBitmap(file);
+    const scale = 2;
+    const sx = Math.round(bitmap.width * 0.2);
+    const sw = Math.round(bitmap.width * 0.6);
+    const sy = Math.round(bitmap.height * 0.03);
+    const sh = Math.round(bitmap.height * 0.15);
+    const canvas = documentObject.createElement("canvas");
+    canvas.width = sw * scale;
+    canvas.height = sh * scale;
+    const ctx = canvas.getContext("2d");
+    ctx.drawImage(bitmap, sx, sy, sw, sh, 0, 0, canvas.width, canvas.height);
+    bitmap.close?.();
+    const blob = await new Promise((resolve) => canvas.toBlob(resolve, "image/png"));
+    if (!blob) return null;
+    const text = await engine.recognize(blob);
+    // Longest in-range digit run wins: a 4-digit CP beats any stray 2-3
+    // digit fragment that slipped past the crop.
+    const runs = [...String(text).matchAll(/\d[\d, ]{0,6}/g)]
+      .map((match) => Number(match[0].replace(/\D/g, "")))
+      .filter((value) => value >= 10 && value <= 6000)
+      .sort((a, b) => String(b).length - String(a).length || b - a);
+    return runs.length ? { cp: runs[0], raw: String(text).trim() } : null;
+  } catch {
+    return null;
+  }
+}

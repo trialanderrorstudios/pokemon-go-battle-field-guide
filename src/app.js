@@ -52,6 +52,7 @@ import {
 import { nextMarkState } from "./collection.js";
 import { parsePokeGenieCsv } from "./poke-genie-import.js";
 import { draftFromParse, parseMonScreenText } from "./ocr-intake.js";
+import { cpBannerRetry } from "./ocr-worker.js";
 import { createOcrEngine as createOcrEngineDefault, OcrEngineError } from "./ocr-worker.js";
 import {
   buildLeaderboard,
@@ -1381,6 +1382,7 @@ export function createInteractionController({
   onRetryRouteChunks = null,
   onRosterExport = null,
   onClipboardCopy = null,
+  cpBannerRetry: cpBannerRetryOption = cpBannerRetry,
   onRosterShareCopy = null,
   onTriageCopy = null,
   onDiagnosticsCopy = null,
@@ -1556,9 +1558,11 @@ export function createInteractionController({
 
   const api = {
     onRosterExport,
+    cpBannerRetry: cpBannerRetryOption,
     onRosterShareCopy: onRosterShareCopy ?? onClipboardCopy,
     onTriageCopy: onTriageCopy ?? onClipboardCopy,
     onDiagnosticsCopy: onDiagnosticsCopy ?? onClipboardCopy,
+    onClipboardCopy,
     onConfirm,
     onFeedbackExport,
     onBackupExport,
@@ -2226,12 +2230,25 @@ export function createInteractionController({
           for (const [index, file] of files.entries()) {
             const text = await engine.recognize(file);
             const parsed = parseMonScreenText(text, { forms });
+            let rawText = text;
+            if (parsed.cp === null) {
+              // Full-screen pass lost the CP banner — targeted crop retry
+              // (see cpBannerRetry). Merged at low confidence; the "CP not
+              // found." issue dies only when the retry actually delivers.
+              const banner = await api.cpBannerRetry?.(engine, file);
+              if (banner?.cp) {
+                parsed.cp = banner.cp;
+                parsed.confidence.cp = "low";
+                parsed.issues = parsed.issues.filter((issue) => issue !== "CP not found.");
+                rawText = `${text}\n--- banner retry ---\n${banner.raw}`;
+              }
+            }
             rows.push({
               id: crypto.randomUUID(),
               imageLabel: file.name || `Screenshot ${index + 1}`,
               // The verbatim engine output: the only way a parse-miss report
               // can carry the evidence (operator round-trips otherwise).
-              rawText: text,
+              rawText,
               parsed,
               // The narrow OCR-derivable subset only (draftFromParse() — see
               // ocr-intake.js). data-ocr-row-edit is the caller that merges
@@ -3259,6 +3276,9 @@ export function createInteractionController({
           else storage?.setItem?.(storageKey, "1");
         }
         rerenderCurrent();
+      } else if (action === "ocr-copy-raw") {
+        const row = ui.ocrIntake?.rows?.find((candidate) => candidate.id === actionEl.dataset.ocrRawRowId);
+        if (row?.rawText) await api.onClipboardCopy?.(row.rawText);
       } else if (action === "ocr-scan-done") {
         // Review pass complete — back to idle so the Scan entry returns
         // (reviewer catch: idle-only entry point never reappeared).
