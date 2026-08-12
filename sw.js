@@ -304,11 +304,16 @@ async function assertServerStillHas(env, url, file) {
     throw new Error(`Network fetch failed for ${file.path}: ${error?.message ?? error}`);
   }
   if (!response?.ok) throw new Error(`Missing release file ${file.path} (${response?.status ?? "unknown"}).`);
-  // Advisory: absent on some servers, so only trusted when actually present.
-  const declared = Number(response.headers?.get?.("content-length"));
-  if (Number.isFinite(declared) && declared > 0 && declared !== file.bytes) {
-    throw new Error(`Byte count mismatch for ${file.path}.`);
-  }
+  // Deliberately NO content-length comparison: with gzip/br the header is the
+  // ENCODED size (core.json: 963,166 raw vs 104,000 compressed on the live
+  // CDN), so comparing it to the manifest's raw bytes failed EVERY reused
+  // file, which failed every UPDATE from an existing install permanently —
+  // an operator-reported infinite update-failed/retry loop on 2026-08-12.
+  // Fresh installs skip reuse and worked, which is why the publish boot
+  // check never saw it, and the e2e server serves identity encoding, which
+  // is why tests never saw it. The HEAD ok-status alone carries the
+  // guarantee the reuse decision needs: the server still HAS the file. The
+  // bytes being served correct is the fetch path's hash check's job.
 }
 
 

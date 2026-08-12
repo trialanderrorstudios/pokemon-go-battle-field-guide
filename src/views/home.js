@@ -2,6 +2,7 @@ import { ATTACK_TYPES, buildRaidPlan, effectiveness } from "../raid-target.js";
 import { spriteHtml } from "../sprites.js";
 import { intersectRosterChanges, releaseDiffDismissedKey } from "../release-diff.js";
 import { renderCommunityDayBriefCard } from "../cd-brief.js";
+import { raidPlanCardData } from "../share-card.js";
 // A5: the field briefing + timeline superseded the old "Now and coming up"
 // calendar (upcoming.js) as Home's one rendering of the events feed — see
 // the deletion accounting note above renderFieldTimeline. Not imported here
@@ -495,26 +496,43 @@ function briefingBringCard(counter, roster, forms) {
   </div>`;
 }
 
+// With no owned counters, every not-enough-data row shares the exact same
+// headline (raid-target.js's beatability() has nothing roster-dependent to
+// say) — repetitive across N rows. This adds the one thing that IS boss-
+// specific and needs no roster at all: the boss's own tier and its real
+// type-chart weaknesses (topWeaknesses, same helper the degraded "bring
+// these" card above already uses for the identical rosterless case).
+function rosterlessSkipHint(row, forms, tierByFormId) {
+  const form = forms?.[row.formId];
+  const bossTypes = [form?.primary_type, form?.secondary_type].filter(Boolean);
+  const weak = bossTypes.length ? topWeaknesses(bossTypes).slice(0, 3) : [];
+  const tier = tierByFormId?.get(row.formId);
+  if (!weak.length) return tier ?? "";
+  return `${tier ? `${tier} · ` : ""}bring ${weak.join("/")}`;
+}
+
 // One line per rest-of-rotation boss — never a fabricated tier, always the
 // same real beatability() headline Today/Coach already show for it.
-function skipRow(row, forms) {
+function skipRow(row, forms, tierByFormId) {
+  const hint = row.band === "not-enough-data" ? rosterlessSkipHint(row, forms, tierByFormId) : "";
   return `<li class="skip-row">
     ${spriteHtml(row.formId, forms, row.name, forms?.[row.formId]?.primary_type)}
     <span class="skip-stamp${row.band === "not-enough-data" ? " is-low" : ""}">${escapeHtml(BRIEFING_BAND_STAMP[row.band] ?? "Check")}</span>
     <span class="skip-row-text">
       <p class="skip-row-title">${escapeHtml(row.name)}</p>
-      <p class="skip-row-why">${escapeHtml(row.headline)}</p>
+      <p class="skip-row-why">${escapeHtml(row.headline)}${hint ? ` · ${escapeHtml(hint)}` : ""}</p>
     </span>
   </li>`;
 }
 
-function briefingSkipSection(restRows, forms) {
+function briefingSkipSection(restRows, forms, bosses) {
   if (!restRows.length) return "";
+  const tierByFormId = new Map((bosses ?? []).map((boss) => [boss.formId, boss.tier]));
   const shown = restRows.slice(0, SKIP_ROW_DISPLAY_LIMIT);
   const overflow = restRows.length - shown.length;
   return `<div class="briefing-skip">
     <p class="briefing-skip-title">Filed as skip — rest of the rotation, one line each</p>
-    <ul class="skip-list">${shown.map((row) => skipRow(row, forms)).join("")}</ul>
+    <ul class="skip-list">${shown.map((row) => skipRow(row, forms, tierByFormId)).join("")}</ul>
     ${overflow > 0 ? `<p class="briefing-footer">+${overflow} more in today's rotation, none ranked better than “${escapeHtml(BRIEFING_BAND_STAMP[shown[shown.length - 1].band] ?? "skip")}.”</p>` : ""}
   </div>`;
 }
@@ -613,9 +631,10 @@ function briefingCatchLine(plan) {
 }
 
 function featuredBossCard({
-  featured, plan, currentBosses, forms, roster, ownedCount, now,
+  featured, plan, currentBosses, forms, roster, ownedCount, now, shareMessage = "",
 }) {
   const boss = (currentBosses?.bosses ?? []).find((row) => row.formId === featured.formId);
+  const shareCard = raidPlanCardData(featured, plan, boss, roster, forms);
   const bossTypes = plan?.target?.bossTypes
     ?? [forms?.[featured.formId]?.primary_type, forms?.[featured.formId]?.secondary_type].filter(Boolean);
   const endsToday = typeof boss?.endsAt === "string" && !Number.isNaN(Date.parse(boss.endsAt))
@@ -646,6 +665,8 @@ function featuredBossCard({
     ${bringSection({
     featured, plan, forms, roster, ownedCount,
   })}
+    ${shareCard ? `<button type="button" class="briefing-share-card" data-action="share-raid-plan-card">Share tonight's plan</button>` : ""}
+    ${shareMessage ? `<p class="briefing-share-status" role="status">${escapeHtml(shareMessage)}</p>` : ""}
   </div>`;
 }
 
@@ -673,8 +694,41 @@ function endOfDay(dateString) {
   return parsed;
 }
 
+// The same featured/plan/boss triple featuredBossCard derives its share card
+// from, recomputed standalone so app.js's share-card click handler (which
+// doesn't have renderFieldBriefing's locals in scope) can reuse the exact
+// same pick without re-deriving pickFeaturedBoss/buildRaidPlan itself. Null
+// when there's no rotation, no featured boss, or the guard rejects the data
+// (see raidPlanCardData) — same "no data, no button" contract as every other
+// card type.
+export function currentRaidPlanCardData({
+  currentBosses, forms, roster, data, trainerLevel, now = new Date(),
+} = {}) {
+  const bosses = (currentBosses?.bosses ?? []).filter((boss) => !(typeof boss.endsAt === "string"
+    && !Number.isNaN(Date.parse(boss.endsAt))
+    && endOfDay(boss.endsAt) < now));
+  const pick = pickFeaturedBoss(bosses, attackerRankRows(data));
+  if (!pick) return null;
+  const featured = {
+    formId: pick.boss.formId,
+    name: forms?.[pick.boss.formId]?.name ?? pick.boss.formId,
+    rows: pick.rows,
+    topRow: pick.topRow,
+  };
+  let plan = null;
+  try {
+    plan = buildRaidPlan({
+      targetFormId: featured.formId, ownedFormIds: roster?.ownedFormIds, roster, trainerLevel,
+    }, data);
+  } catch {
+    plan = null; // not in this release's raid target tool — nothing to detail
+  }
+  const boss = bosses.find((row) => row.formId === featured.formId);
+  return raidPlanCardData(featured, plan, boss, roster, forms);
+}
+
 export function renderFieldBriefing({
-  currentBosses, raidTargetTool, forms, roster, data, storage, trainerLevel, now = new Date(),
+  currentBosses, raidTargetTool, forms, roster, data, storage, trainerLevel, now = new Date(), shareMessage = "",
 } = {}) {
   const allBosses = currentBosses?.bosses ?? [];
   // A boss whose endsAt has passed is not in "today's rotation", full stop —
@@ -741,11 +795,11 @@ export function renderFieldBriefing({
     + (expiredCount ? ` · ${expiredCount} ended — rotation data awaiting refresh` : "");
   const body = `${featured
     ? featuredBossCard({
-      featured, plan, currentBosses, forms, roster, ownedCount, now,
+      featured, plan, currentBosses, forms, roster, ownedCount, now, shareMessage,
     })
     : `<div class="briefing-section"><p class="briefing-note">${escapeHtml(bestRow?.headline ?? "Not enough data yet — star more Pokémon you own.")}</p></div>`}
     <hr class="briefing-divider">
-    ${briefingSkipSection(restRows, forms)}`;
+    ${briefingSkipSection(restRows, forms, bosses)}`;
 
   const collapsedName = featured?.name ?? (ownedCount === 0 ? "No roster yet" : "Nothing worth a lobby today");
   return `<div class="field-briefing${collapsed ? " is-collapsed" : ""}" id="fieldBriefing">
@@ -931,10 +985,10 @@ function timelineBucket({
 // release with nothing up) shouldn't also blank out real events data.
 // Returns "" only when there is genuinely nothing to show.
 export function renderFieldTimeline({
-  currentBosses, currentEvents, raidTargetTool, forms, roster, data, storage, trainerLevel, gapByFormId = null, now = new Date(),
+  currentBosses, currentEvents, raidTargetTool, forms, roster, data, storage, trainerLevel, gapByFormId = null, now = new Date(), briefingShareMessage = "",
 } = {}) {
   const briefingHtml = renderFieldBriefing({
-    currentBosses, raidTargetTool, forms, roster, data, storage, trainerLevel, now,
+    currentBosses, raidTargetTool, forms, roster, data, storage, trainerLevel, now, shareMessage: briefingShareMessage,
   });
   const buckets = buildTimelineBuckets(currentEvents?.events, now);
   const hasEvents = buckets.endingToday.length || buckets.startingTonight.length
@@ -1011,6 +1065,7 @@ export function renderHome({
   buddyPlan = null,
   trainerLevel = null,
   now = new Date(),
+  briefingShareMessage = "",
 } = {}) {
   const continueRoute = CONTINUE_ROUTES.has(continueTask?.route)
     ? continueTask.route
@@ -1030,7 +1085,7 @@ export function renderHome({
       <div data-search-results></div>
     </form>
     ${renderFieldTimeline({
-    currentBosses, currentEvents, raidTargetTool, forms, roster, data, storage, trainerLevel, gapByFormId, now,
+    currentBosses, currentEvents, raidTargetTool, forms, roster, data, storage, trainerLevel, gapByFormId, now, briefingShareMessage,
   })}
     ${renderToday({
     data, roster, defenseLog, storage, gapByFormId, investRows, futureProof, now, profile: { trainerLevel },

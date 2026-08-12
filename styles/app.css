@@ -2951,6 +2951,28 @@ h1 {
 }
 
 @media (min-width: 48rem) {
+  /* .move-sheet-backdrop/.move-sheet (instance-sheet.js's modal is the same
+     component, `.instance-sheet` layers on top of it) are a phone bottom
+     sheet: flush to the bottom edge, only the top corners rounded. At
+     34rem's own max-width that reads fine full-bleed on a phone, but past
+     this breakpoint the sheet is centered with visible side gaps while
+     STILL pinned flush to the bottom edge — a floating card with square
+     bottom corners and unequal margins on three sides, not a bottom sheet
+     and not a real dialog either (operator report, 2026-08-12: "looks
+     bad" at tablet widths; confirmed via Playwright at 768/1024 — sheetRect
+     touches the viewport's bottom edge with 112-240px of dead space on
+     each side). Recentering and rounding all four corners here makes it
+     read as a proper modal dialog once there's room for one; phone is
+     untouched below this breakpoint.
+  */
+  .move-sheet-backdrop {
+    align-items: center;
+  }
+
+  .move-sheet {
+    border-radius: 1rem;
+  }
+
   /* Fixed 48rem used to pin the shell at exactly 768px forever, wasting 44%
      of an iPad Pro's 1366px width as plain chassis background. Let it keep
      growing with the viewport instead, capped so it still reads as a device
@@ -6347,6 +6369,37 @@ html:not([data-app-booted]) #app .fallback-section {
 .briefing-dismiss:focus-visible {
   outline: 2px solid var(--focus);
   outline-offset: 2px;
+}
+
+.briefing-share-card {
+  margin-top: 0.6rem;
+  padding: 0.4rem 0.75rem;
+  border-radius: 999px;
+  border: 1px solid var(--cyan);
+  background: var(--panel-raised);
+  color: var(--text);
+  font-family: var(--dx-mono);
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+
+.briefing-share-card:hover,
+.briefing-share-card:focus-visible {
+  border-color: var(--text);
+}
+
+.briefing-share-card:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+
+.briefing-share-status {
+  margin-top: 0.4rem;
+  color: var(--muted);
+  font-size: 0.7rem;
 }
 
 .briefing-body { display: grid; gap: 0; }

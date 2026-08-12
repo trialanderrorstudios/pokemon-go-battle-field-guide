@@ -6,6 +6,7 @@ import { buildDeploymentMap } from "../gym-availability.js";
 import { bestInstanceForForm } from "../instances.js";
 import { TEAM_SET } from "../storage.js";
 import { ATTACK_TYPES } from "../type-chart.js";
+import { gymLineupCardData } from "../share-card.js";
 
 // Team (GO): Bulbapedia's "Team (GO)" article — official team colors.
 // Exported: leaderboard.js's team badge reuses these labels.
@@ -480,7 +481,10 @@ function buildTierSectionBody(tier, rows, forms, ownedSet, lazy, totalRanked) {
 }
 
 
-function lineupSection(gym, forms, lineupShape = "clean", ownedFormIds = [], ownedOnly = false, lazy = false) {
+function lineupSection(
+  gym, forms, lineupShape = "clean", ownedFormIds = [], ownedOnly = false, lazy = false,
+  trainerTeam = null, lineupShareMessage = "",
+) {
   // Two strategies, not one ranked list. "Clean" is stronger when you can
   // build it; "chain breakers" is what a second account or a friend's thinner
   // roster can actually field, and burying it below five clean options hides
@@ -494,6 +498,7 @@ function lineupSection(gym, forms, lineupShape = "clean", ownedFormIds = [], own
   // so the count rendered near the ranking below has to come from this data.
   const curatedRows = ranking.filter((row) => row.curatedTier);
   const curatedDisagreements = curatedRows.filter((row) => row.curatedTier !== row.tier).length;
+  const lineupShareCard = gymLineupCardData(gym.lineupLeads, trainerTeam, forms);
 
   const shapeTabs = `<div class="pvp-controls" aria-label="Lineup strategy">
     <fieldset><legend>Lineup shape</legend>
@@ -658,6 +663,8 @@ function lineupSection(gym, forms, lineupShape = "clean", ownedFormIds = [], own
       avoids a single attacking type sweeping the whole set. ${escapeHtml(gym.lineupPolicy?.note ?? "")}
       These are genuinely different things to invest toward, not one answer reshuffled.</p>
     ${gym.lineupLeads?.note ? `<p class="gym-note">${escapeHtml(gym.lineupLeads.note)}</p>` : ""}
+    ${lineupShareCard ? `<button type="button" data-action="share-gym-lineup-card">Share gym lineup</button>` : ""}
+    ${lineupShareMessage ? `<p class="gym-note" role="status">${escapeHtml(lineupShareMessage)}</p>` : ""}
     ${lineupCards}
     ${sectionHeading("Computed, not curated", "Defender ranking", "gym-ranking-title")}
     <p class="gym-note">Three related things sit on this page and they answer different questions:
@@ -1333,6 +1340,7 @@ export function renderGyms({
   lineupControls = "",
   lineupShape = "clean",
   ownedOnly = false,
+  lineupShareMessage = "",
   // Off by default so every existing caller (and every test that reads full
   // page content straight from this function) is unaffected; app.js's real
   // route render opts in. See buildLazyGymBody for the on-demand rebuild.
@@ -1353,7 +1361,7 @@ export function renderGyms({
     ? `${sectionNav()}
     ${lineupControls}
     ${renderPlacementCoach({ placementResult, ownedIndex, overallIndex, rosterInstances, deploymentMap })}
-    ${lineupSection(gym, forms, lineupShape, ownedFormIds, ownedOnly, lazy)}
+    ${lineupSection(gym, forms, lineupShape, ownedFormIds, ownedOnly, lazy, trainerTeam, lineupShareMessage)}
     ${coverageSection(gym, forms, ownedFormIds, lazy, openBands)}
     ${shadowDefenderSection(gym, forms, ownedFormIds, lazy)}
     ${defenseSection(gym, trainerTeam)}

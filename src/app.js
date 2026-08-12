@@ -27,7 +27,9 @@ import {
 import { defenderPoolFromRanking, scorePlacement } from "./placement.js";
 import { jargonTerm } from "./glossary.js";
 import { dismissGuide, renderGuide, showGuide } from "./guide.js";
-import { briefingCollapsedKey, escapeHtml, ownedStarButton, renderHome, viewSegments } from "./views/home.js";
+import {
+  briefingCollapsedKey, currentRaidPlanCardData, escapeHtml, ownedStarButton, renderHome, viewSegments,
+} from "./views/home.js";
 import { renderBasics } from "./views/basics.js";
 import { renderMaxBasics } from "./views/maxbasics.js";
 import { renderTypes, typeChip } from "./views/types.js";
@@ -59,7 +61,9 @@ import {
   setLocalPlayerName,
   startDefense,
 } from "./gym-defense-log.js";
-import { gymDefenseCardData, instanceCardData, shareOrDownloadCard, triageSummaryCardData } from "./share-card.js";
+import {
+  gymDefenseCardData, gymLineupCardData, instanceCardData, shareOrDownloadCard, triageSummaryCardData,
+} from "./share-card.js";
 import {
   exportDexSummary,
   importFriendSummary,
@@ -1318,6 +1322,8 @@ export function createInteractionState({
     candyInventory: loadCandyInventory(storage),
     megaEnergyInventory: loadMegaEnergyInventory(storage),
     buddyPlan: loadBuddyPlan(storage),
+    briefingShareMessage: "",
+    gymLineupShareMessage: "",
   };
 }
 
@@ -1352,6 +1358,8 @@ export function createInteractionController({
   onBackupExport = null,
   onShareCard = null,
   getTriageResult = () => ({ entries: [] }),
+  getRaidPlanCardData = () => null,
+  getGymLineupCardData = () => null,
   onRosterChanged = () => {},
   searchRefresh = () => {},
   storage = null,
@@ -1517,6 +1525,8 @@ export function createInteractionController({
     onBackupExport,
     onShareCard,
     getTriageResult,
+    getRaidPlanCardData,
+    getGymLineupCardData,
     handleFailure(error) {
       ui.interactionMessage = `Could not save changes: ${error?.message ?? error}`;
       rerender(failureRoute);
@@ -2907,6 +2917,22 @@ export function createInteractionController({
           : outcome === "cancelled" ? ""
           : "Could not share or download the card on this device.";
         rerender("leaderboard");
+      } else if (action === "share-raid-plan-card") {
+        const cardData = (api.getRaidPlanCardData ?? getRaidPlanCardData)?.() ?? null;
+        const outcome = cardData ? await (api.onShareCard ?? onShareCard)?.("raidPlan", cardData) : "no-data";
+        ui.briefingShareMessage = outcome === "shared" ? "Shared tonight's plan."
+          : outcome === "downloaded" ? "Downloaded tonight's plan."
+          : outcome === "cancelled" ? ""
+          : "Could not share or download the card on this device.";
+        rerender("home");
+      } else if (action === "share-gym-lineup-card") {
+        const cardData = (api.getGymLineupCardData ?? getGymLineupCardData)?.() ?? null;
+        const outcome = cardData ? await (api.onShareCard ?? onShareCard)?.("gymLineup", cardData) : "no-data";
+        ui.gymLineupShareMessage = outcome === "shared" ? "Shared your gym lineup."
+          : outcome === "downloaded" ? "Downloaded your gym lineup."
+          : outcome === "cancelled" ? ""
+          : "Could not share or download the card on this device.";
+        rerender("gyms");
       } else if (action === "clear-buddy-plan") {
         ui.buddyPlan = clearBuddyPlan(storage);
         rerender("home");
@@ -3916,6 +3942,13 @@ export function bootstrap({
     if (!triageResult) triageResult = triageRoster({ data: state, roster, trainerLevel: ui.trainerProfile.level });
     return triageResult;
   };
+  // Re-derives the exact featured/plan/boss pick renderFieldBriefing already
+  // drew the "Share tonight's plan" button from — the interaction controller
+  // itself only has `forms` in scope, not the whole release `state`.
+  const getRaidPlanCardData = () => currentRaidPlanCardData({
+    currentBosses: state.currentBosses, forms: state.core.forms, roster, data: state, trainerLevel: ui.trainerProfile.level,
+  });
+  const getGymLineupCardData = () => gymLineupCardData(state.gym?.lineupLeads, ui.trainerProfile.team, state.core.forms);
   // Roster gap coverage (round 15, gap-analyzer.js) needs raids.json's
   // ranked rows — gap-analyzer.js iterates both raids.regular and
   // raids.shadow, so this is gated on BOTH split files actually being loaded
@@ -4080,6 +4113,7 @@ export function bootstrap({
         futureProof: state.futureProof,
         buddyPlan: ui.buddyPlan,
         trainerLevel: ui.trainerProfile.level,
+        briefingShareMessage: ui.briefingShareMessage,
         investRows: nextActions({
           data: state,
           roster,
@@ -4245,6 +4279,7 @@ export function bootstrap({
           defenseLog: ui.defenseLog,
           rosterInstances: roster.instances,
           trainerTeam: ui.trainerProfile.team,
+          lineupShareMessage: ui.gymLineupShareMessage,
           view,
           lazy: true,
         })}`
@@ -4533,6 +4568,8 @@ export function bootstrap({
     },
     onConfirm: (message) => Boolean(windowObject.confirm?.(message)),
     getTriageResult,
+    getRaidPlanCardData,
+    getGymLineupCardData,
     onRosterChanged() { triageResult = null; },
     searchRefresh: () => searchRefresh(),
     rerenderCurrent: () => renderers[currentRoute]?.(),
