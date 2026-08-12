@@ -4327,6 +4327,7 @@ export function bootstrap({
         collectionSuggestOpen: ui.collectionSuggestOpen,
         collectionSheetFormId: ui.collectionSheetFormId,
         collectionExitingFormIds: ui.collectionExitingFormIds,
+        ocrIntake: ui.ocrIntake,
         rosterShareOpen: ui.rosterShareOpen,
         textSize: ui.textSize,
         theme: ui.theme,

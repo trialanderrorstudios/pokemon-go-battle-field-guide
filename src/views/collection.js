@@ -1,4 +1,5 @@
 import { escapeHtml, shinyLuckyBadges } from "./home.js";
+import { ocrIntakeSectionHtml } from "./dex.js";
 import { spriteHtml } from "../sprites.js";
 import {
   collectionProgress, collectionSuggestions, livingDexRows, speciesMarkState,
@@ -214,6 +215,7 @@ export function renderCollectionView(data = {}) {
     <h2 id="collection-title">Living Dex Collection</h2>
     <p>Tracks only what you've marked owned, shiny, or lucky on this device — there's no shiny-odds or availability data here.</p>
     ${modeBar(markMode, tally, markType)}
+    ${ocrIntakeSectionHtml(data.ocrIntake)}
     <div class="i1-overall-head">
       ${completionRing(progress.overall.caught, progress.overall.total)}
       <p class="collection-overall"><strong>${progress.overall.caught}/${progress.overall.total} caught</strong> · ${progress.overall.shiny} shiny · ${progress.overall.lucky} lucky</p>
