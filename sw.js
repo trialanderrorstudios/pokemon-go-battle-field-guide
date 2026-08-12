@@ -18,6 +18,15 @@ const SPRITE_CACHE_PREFIX = "pogo-sprites-";
 const SPRITE_CACHE_VERSION = "v1";
 export const SPRITE_CACHE = `${SPRITE_CACHE_PREFIX}${SPRITE_CACHE_VERSION}`;
 
+// Same shape as sprites, own category: the vendored Tesseract OCR engine
+// (worker + wasm + traineddata) is large (~7MB) and immutable per pin, and
+// only the minority of users who open bulk intake ever need it. It's cached
+// cache-first, on-demand, in its own cache versioned independently of both
+// SHELL_CACHE and SPRITE_CACHE.
+const OCR_CACHE_PREFIX = "pogo-ocr-";
+const OCR_CACHE_VERSION = "v1";
+export const OCR_CACHE = `${OCR_CACHE_PREFIX}${OCR_CACHE_VERSION}`;
+
 const METADATA_PATH = "__field-guide-release-metadata__.json";
 const COMPLETE_PATH = "__verified-release__.json";
 const MANIFEST_PATH = "release-manifest.json";
@@ -69,6 +78,8 @@ const SHELL_CODE_FILES = Object.freeze([
   "./src/lucky-advisor.js",
   "./src/meta-coverage.js",
   "./src/moves.js",
+  "./src/ocr-intake.js",
+  "./src/ocr-worker.js",
   "./src/next-action.js",
   "./src/poke-genie-import.js",
   "./src/search.js",
@@ -128,10 +139,24 @@ const SPRITE_FILES = Object.freeze([
   ...Object.values(SPRITE_VARIANT_IDS).map((id) => `./sprites/${id}.png`)
 ]);
 
+// Vendored Tesseract OCR engine (scripts/fetch-ocr-engine.mjs), same
+// shell-adjacent-but-separately-cached shape as SPRITE_FILES above: it must
+// ship in the PWA bundle (build.py / publish script parity) but is served
+// cache-first from its own OCR_CACHE, not the network-first SHELL_CACHE.
+const OCR_ENGINE_FILES = Object.freeze([
+  "./vendor/tesseract/worker.min.js",
+  "./vendor/tesseract/worker.min.js.LICENSE.txt",
+  "./vendor/tesseract/tesseract-core-simd-lstm.js",
+  "./vendor/tesseract/tesseract-core-simd-lstm.wasm",
+  "./vendor/tesseract/tesseract-core-lstm.js",
+  "./vendor/tesseract/tesseract-core-lstm.wasm",
+  "./vendor/tesseract/eng.traineddata.gz",
+]);
+
 // The three-way allowlist contract (sw.js / build.py / publish script) is
 // about what gets PUBLISHED, not which cache holds it — so parity compares
 // the union.
-export const SHELL_FILES = Object.freeze([...SHELL_CODE_FILES, ...SPRITE_FILES]);
+export const SHELL_FILES = Object.freeze([...SHELL_CODE_FILES, ...SPRITE_FILES, ...OCR_ENGINE_FILES]);
 
 
 function runtime(env = {}) {
@@ -671,6 +696,46 @@ export async function cleanupObsoleteSpriteCaches(environment = {}) {
 }
 
 
+// Mirrors fetchSpriteCacheFirst above. No eager warm on install: OCR intake
+// is a minority workflow (bulk scan), and the engine is ~7MB — most installs
+// would never redeem that download. It's fetched and cached the first time a
+// user actually opens OCR intake, offline-ready for them from then on.
+async function fetchOcrEngineCacheFirst(request, env) {
+  const cache = await env.caches.open(OCR_CACHE);
+  const cached = await cache.match(request);
+  if (cached) return cached;
+  try {
+    const response = await env.fetch(request);
+    if (response?.ok) await cache.put(request, response.clone());
+    return response;
+  } catch {
+    return new Response("OCR engine unavailable.", { status: 503 });
+  }
+}
+
+
+export async function cleanupObsoleteOcrCaches(environment = {}) {
+  const env = runtime(environment);
+  let cacheNames;
+  try {
+    cacheNames = await env.caches.keys();
+  } catch {
+    return [];
+  }
+  const removed = [];
+  for (const cacheName of cacheNames) {
+    if (cacheName.startsWith(OCR_CACHE_PREFIX) && cacheName !== OCR_CACHE) {
+      try {
+        if (await env.caches.delete(cacheName)) removed.push(cacheName);
+      } catch {
+        // Best-effort cleanup must not strand the newly installed worker.
+      }
+    }
+  }
+  return removed;
+}
+
+
 export async function fetchWithinWorker(request, environment = {}) {
   const env = runtime(environment);
   const url = new URL(request.url);
@@ -681,6 +746,9 @@ export async function fetchWithinWorker(request, environment = {}) {
   }
   if (url.pathname.startsWith(`${scope.pathname}sprites/`) && url.pathname.endsWith(".png")) {
     return fetchSpriteCacheFirst(request, env);
+  }
+  if (url.pathname.startsWith(`${scope.pathname}vendor/tesseract/`)) {
+    return fetchOcrEngineCacheFirst(request, env);
   }
   if (request.mode === "navigate") {
     const shell = await env.caches.open(SHELL_CACHE);
@@ -741,6 +809,7 @@ export async function activateShell(environment = {}) {
   const clients = environment.clients ?? globalThis.clients;
   const removed = await cleanupObsoleteShellCaches(environment);
   await cleanupObsoleteSpriteCaches(environment);
+  await cleanupObsoleteOcrCaches(environment);
   await clients.claim();
   if (removed.length) await refreshWindowClients({ ...environment, clients });
   return removed;

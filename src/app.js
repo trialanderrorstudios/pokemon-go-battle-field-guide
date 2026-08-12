@@ -37,7 +37,7 @@ import { weaknessesOf } from "./type-chart.js";
 import { renderGlossary } from "./views/glossary.js";
 import { handleSpriteError, spriteHtml } from "./sprites.js";
 import { buildLazyGymBody, renderGyms } from "./views/gyms.js";
-import { blankQuickAddDraft, renderDex } from "./views/dex.js";
+import { blankOcrIntakeState, blankQuickAddDraft, renderDex } from "./views/dex.js";
 import { renderLeaderboard } from "./views/leaderboard.js";
 import { MORE_LISTS, renderMore } from "./views/more.js";
 import { buildMoveIndex } from "./moves.js";
@@ -50,6 +50,8 @@ import {
 } from "./instances.js";
 import { nextMarkState } from "./collection.js";
 import { parsePokeGenieCsv } from "./poke-genie-import.js";
+import { draftFromParse, parseMonScreenText } from "./ocr-intake.js";
+import { createOcrEngine as createOcrEngineDefault, OcrEngineError } from "./ocr-worker.js";
 import {
   buildLeaderboard,
   completeDefense,
@@ -1312,6 +1314,11 @@ export function createInteractionState({
     // draft belongs to) — it is never passed to the view.
     quickAdd: null,
     quickAddFormId: null,
+    // I3 OCR bulk-intake — dex.js-owned state shape (blankOcrIntakeState()).
+    // Global, not per-formId: a bulk scan can match rows to several different
+    // species, unlike quickAdd which is scoped to whichever dex entry is
+    // open.
+    ocrIntake: blankOcrIntakeState(),
     rosterShareOpen: false,
     diagnostics: { copyStatus: "", copyPayload: "", storageEstimate: undefined },
     textSize: loadTextSize(storage),
@@ -1390,6 +1397,14 @@ export function createInteractionController({
   currentView = () => "",
   rootElement = null,
   scrollToTop = () => {},
+  // I3 OCR bulk-intake: injectable so tests can stub the engine without
+  // loading wasm (see web/src/ocr-worker.js). onNavigateToDex is called by
+  // the row-edit dispatch when the row's matched species differs from
+  // whatever dex entry is currently open — a plain no-op default, since the
+  // common case (editing a row for the page you're already on) needs no
+  // navigation at all.
+  createOcrEngine = createOcrEngineDefault,
+  onNavigateToDex = () => {},
 } = {}) {
   if (!ui || !roster) throw new TypeError("Interaction state and roster are required.");
 
@@ -2175,6 +2190,60 @@ export function createInteractionController({
         }
         rerender("more");
       }
+      // I3 OCR bulk-intake — file picker change (dex.js's data-ocr-file-input,
+      // paired with the data-action="ocr-scan-open" button in handleClick
+      // below). Sequential, not parallel: the underlying Tesseract worker can
+      // only run one Recognize at a time, and the queue UX (progress ticking
+      // per image) wants sequential anyway. Single attempt per file — a row
+      // that fails to parse degrades to the "couldn't read" copy (ocr-intake.js
+      // + dex.js), it is never retried; an engine-level failure (offline first
+      // use, wasm blocked, quota) aborts the whole batch into 'error' status,
+      // same single-attempt-no-retry shape as boot-watchdog.js.
+      const ocrFileInput = target?.closest?.("[data-ocr-file-input]")
+        ?? (target?.dataset && Object.hasOwn(target.dataset, "ocrFileInput") ? target : null);
+      if (ocrFileInput?.files?.length) {
+        const files = Array.from(ocrFileInput.files);
+        ocrFileInput.value = "";
+        ui.ocrIntake = { status: "loading-engine", progress: null, rows: [], errorNote: null };
+        rerenderCurrent();
+        let engine = null;
+        try {
+          engine = await createOcrEngine();
+          ui.ocrIntake = { status: "scanning", progress: { done: 0, total: files.length }, rows: [], errorNote: null };
+          rerenderCurrent();
+          const rows = [];
+          for (const [index, file] of files.entries()) {
+            const text = await engine.recognize(file);
+            const parsed = parseMonScreenText(text, { forms });
+            rows.push({
+              id: crypto.randomUUID(),
+              imageLabel: file.name || `Screenshot ${index + 1}`,
+              parsed,
+              // The narrow OCR-derivable subset only (draftFromParse() — see
+              // ocr-intake.js). data-ocr-row-edit is the caller that merges
+              // this into blankQuickAddDraft() (see handleClick below); ivs/
+              // moves are never OCR-derivable so they stay out of row.draft
+              // entirely rather than carrying blank placeholders around.
+              draft: draftFromParse(parsed),
+              issues: parsed.issues,
+              accepted: false,
+            });
+            ui.ocrIntake.progress = { done: index + 1, total: files.length };
+            rerenderCurrent();
+          }
+          ui.ocrIntake = { status: "review", progress: null, rows, errorNote: null };
+        } catch (error) {
+          ui.ocrIntake = {
+            status: "error",
+            progress: null,
+            rows: [],
+            errorNote: error instanceof OcrEngineError ? error.message : "Scanning failed.",
+          };
+        } finally {
+          engine?.terminate?.();
+        }
+        rerenderCurrent();
+      }
     },
     async handleClick(event) {
       const target = event?.target;
@@ -2273,6 +2342,80 @@ export function createInteractionController({
           rerenderCurrent();
           return;
         }
+      }
+      // I3 OCR bulk-intake — Scan button opens the paired hidden file input
+      // (dex.js's .ocr-scan-entry wraps data-action="ocr-scan-open" and
+      // data-ocr-file-input together; the actual scan/parse work is
+      // handleChange's file-input handler above).
+      const ocrScanOpen = target?.closest?.('[data-action="ocr-scan-open"]')
+        ?? (target?.dataset?.action === "ocr-scan-open" ? target : null);
+      if (ocrScanOpen) {
+        ocrScanOpen.closest?.(".ocr-scan-entry")?.querySelector?.("[data-ocr-file-input]")?.click();
+        return;
+      }
+      // I3 OCR row actions — dex.js's ocrIntakeRowHtml renders the two
+      // buttons keyed by row.id; ui.ocrIntake.rows is app.js-owned state (see
+      // handleChange above). Accept builds+saves via the same real
+      // buildImportedInstance path the Poke Genie CSV import uses for
+      // moveless rows (web/src/poke-genie-import.js) — pre-validated the same
+      // way the quickAdd save-instance branch below validates, so an
+      // incomplete row (ivs are never OCR-derivable — see ocr-intake.js)
+      // silently doesn't save rather than throwing. Never auto-saved: this
+      // only runs on an explicit tap.
+      const ocrRowAccept = target?.closest?.("[data-ocr-row-accept]");
+      if (ocrRowAccept) {
+        const rowId = ocrRowAccept.dataset.ocrRowAccept;
+        const row = ui.ocrIntake?.rows?.find((candidate) => candidate.id === rowId);
+        if (row && !row.accepted) {
+          const form = forms[row.parsed?.formId];
+          const draft = row.draft ?? {};
+          const cpNumber = Number(draft.cp);
+          const ivs = draft.ivs ?? {};
+          const ivsComplete = [ivs.atk, ivs.def, ivs.sta]
+            .every((value) => Number.isInteger(value) && value >= 0 && value <= 15);
+          if (form && Number.isInteger(cpNumber) && cpNumber > 0 && ivsComplete
+            && solveLevel(form, ivs, cpNumber) !== null) {
+            const heightNumber = Number(draft.heightM);
+            const heightValid = Number.isFinite(heightNumber) && heightNumber > 0;
+            const weightNumber = Number(draft.weightKg);
+            const weightValid = Number.isFinite(weightNumber) && weightNumber > 0;
+            failureRoute = "dex";
+            const built = buildImportedInstance(form, {
+              cp: cpNumber,
+              ivs,
+              heightM: heightValid ? heightNumber : undefined,
+              weightKg: weightValid ? weightNumber : undefined,
+            });
+            // Flip before the await: two fast taps both passing the
+            // !row.accepted gate would save duplicate instances.
+            row.accepted = true;
+            try {
+              await mutateRoster((current) => ({ ...current, instances: [...(current.instances ?? []), built] }));
+            } catch (error) {
+              row.accepted = false;
+              throw error;
+            }
+          }
+        }
+        rerenderCurrent();
+        return;
+      }
+      // Edit merges the row's narrow draft (row.draft — see handleChange
+      // above) into a fresh blankQuickAddDraft() and opens that formId's I2
+      // sheet, seeded; saving from there goes through the existing
+      // save-instance branch below, unchanged.
+      const ocrRowEdit = target?.closest?.("[data-ocr-row-edit]");
+      if (ocrRowEdit) {
+        const rowId = ocrRowEdit.dataset.ocrRowEdit;
+        const row = ui.ocrIntake?.rows?.find((candidate) => candidate.id === rowId);
+        const formId = row?.parsed?.formId;
+        if (row && formId) {
+          ui.quickAdd = { ...blankQuickAddDraft(), ...row.draft };
+          ui.quickAddFormId = formId;
+          onNavigateToDex(formId);
+        }
+        rerenderCurrent();
+        return;
       }
       // I2 dex-entry inline quick-add — draft shape and blankQuickAddDraft()
       // are owned by views/dex.js (imported above); this is the dispatch side
@@ -3075,6 +3218,11 @@ export function createInteractionController({
           if (storage?.getItem?.(storageKey) === "1") storage?.removeItem?.(storageKey);
           else storage?.setItem?.(storageKey, "1");
         }
+        rerenderCurrent();
+      } else if (action === "ocr-scan-done") {
+        // Review pass complete — back to idle so the Scan entry returns
+        // (reviewer catch: idle-only entry point never reappeared).
+        ui.ocrIntake = blankOcrIntakeState();
         rerenderCurrent();
       } else if (action === "toggle-briefing-card") {
         // Per-lane briefing card collapse — same set/remove flip as
@@ -4316,6 +4464,7 @@ export function bootstrap({
         currentEggs: state.currentEggs,
         roster,
         quickAdd: ui.quickAdd,
+        ocrIntake: ui.ocrIntake,
       });
       searchRefresh = bindSearch(documentObject, index, state.core.forms, roster, storage, {
         raidTargetTool: state.raidTargetTool,
@@ -4695,6 +4844,15 @@ export function bootstrap({
       }
     },
     onConfirm: (message) => Boolean(windowObject.confirm?.(message)),
+    // I3 OCR row-edit: navigate to a different formId's dex entry (the row's
+    // matched species may not be whatever page the scan was opened from —
+    // bulk intake spans several species at once). A no-op when it's already
+    // the current page, since setting location.hash to its current value
+    // fires no hashchange — rerenderCurrent() (called right after by the
+    // dispatch) covers that case instead.
+    onNavigateToDex(formId) {
+      windowObject.location.hash = `dex/${formId}`;
+    },
     getTriageResult,
     getRaidPlanCardData,
     getGymLineupCardData,

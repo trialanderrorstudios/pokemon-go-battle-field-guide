@@ -6129,6 +6129,194 @@ html:not([data-app-booted]) #app .fallback-section {
   color: var(--muted);
 }
 
+/* I3 OCR bulk-intake (scan entry point + review UI). Mockup:
+   docs/mockups/delight-2026-08-11/I3-ocr-bulk-intake.html (reference
+   behaviour, not portable style). Sits between the roster list and the
+   .quickadd-card in dex.js's "Your roster" section, reusing that card's
+   border/radius/token language rather than inventing a new visual family. */
+.ocr-intake-section {
+  margin: 0 0 0.75rem;
+}
+
+.ocr-scan-entry {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 0.1rem;
+  background: var(--screen-bg);
+}
+
+.ocr-scan-btn {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  width: 100%;
+  min-height: 44px;
+  padding: 0.6rem 0.7rem;
+  border: 1px solid var(--cyan);
+  border-radius: 0.6rem;
+  background: var(--panel-raised);
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.ocr-scan-btn-title {
+  font-size: 0.85rem;
+  font-weight: 800;
+}
+
+.ocr-scan-btn-hint {
+  font-size: 0.7rem;
+  font-weight: 400;
+  color: var(--muted);
+}
+
+.ocr-intake-status {
+  margin: 0;
+  padding: 0.55rem 0.65rem;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--screen-bg);
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+.ocr-intake-progress {
+  font-family: var(--dx-mono);
+  color: var(--text);
+}
+
+.ocr-intake-rows {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.ocr-intake-row {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 0.6rem 0.65rem 0.65rem;
+  background: linear-gradient(145deg, var(--panel-raised), var(--panel));
+}
+
+.ocr-intake-row.is-accepted {
+  border-color: var(--green);
+  opacity: 0.72;
+}
+
+.ocr-intake-row.is-unreadable {
+  border-color: var(--danger);
+}
+
+.ocr-row-label {
+  margin: 0 0 0.35rem;
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: var(--text);
+}
+
+.ocr-row-status.is-accepted {
+  display: inline-block;
+  margin: 0 0 0.35rem;
+  padding: 0.14rem 0.5rem;
+  border: 1px solid var(--green);
+  border-radius: 999px;
+  color: var(--green);
+  font-family: var(--dx-mono);
+  font-size: 0.6rem;
+  font-weight: 800;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+}
+
+.ocr-row-fields {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.2rem 0.7rem;
+  margin: 0 0 0.4rem;
+  font-size: 0.74rem;
+  color: var(--muted);
+}
+
+.ocr-row-degrade {
+  margin: 0 0 0.4rem;
+  font-size: 0.74rem;
+  font-style: italic;
+  color: var(--danger);
+}
+
+.ocr-row-issues {
+  margin: 0 0 0.4rem;
+  padding-left: 1.1rem;
+  font-size: 0.7rem;
+  color: var(--amber);
+}
+
+.ocr-scan-done-btn {
+  margin-top: 0.6rem;
+  min-height: 40px;
+  padding: 0.45rem 0.9rem;
+  border-radius: 0.55rem;
+  border: 1px solid var(--line);
+  background: var(--screen-bg);
+  color: var(--cyan);
+  font-family: var(--dx-mono);
+  font-size: 0.72rem;
+  font-weight: 700;
+}
+
+.ocr-row-actions {
+  display: flex;
+  gap: 0.4rem;
+}
+
+.ocr-row-actions button {
+  flex: 1;
+  min-height: 40px;
+  border: 1px solid var(--line);
+  border-radius: 0.55rem;
+  background: var(--panel-raised);
+  color: var(--text);
+  font: inherit;
+  font-weight: 700;
+  font-size: 0.72rem;
+  cursor: pointer;
+}
+
+.ocr-row-actions button.ocr-row-accept-btn {
+  border-color: var(--green);
+  color: var(--green);
+}
+
+.ocr-row-actions button.ocr-row-edit-btn {
+  border-color: var(--cyan);
+  color: var(--cyan);
+}
+
+.ocr-intake-error {
+  border: 1px solid var(--danger);
+  border-radius: 10px;
+  padding: 0.55rem 0.65rem;
+  background: var(--screen-bg);
+}
+
+.ocr-error-note,
+.ocr-error-fallback {
+  margin: 0;
+  font-size: 0.76rem;
+  line-height: 1.42;
+  color: var(--text);
+}
+
+.ocr-error-note {
+  margin-bottom: 0.35rem;
+  color: var(--danger);
+}
+
 /* Shiny/Lucky quick-add checkboxes (operator report, feature 1) — same
    row/label shape as .mega-level-field just above, sized checkboxes for a
    real touch target instead of the browser default. Dynamax/Gigantamax

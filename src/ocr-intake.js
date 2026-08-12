@@ -1,0 +1,187 @@
+// I3 OCR bulk-intake — text parsing only. Pure module: no DOM, no tesseract
+// import. Takes whatever text an OCR engine already recognized off a single
+// Pokémon GO mon-info screen and turns it into a structured, conservative
+// draft. A field that doesn't parse cleanly returns null + an issue string,
+// never a guess — the one deliberate exception is species-name matching,
+// where a small edit-distance fallback is the intended feature (see
+// matchName below), not a guess.
+//
+// Mockup (reference behaviour, not portable code):
+// docs/mockups/delight-2026-08-11/I3-ocr-bulk-intake.html
+
+const CP_MIN = 10;
+const CP_MAX = 6000;
+
+// "CP" prefix, optional punctuation/space, then a run of digits that may be
+// broken up by spaces ("CP2 4 5 3") or thousands-commas ("CP 2,453").
+const CP_RE = /\bcp\.?[ \t]*[:\-]?[ \t]*(\d[\d, \t]{0,15})/i;
+// "HP 142 / 142" — the max (denominator) is the stat that matters.
+const HP_RE = /\bhp\.?\s*[:\-]?\s*(\d{1,4})\s*\/\s*(\d{1,4})/i;
+const WEIGHT_RE = /(\d+(?:\.\d+)?)\s*kg\b/i;
+const HEIGHT_RE = /(\d+(?:\.\d+)?)\s*m\b/i;
+const LABEL_ONLY_RE = /^(weight|height|hp|cp|candy|buddy)\s*:?\s*$/i;
+const REGION_SUFFIX_RE = /^(.*)\s\((Alolan|Galarian|Hisuian|Paldean)\)$/;
+
+function parseCp(text) {
+  const match = text.match(CP_RE);
+  const digits = match ? match[1].replace(/\D/g, "") : "";
+  if (!digits) return { value: null, issue: "CP not found.", noisy: false };
+  const value = Number(digits);
+  if (value < CP_MIN || value > CP_MAX) {
+    return { value: null, issue: `CP ${value} is outside expected range (${CP_MIN}-${CP_MAX}).`, noisy: false };
+  }
+  // Spaced-out digits ("2 4 5 3") mean the OCR engine split what should be
+  // one token — that's a genuinely noisier read than a clean run or a
+  // comma-formatted thousands separator (which is the game's own format).
+  return { value, issue: null, noisy: /\d\s+\d/.test(match[1]) };
+}
+
+function parseHp(text) {
+  const match = text.match(HP_RE);
+  if (!match) return { value: null, issue: "HP not found." };
+  // Current HP can never exceed max — a read like "142 / 14" means OCR
+  // dropped a digit somewhere, and which number is wrong is unknowable.
+  if (Number(match[1]) > Number(match[2])) {
+    return { value: null, issue: "HP read looks garbled (current above max) — enter manually." };
+  }
+  return { value: Number(match[2]), issue: null };
+}
+
+function parseUnitValue(text, re, label) {
+  const match = text.match(re);
+  if (!match) return { value: null, issue: `${label} not found.` };
+  return { value: Number(match[1]), issue: null };
+}
+
+function isFieldLine(line) {
+  if (!line) return true;
+  if (LABEL_ONLY_RE.test(line)) return true;
+  if (CP_RE.test(line) || HP_RE.test(line) || WEIGHT_RE.test(line) || HEIGHT_RE.test(line)) return true;
+  if (/^[\d,.\s/]+$/.test(line)) return true; // stray digit-only lines (candy counts, etc.)
+  return false;
+}
+
+// Real screens put the species name on its own line, above every labeled
+// field — so the first non-blank line that isn't a recognized field is it.
+function extractNameLine(text) {
+  const lines = String(text ?? "").split(/\r?\n/).map((line) => line.trim());
+  return lines.find((line) => line && !isFieldLine(line)) ?? null;
+}
+
+// Plain Levenshtein DP, no library. Distance <=2 covers every OCR confusion
+// named in the task: O/0 and l/I/1 are same-length substitutions (cost 1);
+// rn->m is one substitution + one deletion (cost 2).
+function levenshtein(a, b) {
+  const m = a.length;
+  const n = b.length;
+  let prev = Array.from({ length: n + 1 }, (_, j) => j);
+  for (let i = 1; i <= m; i += 1) {
+    const row = [i];
+    for (let j = 1; j <= n; j += 1) {
+      const cost = a[i - 1] === b[j - 1] ? 0 : 1;
+      row.push(Math.min(row[j - 1] + 1, prev[j] + 1, prev[j - 1] + cost));
+    }
+    prev = row;
+  }
+  return prev[n];
+}
+
+// "Rattata (Alolan)" -> "alolan rattata" — the region-first order some OCR
+// overlays/tools render instead of the dex's parenthetical form. A known
+// naming convention, not a guess, so it counts as an exact/high-confidence
+// match.
+function regionFirstAlt(name) {
+  const match = String(name ?? "").match(REGION_SUFFIX_RE);
+  return match ? `${match[2]} ${match[1]}`.toLowerCase() : null;
+}
+
+function matchName(rawName, forms) {
+  if (!rawName) return { formId: null, confidence: null, issue: "Name not found." };
+  const lowerName = rawName.toLowerCase();
+  const formList = Object.values(forms ?? {});
+  const exact = formList.find((form) => {
+    const canonical = String(form.name ?? "").toLowerCase();
+    return canonical === lowerName || regionFirstAlt(form.name) === lowerName;
+  });
+  if (exact) return { formId: exact.form_id, confidence: "high", issue: null };
+  if (!formList.length) {
+    return { formId: null, confidence: null, issue: "name not in dex — nicknamed? pick manually." };
+  }
+  // The longest dex name is far under 40 chars; a longer "name" line is OCR
+  // garbage, and running the 1,700-form edit-distance pass over it costs
+  // hundreds of ms for a guaranteed miss.
+  if (lowerName.length > 40) {
+    return { formId: null, confidence: null, issue: "name not in dex — nicknamed? pick manually." };
+  }
+  const ranked = formList
+    .map((form) => ({ form, distance: levenshtein(lowerName, String(form.name ?? "").toLowerCase()) }))
+    .sort((a, b) => a.distance - b.distance || a.form.name.localeCompare(b.form.name));
+  const best = ranked[0];
+  const tiedAtBest = ranked.filter((entry) => entry.distance === best.distance);
+  if (best.distance <= 2 && tiedAtBest.length === 1) {
+    return { formId: best.form.form_id, confidence: "low", issue: null };
+  }
+  const candidates = [...new Set(ranked.slice(0, 3).map((entry) => entry.form.name))];
+  return {
+    formId: null,
+    confidence: null,
+    issue: `name not in dex — nicknamed? pick manually (closest: ${candidates.join(", ")}).`,
+  };
+}
+
+// Parses a single Pokémon GO mon-info-screen OCR dump into a structured,
+// conservative draft. `forms` is the app's form map (formId -> form record,
+// same shape as data/processed/encyclopedia.json's `forms`).
+export function parseMonScreenText(rawText, { forms } = {}) {
+  const text = String(rawText ?? "");
+  const issues = [];
+  const confidence = {};
+
+  const nameLine = extractNameLine(text);
+  const nameMatch = matchName(nameLine, forms);
+  if (nameMatch.issue) issues.push(nameMatch.issue);
+  if (nameMatch.confidence) confidence.formId = nameMatch.confidence;
+
+  const cpResult = parseCp(text);
+  if (cpResult.issue) issues.push(cpResult.issue);
+  if (cpResult.value !== null) confidence.cp = cpResult.noisy ? "low" : "high";
+
+  const hpResult = parseHp(text);
+  if (hpResult.issue) issues.push(hpResult.issue);
+  if (hpResult.value !== null) confidence.hp = "high";
+
+  const weightResult = parseUnitValue(text, WEIGHT_RE, "Weight");
+  if (weightResult.issue) issues.push(weightResult.issue);
+  if (weightResult.value !== null) confidence.weightKg = "high";
+
+  const heightResult = parseUnitValue(text, HEIGHT_RE, "Height");
+  if (heightResult.issue) issues.push(heightResult.issue);
+  if (heightResult.value !== null) confidence.heightM = "high";
+
+  return {
+    name: nameLine,
+    formId: nameMatch.formId,
+    cp: cpResult.value,
+    hp: hpResult.value,
+    weightKg: weightResult.value,
+    heightM: heightResult.value,
+    confidence,
+    issues,
+  };
+}
+
+// The quick-add draft field subset an OCR result can actually populate —
+// same raw-typed-string-parsed-at-save-time convention as dex.js's
+// blankQuickAddDraft (cp/heightM/weightKg). IVs and moves are never
+// OCR-derivable from the main screen, so they aren't part of this subset;
+// the caller merges this into blankQuickAddDraft(), which already defaults
+// them. nickname is always "" — the OCR'd species name maps to formId
+// (species selection), never to the separate nickname field.
+export function draftFromParse(parsed) {
+  return {
+    cp: parsed?.cp != null ? String(parsed.cp) : "",
+    heightM: parsed?.heightM != null ? String(parsed.heightM) : "",
+    weightKg: parsed?.weightKg != null ? String(parsed.weightKg) : "",
+    nickname: "",
+  };
+}

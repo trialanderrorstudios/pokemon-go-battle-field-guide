@@ -1214,11 +1214,138 @@ function quickAddInstanceRowHtml(form, instance, editingId, stamp) {
 }
 
 
+// ── I3: OCR bulk-intake — scan entry point + review UI ──────────────────
+// Mockup: docs/mockups/delight-2026-08-11/I3-ocr-bulk-intake.html (reference
+// behaviour, not portable code — its picker/queue/done screens are folded
+// into the simpler state machine below). Parsing itself lives in
+// ocr-intake.js (parseMonScreenText/draftFromParse); this file only renders
+// whatever state the caller (app.js) hands it — same "props in, HTML out"
+// shape as the quick-add card above. The app lane owns dispatch: every
+// interactive element here is a bare data-attribute hook, never a bound
+// handler.
+//
+// State shape (`state` arg to ocrIntakeSectionHtml, and blankOcrIntakeState's
+// return value):
+//   {
+//     status: 'idle' | 'loading-engine' | 'scanning' | 'review' | 'error',
+//     progress: { done, total } | null,
+//     rows: [{ id, imageLabel, parsed, draft, issues, accepted }],
+//     errorNote: string | null,
+//   }
+// Per row: `parsed` is ocr-intake.js's parseMonScreenText() result (or null
+// before parsing runs) — { name, formId, cp, hp, weightKg, heightM,
+// confidence, issues }. `draft` is draftFromParse(parsed) merged into
+// blankQuickAddDraft() by the caller — { cp, heightM, weightKg, nickname }.
+// `issues` is the row's own copy of parsed.issues, rendered verbatim, never
+// paraphrased. `accepted` flips true once the row's draft has been saved to
+// the roster.
+export function blankOcrIntakeState() {
+  return { status: "idle", progress: null, rows: [], errorNote: null };
+}
+
+const OCR_ENGINE_DOWNLOAD_COPY = "First use downloads the OCR engine (~7MB, one-time).";
+const OCR_ROW_DEGRADE_COPY = "Couldn't read — enter manually.";
+const OCR_ERROR_FALLBACK_COPY = "Scanning didn't work this time. Use the manual quick-add form below to add this Pokémon instead.";
+
+// The entry point: a labelled button (sets the one-time-download
+// expectation up front, honesty register) plus the file picker it opens.
+// Wired via data attributes only — data-action="ocr-scan-open" (button),
+// data-ocr-file-input (the <input>) — app.js owns the click/change handlers.
+function ocrScanEntryHtml() {
+  return `<div class="ocr-scan-entry">
+    <button type="button" class="ocr-scan-btn" data-action="ocr-scan-open">
+      <span class="ocr-scan-btn-title">Scan screenshots</span>
+      <span class="ocr-scan-btn-hint">${escapeHtml(OCR_ENGINE_DOWNLOAD_COPY)}</span>
+    </button>
+    <input type="file" accept="image/*" multiple hidden class="ocr-file-input" data-ocr-file-input>
+  </div>`;
+}
+
+function ocrProgressHtml(progress) {
+  if (!progress) return "";
+  return ` <span class="ocr-intake-progress">(${escapeHtml(progress.done)}/${escapeHtml(progress.total)})</span>`;
+}
+
+function ocrRowFieldsHtml(parsed) {
+  const name = parsed?.name ?? null;
+  const cp = parsed?.cp ?? null;
+  const heightM = parsed?.heightM ?? null;
+  const weightKg = parsed?.weightKg ?? null;
+  return `<p class="ocr-row-fields">
+    <span class="ocr-row-field">Name: ${name ? escapeHtml(name) : "—"}</span>
+    <span class="ocr-row-field">CP: ${cp != null ? escapeHtml(cp) : "—"}</span>
+    <span class="ocr-row-field">Height: ${heightM != null ? `${escapeHtml(heightM)} m` : "—"}</span>
+    <span class="ocr-row-field">Weight: ${weightKg != null ? `${escapeHtml(weightKg)} kg` : "—"}</span>
+  </p>`;
+}
+
+function ocrRowIssuesHtml(issues) {
+  if (!issues || !issues.length) return "";
+  return `<ul class="ocr-row-issues">${issues.map((issue) => `<li>${escapeHtml(issue)}</li>`).join("")}</ul>`;
+}
+
+// A row degrades to the honest "couldn't read" note (never a retry loop —
+// the caller doesn't re-run OCR on a row, only re-scanning the whole batch)
+// when parsing came back with nothing to anchor a draft on: no matched
+// species and no CP. Partial reads (e.g. CP but no name) still show the
+// parsed-fields grid so the operator can see what DID come through.
+function ocrIntakeRowHtml(row) {
+  const parsed = row.parsed ?? null;
+  const unreadable = !parsed || (!parsed.name && parsed.cp == null);
+  const classes = `ocr-intake-row${row.accepted ? " is-accepted" : ""}${unreadable ? " is-unreadable" : ""}`;
+  const actions = row.accepted ? "" : `<div class="ocr-row-actions">
+      <button type="button" class="ocr-row-accept-btn" data-ocr-row-accept="${escapeHtml(row.id)}">Accept</button>
+      <button type="button" class="ocr-row-edit-btn" data-ocr-row-edit="${escapeHtml(row.id)}">Edit</button>
+    </div>`;
+  return `<li class="${classes}" data-ocr-row-id="${escapeHtml(row.id)}">
+    <p class="ocr-row-label">${escapeHtml(row.imageLabel)}</p>
+    ${row.accepted ? `<span class="ocr-row-status is-accepted">Added to roster</span>` : ""}
+    ${unreadable ? `<p class="ocr-row-degrade">${escapeHtml(OCR_ROW_DEGRADE_COPY)}</p>` : ocrRowFieldsHtml(parsed)}
+    ${ocrRowIssuesHtml(row.issues)}
+    ${actions}
+  </li>`;
+}
+
+function ocrIntakeBodyHtml(state) {
+  if (state.status === "idle") return ocrScanEntryHtml();
+  if (state.status === "loading-engine") {
+    return `<p class="ocr-intake-status">Downloading the OCR engine…${ocrProgressHtml(state.progress)}</p>`;
+  }
+  if (state.status === "scanning") {
+    return `<p class="ocr-intake-status">Scanning screenshots…${ocrProgressHtml(state.progress)}</p>`;
+  }
+  if (state.status === "review") {
+    const rows = state.rows ?? [];
+    // Without a reset the Scan entry (idle-only) never reappears until page
+    // reload — reviewer catch, 2026-08-12. Error status stays reset-free by
+    // design (no retry loop); review is a completed pass, so returning to
+    // idle for another batch is the normal flow, not a retry.
+    return `<ul class="ocr-intake-rows">${rows.map(ocrIntakeRowHtml).join("")}</ul>
+      <button type="button" class="ocr-scan-done-btn" data-action="ocr-scan-done">Done — scan more</button>`;
+  }
+  // 'error': the same-session fallback notice, pointing at the manual
+  // quick-add form directly below in this same section — never a retry
+  // button (the honest ceiling: v1 doesn't diagnose why OCR failed).
+  return `<div class="ocr-intake-error">
+    ${state.errorNote ? `<p class="ocr-error-note">${escapeHtml(state.errorNote)}</p>` : ""}
+    <p class="ocr-error-fallback">${escapeHtml(OCR_ERROR_FALLBACK_COPY)}</p>
+  </div>`;
+}
+
+// Render entry point for the whole I3 surface — called from yourRosterSection
+// next to the existing (I2) quick-add card. `state` is owned by the caller;
+// see blankOcrIntakeState() above for its shape and default.
+export function ocrIntakeSectionHtml(state) {
+  const s = state ?? blankOcrIntakeState();
+  return `<div class="ocr-intake-section" data-ocr-status="${escapeHtml(s.status)}">${ocrIntakeBodyHtml(s)}</div>`;
+}
+
+
 // "Your roster" — the quick-add/edit card, roster list, and its own links.
 // Renamed from rosterSection (spec item 5 reorder split the Optimal block
 // out into its own top-level optimalSection() above, which used to open
 // this same section).
-function yourRosterSection(form, roster, quickAdd, raids, raidsLoaded, gym, forms) {
+function yourRosterSection(form, roster, quickAdd, raids, raidsLoaded, gym, forms, ocrIntake) {
   const owned = new Set(roster.ownedFormIds ?? []);
   const isOwned = owned.has(form.form_id);
   const formInstances = formInstancesFor(form, roster);
@@ -1233,6 +1360,7 @@ function yourRosterSection(form, roster, quickAdd, raids, raidsLoaded, gym, form
     <p>${ownedStarButton({ formId: form.form_id, name: form.name, owned: isOwned, route: "dex" })}</p>
     <p class="roster-summary"><span class="roster-star">★</span> ${escapeHtml(formInstances.length)} instance${formInstances.length === 1 ? "" : "s"} logged</p>
     <ul class="instance-list">${formInstances.map((instance) => quickAddInstanceRowHtml(form, instance, draft.editingId, draft.stamp)).join("")}</ul>
+    ${ocrIntakeSectionHtml(ocrIntake)}
     <div class="quickadd-card${draft.editingId !== null ? " is-editing-card" : ""}">
       ${quickAddTitleHtml(form, formInstances, draft.editingId)}
       ${quickAddBodyHtml(form, draft, offensePairs, defensePair, forms)}
@@ -1279,6 +1407,9 @@ export function renderDex({
   // In-progress quick-add/edit draft (see blankQuickAddDraft()) — owned and
   // mutated by the caller (app.js), null/omitted renders a blank "add" form.
   quickAdd = null,
+  // I3 OCR bulk-intake state (see blankOcrIntakeState()) — owned and mutated
+  // by the caller (app.js), null/omitted renders the idle entry point.
+  ocrIntake = null,
 } = {}) {
   const form = forms[formId];
   if (!form) return unknownFormShell(formId);
@@ -1300,7 +1431,7 @@ export function renderDex({
     ${evolutionSection(form, forms)}
     ${acquisitionSection(form, acquisitionGuide, forms)}
     ${availabilitySection(form, currentEggs)}
-    ${yourRosterSection(form, roster, quickAdd, raids, raidsLoaded, gym, forms)}
+    ${yourRosterSection(form, roster, quickAdd, raids, raidsLoaded, gym, forms, ocrIntake)}
   </div>`;
 }
 
