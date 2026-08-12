@@ -175,16 +175,32 @@ export async function cpBannerRetry(engine, file, documentObject = globalThis.do
     const ctx = canvas.getContext("2d");
     ctx.drawImage(bitmap, sx, sy, sw, sh, 0, 0, canvas.width, canvas.height);
     bitmap.close?.();
+    // The CP glyphs are white-on-gradient (and often partly occluded), which
+    // a plain upscale doesn't fix — binarize: bright pixels become black
+    // text on a white field, the shape tesseract is actually trained on.
+    const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+    const pixels = imageData.data;
+    for (let i = 0; i < pixels.length; i += 4) {
+      const luminance = 0.299 * pixels[i] + 0.587 * pixels[i + 1] + 0.114 * pixels[i + 2];
+      const value = luminance > 190 ? 0 : 255;
+      pixels[i] = value;
+      pixels[i + 1] = value;
+      pixels[i + 2] = value;
+      pixels[i + 3] = 255;
+    }
+    ctx.putImageData(imageData, 0, 0);
     const blob = await new Promise((resolve) => canvas.toBlob(resolve, "image/png"));
     if (!blob) return null;
     const text = await engine.recognize(blob);
     // Longest in-range digit run wins: a 4-digit CP beats any stray 2-3
-    // digit fragment that slipped past the crop.
+    // digit fragment that slipped past the crop. cp null when nothing
+    // plausible — but the raw text always comes back so the row's evidence
+    // view can show the retry RAN (vs. never ran at all).
     const runs = [...String(text).matchAll(/\d[\d, ]{0,6}/g)]
       .map((match) => Number(match[0].replace(/\D/g, "")))
       .filter((value) => value >= 10 && value <= 6000)
       .sort((a, b) => String(b).length - String(a).length || b - a);
-    return runs.length ? { cp: runs[0], raw: String(text).trim() } : null;
+    return { cp: runs.length ? runs[0] : null, raw: String(text).trim() };
   } catch {
     return null;
   }

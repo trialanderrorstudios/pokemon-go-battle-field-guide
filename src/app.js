@@ -2230,17 +2230,25 @@ export function createInteractionController({
           for (const [index, file] of files.entries()) {
             const text = await engine.recognize(file);
             const parsed = parseMonScreenText(text, { forms });
-            let rawText = text;
+            // Version stamp: a pasted raw dump must say which shell parsed it
+            // (three stale-device round-trips on 2026-08-12 without it).
+            let rawText = `[shell ${APP_SHELL_REVISION}]\n${text}`;
             if (parsed.cp === null) {
               // Full-screen pass lost the CP banner — targeted crop retry
               // (see cpBannerRetry). Merged at low confidence; the "CP not
               // found." issue dies only when the retry actually delivers.
+              // The retry's raw output is appended EITHER WAY, so evidence
+              // distinguishes "retry ran and read garbage" from "never ran".
               const banner = await api.cpBannerRetry?.(engine, file);
               if (banner?.cp) {
                 parsed.cp = banner.cp;
                 parsed.confidence.cp = "low";
                 parsed.issues = parsed.issues.filter((issue) => issue !== "CP not found.");
-                rawText = `${text}\n--- banner retry ---\n${banner.raw}`;
+              }
+              if (banner) {
+                rawText += `\n--- banner retry (${banner.cp ? `read ${banner.cp}` : "no read"}) ---\n${banner.raw}`;
+              } else {
+                rawText += "\n--- banner retry unavailable on this device ---";
               }
             }
             rows.push({
