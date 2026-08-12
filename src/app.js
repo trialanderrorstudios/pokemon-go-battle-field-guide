@@ -1148,6 +1148,10 @@ function quickAddDraftFromInstance(instance) {
     // as storage.js/instances.js — an old instance with only the binary flag
     // seeds the honest floor "base", never invents a higher tier.
     megaLevel: instance.megaLevel ?? (instance.megaUnlocked ? "base" : null),
+    // Shiny/Lucky (feature 1): same edit-prefill treatment as megaLevel
+    // above — round-trip the instance's own flags into the flat draft.
+    isShiny: Boolean(instance.isShiny),
+    isLucky: Boolean(instance.isLucky),
   };
 }
 
@@ -1678,6 +1682,21 @@ export function createInteractionController({
       const megaLevelField = target?.closest?.("[data-mega-level]");
       if (megaLevelField && ui.quickAdd) {
         ui.quickAdd.megaLevel = megaLevelField.value || null;
+        rerenderCurrent();
+        return;
+      }
+      // Shiny/Lucky quick-add checkboxes (dex.js's shinyLuckyFieldHtml) —
+      // round-trip through draft.isShiny/isLucky, same "change" event +
+      // rerenderCurrent() shape as the megaLevel select just above.
+      const shinyField = target?.closest?.("[data-quickadd-shiny]");
+      if (shinyField && ui.quickAdd) {
+        ui.quickAdd.isShiny = Boolean(shinyField.checked);
+        rerenderCurrent();
+        return;
+      }
+      const luckyField = target?.closest?.("[data-quickadd-lucky]");
+      if (luckyField && ui.quickAdd) {
+        ui.quickAdd.isLucky = Boolean(luckyField.checked);
         rerenderCurrent();
         return;
       }
@@ -2279,6 +2298,14 @@ export function createInteractionController({
               if (qa.megaLevel) updated.megaLevel = qa.megaLevel;
               else delete updated.megaLevel;
               delete updated.megaUnlocked;
+              // Same omit-when-falsy convention as megaLevel above (and as
+              // buildInstance/buildImportedInstance themselves) — a cleared
+              // checkbox actually clears the flag rather than leaving a
+              // stale true from the ...original spread.
+              if (qa.isShiny) updated.isShiny = true;
+              else delete updated.isShiny;
+              if (qa.isLucky) updated.isLucky = true;
+              else delete updated.isLucky;
               return {
                 ...current,
                 // Update in place (spec §2 I2) — views/dex.js renders
@@ -2291,12 +2318,15 @@ export function createInteractionController({
             const built = hasMoves
               ? buildInstance(form, {
                 cp: cpNumber, ivs: qa.ivs, fastMove: qa.fastMove, chargedMoves: chosenCharged, megaLevel: qa.megaLevel,
+                isShiny: qa.isShiny, isLucky: qa.isLucky,
               })
               : buildImportedInstance(form, {
                 // megaLevel rides the moveless path too — the select is
                 // interactive whether or not moves are set, and dropping it
                 // here was the last leg of the sweep's data-loss finding.
-                cp: cpNumber, ivs: qa.ivs, megaLevel: qa.megaLevel,
+                // isShiny/isLucky ride the same moveless path for the same
+                // reason.
+                cp: cpNumber, ivs: qa.ivs, megaLevel: qa.megaLevel, isShiny: qa.isShiny, isLucky: qa.isLucky,
               });
             savedId = built.id;
             await mutateRoster((current) => ({ ...current, instances: [...(current.instances ?? []), built] }));

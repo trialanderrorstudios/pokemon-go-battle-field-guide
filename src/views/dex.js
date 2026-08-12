@@ -10,6 +10,10 @@ import { spriteHtml } from "../sprites.js";
 import { typeChip } from "./types.js";
 import { candidateIvsForTier, instanceLevel, legalMoves, solveLevel } from "../instances.js";
 import { instanceLeagueRank } from "../pvp-team.js";
+// Canonical type-effectiveness table (type-chart.js's own doc comment: "do
+// not hand-author a second copy of these tables anywhere else") — same
+// source gyms.js/raids.js already derive their own effectiveness math from.
+import { resistancesOf, weaknessesOf } from "../type-chart.js";
 
 const LEAGUE_NAMES = Object.freeze({ great: "Great League", ultra: "Ultra League", master: "Master League" });
 
@@ -48,6 +52,28 @@ function statsSection(form) {
   return `<section class="dex-section" aria-labelledby="dex-stats-title">
     <h3 id="dex-stats-title">Base stats</h3>
     <p>Attack ${escapeHtml(form.base_attack)} · Defense ${escapeHtml(form.base_defense)} · Stamina ${escapeHtml(form.base_stamina)} · Bulk ${escapeHtml(bulk.toLocaleString())}</p>
+  </section>`;
+}
+
+
+// Compact weak-to/resists chip row (spec item 5), derived straight from
+// type-chart.js's own weaknessesOf/resistancesOf — the same canonical table
+// gyms.js/raids.js already compute effectiveness from — never a second type
+// chart. typeChip is the same span views/types.js's own type-matchup page
+// renders, imported once at the top of this file already.
+function weaknessRow(rows, emptyLabel) {
+  return rows.length
+    ? rows.map((row) => typeChip(row.type)).join("")
+    : `<span class="dex-weakness-empty">${escapeHtml(emptyLabel)}</span>`;
+}
+
+function weaknessSection(form) {
+  const weak = weaknessesOf([form.primary_type, form.secondary_type]);
+  const resist = resistancesOf([form.primary_type, form.secondary_type]);
+  return `<section class="dex-section" aria-labelledby="dex-weakness-title">
+    <h3 id="dex-weakness-title">Weak to / Resists</h3>
+    <p class="dex-weakness-line"><span class="dex-weakness-kicker">Weak to</span> ${weaknessRow(weak, "No weaknesses")}</p>
+    <p class="dex-weakness-line"><span class="dex-weakness-kicker">Resists</span> ${weaknessRow(resist, "No resistances")}</p>
   </section>`;
 }
 
@@ -310,30 +336,134 @@ function evolvesFrom(form, forms) {
 }
 
 
+// Walk formId -> formId -> ... to the chain's ROOT (spec item 2), following
+// evolvesFrom() upward, summing each step's candyCost along the way (spec
+// item 3: acquisitionSection's "total candy to reach this form"). Regional
+// lines (Alolan etc.) stay on their own chain for free here: evolves_to/
+// evolvesFrom are keyed by exact form_id (evolution.py's regional-line
+// fix), so an Alolan form's parent lookup can only ever land on another
+// Alolan form_id, never the mainland line.
+function evolutionAcquisition(form, forms) {
+  let current = form;
+  let totalCandy = 0;
+  // Cycle guard: curated data has no evolution cycles, but a bad record
+  // (A ⇄ B) must degrade to a truncated chain, never a hung page.
+  const visited = new Set([current.form_id]);
+  let parent = evolvesFrom(current, forms);
+  while (parent && !visited.has(parent.form_id)) {
+    visited.add(parent.form_id);
+    const step = (parent.evolves_to ?? []).find((candidate) => candidate.formId === current.form_id);
+    totalCandy += step?.candyCost ?? 0;
+    current = parent;
+    parent = evolvesFrom(current, forms);
+  }
+  return { root: current, totalCandy };
+}
+
+
+// Full downward tree from `form`, following every evolves_to step
+// (branching evolutions keep every branch — Eevee ships 8). candyCost is
+// the cost to reach THIS node from its parent (undefined at the root).
+// visited: same cycle guard as evolutionAcquisition — a bad cyclic record
+// truncates instead of recursing forever.
+function evolutionTree(form, forms, candyCost, visited = new Set()) {
+  visited.add(form.form_id);
+  return {
+    form,
+    candyCost,
+    children: (form.evolves_to ?? [])
+      .filter((step) => forms[step.formId] && !visited.has(step.formId))
+      .map((step) => evolutionTree(forms[step.formId], forms, step.candyCost, visited)),
+  };
+}
+
+
+// Branch cards cap (spec: "cap rendering sanely and say how") — Eevee's 8
+// eeveelutions would otherwise blow out the entry; same "+N more" pattern
+// OFFENSE_ROLE_CAP already uses further down this file.
+const EVOLUTION_BRANCH_CAP = 4;
+
+function evolutionNodeLabel(form, currentFormId) {
+  return form.form_id === currentFormId
+    ? `<b class="dex-evolution-current">${escapeHtml(form.name)}</b>`
+    : `<a class="safe-escape" data-route="dex" href="./#dex/${encodeURIComponent(form.form_id)}">${escapeHtml(form.name)}</a>`;
+}
+
+// Linear stretches render as one inline arrow chain ("Bagon → 25 →
+// Shelgon → 100 → Salamence" — spec's own example); a branch point (2+
+// evolves_to, e.g. Eevee) switches to a list so branches read as branches,
+// never flattened into one misleading arrow line.
+function evolutionChainHtml(node, currentFormId) {
+  const label = evolutionNodeLabel(node.form, currentFormId);
+  if (!node.children.length) return label;
+  if (node.children.length === 1) {
+    const [child] = node.children;
+    return `${label} → ${escapeHtml(child.candyCost)} → ${evolutionChainHtml(child, currentFormId)}`;
+  }
+  const shown = node.children.slice(0, EVOLUTION_BRANCH_CAP);
+  const more = node.children.length - shown.length;
+  const branches = shown.map((child) => `<li>${escapeHtml(child.candyCost)} → ${evolutionChainHtml(child, currentFormId)}</li>`).join("");
+  const moreLine = more > 0 ? `<li class="dex-evolution-more">+${escapeHtml(more)} more evolution${more === 1 ? "" : "s"}</li>` : "";
+  return `${label}<ul class="dex-evolution-branches">${branches}${moreLine}</ul>`;
+}
+
+
 function evolutionSection(form, forms) {
-  const from = evolvesFrom(form, forms);
-  const to = (form.evolves_to ?? []).map((step) => forms[step.formId]).filter(Boolean).map((target, index) => (
-    `${escapeHtml(target.name)} (${escapeHtml(form.evolves_to[index].candyCost)} Candy)`
-  ));
-  if (!from && !to.length) return "";
+  const { root } = evolutionAcquisition(form, forms);
+  const isStandalone = root.form_id === form.form_id && !(form.evolves_to ?? []).length;
+  if (isStandalone) return "";
+  const tree = evolutionTree(root, forms);
   return `<section class="dex-section" aria-labelledby="dex-evolution-title">
     <h3 id="dex-evolution-title">Evolution</h3>
-    ${from ? `<p>Evolves from ${escapeHtml(from.name)}</p>` : ""}
-    ${to.length ? `<p>Evolves to ${to.join(" / ")}</p>` : ""}
+    <p class="dex-evolution-chain">${evolutionChainHtml(tree, form.form_id)}</p>
   </section>`;
 }
 
 
-function acquisitionSection(form, acquisitionGuide) {
-  if (!acquisitionGuide) return `<section class="dex-section" aria-labelledby="dex-acquisition-title"><h3 id="dex-acquisition-title">Acquisition</h3><p class="dex-loading">Loading…</p></section>`;
+// Clarity re-lead (spec item 3): with the chain known (evolutionAcquisition,
+// shared with evolutionSection above), lead with the actionable version —
+// which form you actually obtain (the chain root, usually a wild spawn/egg,
+// never something you evolve into) and the total candy to walk that chain
+// up to THIS entry. Root === this form (a base Pokémon, or one with no
+// evolves_to) needs no candy line — you already obtain it directly.
+function acquisitionLeadLine(form, forms) {
+  const { root, totalCandy } = evolutionAcquisition(form, forms);
+  if (root.form_id === form.form_id) return "";
+  const candyLine = totalCandy > 0 ? ` — ${escapeHtml(totalCandy)} total Candy to reach ${escapeHtml(form.name)}` : "";
+  return `<p class="dex-acquisition-lead">You obtain <b>${escapeHtml(root.name)}</b>${candyLine}.</p>`;
+}
+
+
+// Buddy km is earn-RATE after ownership, not a bare stat (operator
+// correction, spec item 4): candy per walk cycle, and — once mega-evolved,
+// for species that ever get a mega/primal form — Mega Energy at that same
+// distance. hasMegaSibling is the same species-level check
+// megaLevelFieldHtml further down this file already uses. No new data.
+function buddyDistanceLine(form, forms) {
+  if (!Number.isFinite(form.buddy_distance_km)) return "";
+  const megaNote = hasMegaSibling(form, forms) ? " · earns Mega Energy at the same distance once mega-evolved" : "";
+  return `<p>Buddy: 1 candy per ${escapeHtml(form.buddy_distance_km)} km walked${megaNote}</p>`;
+}
+
+
+function acquisitionSection(form, acquisitionGuide, forms) {
+  const leadLine = acquisitionLeadLine(form, forms);
+  if (!acquisitionGuide) {
+    return `<section class="dex-section" aria-labelledby="dex-acquisition-title">
+      <h3 id="dex-acquisition-title">Acquisition</h3>
+      ${leadLine}
+      <p class="dex-loading">Loading…</p>
+    </section>`;
+  }
   const itemEntry = (acquisitionGuide.items?.entries ?? []).find((entry) => (entry.neededBy ?? []).some((row) => row.formId === form.form_id));
   const itemLine = itemEntry
     ? `<p>Needs ${escapeHtml(itemEntry.item)} to evolve into${itemEntry.confidence === "handResearched" ? ` <span class="acq-flag">hand-researched</span>` : ""}.</p>`
     : "";
-  const buddyLine = Number.isFinite(form.buddy_distance_km) ? `<p>Buddy distance: ${escapeHtml(form.buddy_distance_km)} km</p>` : "";
-  if (!itemLine && !buddyLine) return "";
+  const buddyLine = buddyDistanceLine(form, forms);
+  if (!leadLine && !itemLine && !buddyLine) return "";
   return `<section class="dex-section" aria-labelledby="dex-acquisition-title">
     <h3 id="dex-acquisition-title">Acquisition</h3>
+    ${leadLine}
     ${itemLine}
     ${buddyLine}
   </section>`;
@@ -375,6 +505,10 @@ export function blankQuickAddDraft() {
   return {
     cp: "", ivs: { atk: null, def: null, sta: null }, fastMove: null, chargedMoves: [null, null],
     editingId: null, removeConfirmPending: false, stamp: null, megaLevel: null,
+    // Shiny/Lucky (feature 1): same flat-draft, mirror-megaLevel shape —
+    // booleans, never null, so the checkbox's own `checked` state always has
+    // a definite value to render from.
+    isShiny: false, isLucky: false,
   };
 }
 
@@ -662,11 +796,22 @@ function optimalBlockHtml(form, gym, raids, raidsLoaded, formInstances) {
       : `<div class="optimal-head"><span class="optimal-kind">Defense · Gym</span></div><p class="optimal-why">Not ranked as a gym defender in this release.</p>`;
   const defenseYours = `${defenseEliteLine(defenseRow)}${optimalYoursHtml(formInstances, (instance) => instanceDefenseDiff(form, instance, defenseRow))}`;
 
-  return `<h3 class="section-title">Optimal</h3>
+  return `<h3 id="dex-optimal-title" class="section-title">Optimal</h3>
     <div class="optimal-block">
       <div class="optimal-row" data-kind="offense">${offenseBody}<div class="optimal-yours">${offenseYours}</div></div>
       <div class="optimal-row" data-kind="defense">${defenseBody}<div class="optimal-yours">${defenseYours}</div></div>
     </div>`;
+}
+
+
+// Top-level Optimal section (spec item 5 reorder) — same optimalBlockHtml
+// content as before, now its own dex-section between the weakness row and
+// Gym defense instead of living inside Your roster, so it renders whether
+// or not the operator ever scrolls to the roster/quick-add card below.
+function optimalSection(form, gym, raids, raidsLoaded, formInstances) {
+  return `<section class="dex-section" aria-labelledby="dex-optimal-title">
+    ${optimalBlockHtml(form, gym, raids, raidsLoaded, formInstances)}
+  </section>`;
 }
 
 
@@ -832,6 +977,23 @@ function megaLevelFieldHtml(form, forms, level) {
 }
 
 
+// Shiny/Lucky quick-add toggles (feature 1, operator report): the grid's
+// long-press sheet already has these; quick-add didn't. Native checkboxes
+// (not the instance sheet's own click-toggle buttons — data-instance-shiny-
+// toggle/data-instance-lucky-toggle — those belong to a separate modal, out
+// of this lane) in the same field-row shape as megaLevelFieldHtml just
+// above: a label + control pair, always rendered (unlike Mega level, every
+// form can be shiny/lucky). Nickname deliberately stays out — quick-add
+// stays quick; the instance sheet ("Shiny, lucky, nickname & more →") has
+// it.
+function shinyLuckyFieldHtml(draft) {
+  return `<div class="shiny-lucky-field">
+    <label class="shiny-lucky-option"><input type="checkbox" data-quickadd-shiny${draft.isShiny ? " checked" : ""}> Shiny</label>
+    <label class="shiny-lucky-option"><input type="checkbox" data-quickadd-lucky${draft.isLucky ? " checked" : ""}> Lucky</label>
+  </div>`;
+}
+
+
 function quickAddBodyHtml(form, draft, offensePairs, defensePair, forms) {
   // Move-select glyphs ("⚔ optimal offense", spec §5) mark against the
   // single strongest role only — the dropdown option text has no room to
@@ -913,6 +1075,7 @@ function quickAddBodyHtml(form, draft, offensePairs, defensePair, forms) {
     + ivFieldHtml("HP", "sta", ivs.sta)
     + levelHint
     + megaLevelFieldHtml(form, forms, draft.megaLevel)
+    + shinyLuckyFieldHtml(draft)
     + `<p class="quickadd-moves-title">Moves</p>`
     + useOptimalHtml
     + fastFieldHtml + charged1FieldHtml + charged2FieldHtml
@@ -943,7 +1106,11 @@ function quickAddInstanceRowHtml(form, instance, editingId, stamp) {
 }
 
 
-function rosterSection(form, roster, quickAdd, raids, raidsLoaded, gym, forms) {
+// "Your roster" — the quick-add/edit card, roster list, and its own links.
+// Renamed from rosterSection (spec item 5 reorder split the Optimal block
+// out into its own top-level optimalSection() above, which used to open
+// this same section).
+function yourRosterSection(form, roster, quickAdd, raids, raidsLoaded, gym, forms) {
   const owned = new Set(roster.ownedFormIds ?? []);
   const isOwned = owned.has(form.form_id);
   const formInstances = formInstancesFor(form, roster);
@@ -954,7 +1121,6 @@ function rosterSection(form, roster, quickAdd, raids, raidsLoaded, gym, forms) {
   const defensePair = defenseRow ? { fastMove: defenseRow.bestFastMove, chargedMove: defenseRow.bestChargedMove } : null;
 
   return `<section class="dex-section" aria-labelledby="dex-roster-title">
-    ${optimalBlockHtml(form, gym, raids, raidsLoaded, formInstances)}
     <h3 id="dex-roster-title" class="section-title">Your roster</h3>
     <p>${ownedStarButton({ formId: form.form_id, name: form.name, owned: isOwned, route: "dex" })}</p>
     <p class="roster-summary"><span class="roster-star">★</span> ${escapeHtml(formInstances.length)} instance${formInstances.length === 1 ? "" : "s"} logged</p>
@@ -1008,19 +1174,25 @@ export function renderDex({
 } = {}) {
   const form = forms[formId];
   if (!form) return unknownFormShell(formId);
+  // Section order (spec item 5): identity/stats first, then the hundo/boss
+  // CP block and the weakness row (both quick "what am I looking at" facts),
+  // then the optimal/gym/raid/pvp performance sections, then the
+  // reference/acquisition tail, roster last.
   return `<div class="more-view dex-view">
     <a class="safe-escape" href="./#more/collection" data-route="more" data-view="collection">Back to Collection</a>
     ${identitySection(form, forms)}
     ${statsSection(form)}
-    ${rosterSection(form, roster, quickAdd, raids, raidsLoaded, gym, forms)}
+    ${bossSection(form, raidTargetTool)}
+    ${weaknessSection(form)}
+    ${optimalSection(form, gym, raids, raidsLoaded, formInstancesFor(form, roster))}
     ${gymSection(form, gym)}
     ${raidAttackerSection(form, raids, raidsLoaded)}
-    ${bossSection(form, raidTargetTool)}
     ${pvpSection(form, pvp, roster, raids)}
     ${movesSection(form)}
     ${evolutionSection(form, forms)}
-    ${acquisitionSection(form, acquisitionGuide)}
+    ${acquisitionSection(form, acquisitionGuide, forms)}
     ${availabilitySection(form, currentEggs)}
+    ${yourRosterSection(form, roster, quickAdd, raids, raidsLoaded, gym, forms)}
   </div>`;
 }
 

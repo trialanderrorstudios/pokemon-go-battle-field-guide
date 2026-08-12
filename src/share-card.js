@@ -1,18 +1,33 @@
-// Share cards (round 10): canvas-rendered PNGs for the share sheet, drawn in
+// Share cards (round 11): canvas-rendered PNGs for the share sheet, drawn in
 // the dex chassis identity (chassis red / dark screen / mono+rounded type)
 // from the mockup contract — no DOM-screenshot library, just 2D canvas
 // drawing so this stays a dependency-free leaf module.
 //
-// Three card types, one per existing data source — never fabricates a stat,
-// only draws what's already stored:
+// Five card types, one per existing data source — never fabricates a stat,
+// only draws what's already stored (or, for gymLineup's reference CP, what's
+// computed from real base stats via the app's own CP formula):
 //   gymDefense     — longest-defense leaderboard row (gym-defense-log.js)
 //   triageSummary  — triage bucket counts (triage.js)
 //   instance       — a single instance's CP/IVs (instances.js) + sprite
+//   raidPlan       — "Tonight's plan": Home's featured boss + owned counters
+//                    (views/home.js's renderFieldBriefing already computes
+//                    `featured`/`plan`/the rotation `boss` row — this reuses
+//                    that shape, it does not re-derive it)
+//   gymLineup      — "Gym defense": the 6 placed leads from gyms.json's
+//                    gym.lineupLeads (3 fixed anchors + 3 computed)
 //
 // Each type has a `*CardData` guard that returns null when the underlying
 // data doesn't exist yet — the view layer uses that to decide whether to
 // offer the "Share card" button at all.
+//
+// Per mockup docs/mockups/delight-2026-08-11/F2-share-cards-revisited.html:
+// only the instrument (dense mono-table) tone is implemented for raidPlan/
+// gymLineup. The playful sprite-grid alternate face doubles each card's
+// drawing code for a purely presentational variant — not cheap given this
+// module's plain-2D-canvas, no-second-exporter constraint — so it's left
+// for a follow-up if the operator wants the toggle wired.
 import { TEAM_SET } from "./storage.js";
+import { bestInstanceForForm, calculateCp } from "./instances.js";
 import { spritePath, TYPE_COLORS } from "./sprites.js";
 import { TRIAGE_BUCKETS } from "./triage.js";
 import { formatDefenseDuration } from "./views/gyms.js";
@@ -23,6 +38,8 @@ export const CARD_SPECS = Object.freeze({
   gymDefense: Object.freeze({ width: CARD_WIDTH, height: CARD_HEIGHT }),
   triageSummary: Object.freeze({ width: CARD_WIDTH, height: CARD_HEIGHT }),
   instance: Object.freeze({ width: CARD_WIDTH, height: CARD_HEIGHT }),
+  raidPlan: Object.freeze({ width: CARD_WIDTH, height: CARD_HEIGHT }),
+  gymLineup: Object.freeze({ width: CARD_WIDTH, height: CARD_HEIGHT }),
 });
 
 // Literal copies of the --dx-* tokens in web/styles/app.css — canvas 2D
@@ -36,6 +53,9 @@ export const PALETTE = Object.freeze({
   text: "#eef2ff",
   muted: "#97a2c4",
   lens: "#35c4ff",
+  good: "#45e07c",
+  warn: "#ffb84d",
+  bad: "#ff6b7a",
   team: Object.freeze({ valor: "#ff5c66", mystic: "#5599e6", instinct: "#e8c220" }),
 });
 export const MONO = "ui-monospace, 'SF Mono', Menlo, monospace";
@@ -81,6 +101,64 @@ export function instanceCardData(instance, form) {
     isShiny: Boolean(instance.isShiny),
     isLucky: Boolean(instance.isLucky),
     spritePath: spritePath(form.form_id, { [form.form_id]: form }),
+  };
+}
+
+// "Tonight's plan": Home's featured raid boss + the sender's owned counters.
+// `featured`/`plan`/`boss` are the same objects renderFieldBriefing already
+// computes (views/home.js's pickFeaturedBoss + buildRaidPlan(), and the
+// rotation row from currentBosses.bosses) — this reshapes them for canvas,
+// it doesn't re-derive the boss pick or the counter ranking.
+// Counter CP is the real logged-instance CP when the sender has one
+// (bestInstanceForForm, same source as home.js's briefingBringCard) —
+// otherwise null, drawn as "Owned" rather than a guessed number.
+export function raidPlanCardData(featured, plan, boss, roster, forms) {
+  if (!featured?.formId || !plan?.target || !Array.isArray(plan.ownedCounters) || !plan.ownedCounters.length) {
+    return null;
+  }
+  const megaLabel = String(forms?.[featured.formId]?.form ?? "").toUpperCase().startsWith("MEGA") ? "Mega" : null;
+  return {
+    name: featured.name ?? forms?.[featured.formId]?.name ?? featured.formId,
+    megaLabel,
+    bossTypes: plan.target.bossTypes ?? [],
+    endsAt: typeof boss?.endsAt === "string" ? boss.endsAt : null,
+    weather: plan.weather ?? "None",
+    bossBoostedNow: Boolean(plan.bossBoostedNow),
+    counters: plan.ownedCounters.slice(0, 6).map((counter) => ({
+      pokemon: forms?.[counter.formId]?.name ?? counter.pokemon,
+      attackingType: counter.attackingType,
+      rank: counter.rank,
+      cp: bestInstanceForForm(roster?.instances, counter.formId)?.cp ?? null,
+    })),
+  };
+}
+
+// "Gym defense": the six leads from gyms.json's `gym.lineupLeads` (3 fixed
+// anchors + 3 computed — see gym_ranking.py's lineup_lead_summaries), the
+// app's own picker verbatim. `gymName` is only ever a name the sender
+// actually typed (e.g. an in-progress defense-log entry) — this app has no
+// real-world gym location data, so an absent name draws no placeholder.
+// CP is a Level 40 hundo (15/15/15) reference figure computed from the
+// form's real base stats via the app's own CP formula — the app doesn't
+// track what a reader actually placed, so this is the same "computed, not
+// invented" convention raid-target.js's hundoCP fields use, not a real
+// per-player value.
+export function gymLineupCardData(lineupLeads, team, forms, gymName = null) {
+  const leads = (lineupLeads?.leads ?? []).map((row) => row.lead).filter(Boolean).slice(0, 6);
+  if (!leads.length) return null;
+  return {
+    gymName: gymName ? String(gymName).trim() || null : null,
+    team: TEAM_SET.has(team) ? team : null,
+    leads: leads.map((lead) => {
+      const form = forms?.[lead.formId];
+      return {
+        pokemon: form?.name ?? lead.pokemon,
+        rank: lead.rank,
+        tier: lead.tier ?? null,
+        score: lead.score,
+        cp: form ? calculateCp(form, { atk: 15, def: 15, sta: 15 }, 40) : null,
+      };
+    }),
   };
 }
 
@@ -195,6 +273,111 @@ async function drawInstanceCard(ctx, { width }, data, documentObject) {
   ivBar(ctx, 120, 1000, width - 240, "STA", data.ivs.sta);
 }
 
+function drawRaidPlanCard(ctx, { width }, data) {
+  drawChassis(ctx, width, CARD_HEIGHT, "Tonight's plan");
+  ctx.textBaseline = "alphabetic";
+  ctx.fillStyle = PALETTE.text;
+  ctx.font = `700 56px ${DISPLAY}`;
+  ctx.fillText(data.megaLabel ? `${data.name} (${data.megaLabel})` : data.name, 120, 210);
+  ctx.fillStyle = PALETTE.lens;
+  ctx.font = `700 30px ${MONO}`;
+  ctx.fillText(data.bossTypes.join(" / ").toUpperCase(), 120, 250);
+  let y = 310;
+  if (data.endsAt) {
+    ctx.fillStyle = PALETTE.warn;
+    ctx.font = `700 28px ${MONO}`;
+    ctx.fillText(`Rotation ends ${data.endsAt}`, 120, y);
+    y += 44;
+  }
+  if (data.weather !== "None") {
+    ctx.fillStyle = PALETTE.muted;
+    ctx.font = `26px ${MONO}`;
+    ctx.fillText(`Weather: ${data.weather}${data.bossBoostedNow ? " — boss boosted" : ""}`, 120, y);
+    y += 44;
+  }
+  ctx.fillStyle = PALETTE.muted;
+  ctx.font = `700 26px ${MONO}`;
+  ctx.fillText("YOUR OWNED COUNTERS", 120, y + 30);
+  y += 60;
+  const rowWidth = width - 240;
+  for (const counter of data.counters) {
+    ctx.fillStyle = PALETTE.panel;
+    ctx.fillRect(120, y, rowWidth, 104);
+    ctx.textBaseline = "middle";
+    ctx.fillStyle = PALETTE.text;
+    ctx.font = `700 34px ${DISPLAY}`;
+    ctx.fillText(counter.pokemon, 150, y + 36);
+    ctx.fillStyle = PALETTE.muted;
+    ctx.font = `24px ${MONO}`;
+    ctx.fillText(`${counter.attackingType} · rank #${counter.rank}`, 150, y + 76);
+    ctx.textAlign = "right";
+    ctx.fillStyle = counter.cp ? PALETTE.lens : PALETTE.muted;
+    ctx.font = `700 32px ${MONO}`;
+    ctx.fillText(counter.cp ? `CP ${counter.cp}` : "Owned", 120 + rowWidth - 20, y + 52);
+    ctx.textAlign = "left";
+    ctx.textBaseline = "alphabetic";
+    y += 120;
+  }
+}
+
+// S/A read as strong, C as middling, F/D as weak — a presentational
+// shorthand for the card's tier chip color, not the app's own tier-band
+// cutoffs (gym_ranking.py's are score-based, not exposed as a color map).
+function tierColor(tier) {
+  if (tier === "S+" || tier === "S" || tier === "A") return PALETTE.good;
+  if (tier === "F" || tier === "D") return PALETTE.bad;
+  if (tier) return PALETTE.warn;
+  return PALETTE.muted;
+}
+
+function drawGymLineupCard(ctx, { width }, data) {
+  drawChassis(ctx, width, CARD_HEIGHT, "Gym defense");
+  ctx.textBaseline = "alphabetic";
+  ctx.fillStyle = PALETTE.text;
+  ctx.font = `700 52px ${DISPLAY}`;
+  ctx.fillText(data.gymName ?? "6 leads placed", 120, 210);
+  let y = 260;
+  if (data.team) {
+    ctx.fillStyle = PALETTE.team[data.team];
+    ctx.font = `700 30px ${MONO}`;
+    ctx.fillText(`Team ${data.team.toUpperCase()}`, 120, y);
+    y += 40;
+  }
+  ctx.fillStyle = PALETTE.muted;
+  ctx.font = `26px ${MONO}`;
+  ctx.fillText("gym.lineupLeads · 3 fixed anchors + 3 computed", 120, y);
+  y += 60;
+  const rowWidth = width - 240;
+  for (const lead of data.leads) {
+    ctx.fillStyle = PALETTE.panel;
+    ctx.fillRect(120, y, rowWidth, 134);
+    ctx.textBaseline = "middle";
+    ctx.fillStyle = PALETTE.text;
+    ctx.font = `700 38px ${DISPLAY}`;
+    ctx.fillText(lead.pokemon, 150, y + 38);
+    ctx.fillStyle = tierColor(lead.tier);
+    ctx.font = `700 28px ${MONO}`;
+    ctx.fillText(`Tier ${lead.tier ?? "—"} · solo rank #${lead.rank}`, 150, y + 84);
+    if (Number.isFinite(lead.score)) {
+      ctx.fillStyle = PALETTE.muted;
+      ctx.font = `24px ${MONO}`;
+      ctx.fillText(`Score ${lead.score}`, 150, y + 118);
+    }
+    if (lead.cp) {
+      ctx.textAlign = "right";
+      ctx.fillStyle = PALETTE.lens;
+      ctx.font = `700 32px ${MONO}`;
+      ctx.fillText(`${lead.cp} CP`, 120 + rowWidth - 20, y + 50);
+      ctx.fillStyle = PALETTE.muted;
+      ctx.font = `20px ${MONO}`;
+      ctx.fillText("Lv40 hundo ref", 120 + rowWidth - 20, y + 88);
+      ctx.textAlign = "left";
+    }
+    ctx.textBaseline = "alphabetic";
+    y += 150;
+  }
+}
+
 function loadImage(documentObject, src) {
   return new Promise((resolve) => {
     const img = documentObject.createElement("img");
@@ -215,6 +398,8 @@ function canvasToBlob(canvas) {
 function cardFilename(type, data) {
   if (type === "instance") return `field-guide-${safeSlug(data.name)}.png`;
   if (type === "gymDefense") return `field-guide-gym-defense-${safeSlug(data.playerName)}.png`;
+  if (type === "raidPlan") return `field-guide-tonights-plan-${safeSlug(data.name)}.png`;
+  if (type === "gymLineup") return `field-guide-gym-lineup-${safeSlug(data.gymName ?? "leads")}.png`;
   return "field-guide-triage.png";
 }
 
@@ -233,6 +418,8 @@ export async function renderShareCard(type, data, { documentObject = globalThis.
   if (type === "gymDefense") drawGymDefenseCard(ctx, spec, data);
   else if (type === "triageSummary") drawTriageSummaryCard(ctx, spec, data);
   else if (type === "instance") await drawInstanceCard(ctx, spec, data, documentObject);
+  else if (type === "raidPlan") drawRaidPlanCard(ctx, spec, data);
+  else if (type === "gymLineup") drawGymLineupCard(ctx, spec, data);
   else return null;
   const blob = await canvasToBlob(canvas);
   if (!blob || !blob.size) return null;
