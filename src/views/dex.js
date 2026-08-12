@@ -10,6 +10,7 @@ import { spriteHtml } from "../sprites.js";
 import { typeChip } from "./types.js";
 import { candidateIvsForTier, instanceLevel, legalMoves, solveLevel } from "../instances.js";
 import { instanceLeagueRank } from "../pvp-team.js";
+import { showcaseEstimate } from "../showcase.js";
 // Canonical type-effectiveness table (type-chart.js's own doc comment: "do
 // not hand-author a second copy of these tables anywhere else") — same
 // source gyms.js/raids.js already derive their own effectiveness math from.
@@ -125,8 +126,15 @@ function gymSection(form, gym) {
        <p>Best moveset: ${moveLink(row.bestFastMove)} + ${moveLink(row.bestChargedMove)}</p>`
     : "";
   const bands = bandPlacements(form, gym);
+  // Defensive framing, matching gyms.js's bandCopy: the raw data title
+  // ("Anti-Grass") reads as "good pick AGAINST grass on offense" — operator
+  // misread it exactly that way (2026-08-12). These bands answer "which
+  // defender do I place when grass ATTACKERS are coming".
+  const bandLabel = (band) => (band.kind === "anti" && band.threatType
+    ? `Beats ${band.threatType} attackers (resists ${band.threatType} on defense)`
+    : band.title);
   const bandLines = bands.length
-    ? `<p>${bands.map((placement) => `Placed in <a class="safe-escape" data-route="gyms" data-view="defend" href="./#gyms/defend">${escapeHtml(placement.band.title)}</a>`).join(" · ")}</p>`
+    ? `<p>${bands.map((placement) => `Placed in <a class="safe-escape" data-route="gyms" data-view="defend" href="./#gyms/defend">${escapeHtml(bandLabel(placement.band))}</a>`).join(" · ")}</p>`
     : "";
   return `<section class="dex-section" aria-labelledby="dex-gym-title">
     <h3 id="dex-gym-title">Gym defense</h3>
@@ -509,6 +517,12 @@ export function blankQuickAddDraft() {
     // booleans, never null, so the checkbox's own `checked` state always has
     // a definite value to render from.
     isShiny: false, isLucky: false,
+    // sizeClass/buddyLevel (round 15 fields, storage.js/instances.js already
+    // accept them): same null-default enum shape as megaLevel above.
+    // heightM/weightKg mirror `cp` above — raw typed string, parsed at save
+    // time. canDynamax/canGigantamax mirror isShiny/isLucky — booleans.
+    sizeClass: null, buddyLevel: null, heightM: "", weightKg: "",
+    canDynamax: false, canGigantamax: false,
   };
 }
 
@@ -994,6 +1008,83 @@ function shinyLuckyFieldHtml(draft) {
 }
 
 
+// Size class (operator report, round 15): the in-game appraisal's XXS-XXL
+// size tier — bounded choices, so a native <select> picker wheel, same
+// family as megaLevelFieldHtml/MEGA_LEVELS above. Also the input the
+// showcase-score estimate's XXL bonus reads (showcase.js). Empty value =
+// "Not set" — most saved instances never had their size tier recorded.
+const SIZE_CLASSES = Object.freeze([
+  { value: "", label: "Not set" },
+  { value: "xxs", label: "XXS" },
+  { value: "xs", label: "XS" },
+  { value: "avg", label: "Average" },
+  { value: "xl", label: "XL" },
+  { value: "xxl", label: "XXL" },
+]);
+
+function sizeClassLabel(value) {
+  return SIZE_CLASSES.find((entry) => entry.value === value)?.label ?? value;
+}
+
+function sizeClassFieldHtml(value) {
+  const selected = value ?? "";
+  const options = SIZE_CLASSES.map(({ value: v, label }) => `<option value="${v}"${v === selected ? " selected" : ""}>${label}</option>`).join("");
+  return `<div class="size-class-field">
+    <label class="size-class-field-label" for="size-class-select">Size (XXS-XXL)</label>
+    <select id="size-class-select" class="size-class-select" data-size-class>${options}</select>
+  </div>`;
+}
+
+
+// Buddy adventure level — same bounded-choice <select> shape as size class
+// above. Feeds the "best-buddy evaluates at its boosted level" PvP rank
+// display (out of this lane; see dex.js's file-header dependency note).
+const BUDDY_LEVELS = Object.freeze([
+  { value: "", label: "Not set" },
+  { value: "good", label: "Good Buddy" },
+  { value: "great", label: "Great Buddy" },
+  { value: "ultra", label: "Ultra Buddy" },
+  { value: "best", label: "Best Buddy" },
+]);
+
+function buddyLevelFieldHtml(value) {
+  const selected = value ?? "";
+  const options = BUDDY_LEVELS.map(({ value: v, label }) => `<option value="${v}"${v === selected ? " selected" : ""}>${label}</option>`).join("");
+  return `<div class="buddy-level-field">
+    <label class="buddy-level-field-label" for="buddy-level-select">Buddy level</label>
+    <select id="buddy-level-select" class="buddy-level-select" data-buddy-level>${options}</select>
+  </div>`;
+}
+
+
+// Observed height/weight (m/kg) — the showcase-score estimate's raw inputs
+// (showcase.js). Same numeric-text-field pattern as the CP field above
+// (type="text" + inputmode, no spinner). "decimal" (not "numeric") opens the
+// keypad with a decimal point, since these are never whole numbers in
+// practice (0.84m, 16.54kg).
+function sizeMeasurementFieldHtml(draft) {
+  const heightM = draft.heightM ?? "";
+  const weightKg = draft.weightKg ?? "";
+  return `<label class="height-input">Height (m)<input type="text" inputmode="decimal" autocomplete="off" data-height-input value="${escapeHtml(heightM)}"></label>
+    <label class="weight-input">Weight (kg)<input type="text" inputmode="decimal" autocomplete="off" data-weight-input value="${escapeHtml(weightKg)}"></label>`;
+}
+
+
+// Dynamax/Gigantamax capability toggles (operator report). This release's
+// frozen Game Master ships no per-form Dynamax/Gigantamax capability field
+// (verified: no such key anywhere in src/pogo_encyclopedia's PokemonForm or
+// the assemble pipeline) — so these render for EVERY form, ungated, rather
+// than fabricating a capability check the data doesn't back. Upgrade path:
+// gate on form.canDynamax if/when the pipeline ever ships one. Same native-
+// checkbox field-row family as shinyLuckyFieldHtml above.
+function dynamaxFieldHtml(draft) {
+  return `<div class="dynamax-field">
+    <label class="dynamax-option"><input type="checkbox" data-quickadd-dynamax${draft.canDynamax ? " checked" : ""}> Can Dynamax</label>
+    <label class="dynamax-option"><input type="checkbox" data-quickadd-gigantamax${draft.canGigantamax ? " checked" : ""}> Can Gigantamax</label>
+  </div>`;
+}
+
+
 function quickAddBodyHtml(form, draft, offensePairs, defensePair, forms) {
   // Move-select glyphs ("⚔ optimal offense", spec §5) mark against the
   // single strongest role only — the dropdown option text has no room to
@@ -1076,6 +1167,10 @@ function quickAddBodyHtml(form, draft, offensePairs, defensePair, forms) {
     + levelHint
     + megaLevelFieldHtml(form, forms, draft.megaLevel)
     + shinyLuckyFieldHtml(draft)
+    + sizeClassFieldHtml(draft.sizeClass)
+    + sizeMeasurementFieldHtml(draft)
+    + buddyLevelFieldHtml(draft.buddyLevel)
+    + dynamaxFieldHtml(draft)
     + `<p class="quickadd-moves-title">Moves</p>`
     + useOptimalHtml
     + fastFieldHtml + charged1FieldHtml + charged2FieldHtml
@@ -1096,10 +1191,23 @@ function quickAddInstanceRowHtml(form, instance, editingId, stamp) {
   const isEditing = instance.id === editingId;
   const showStamp = stamp && stamp.instanceId === instance.id;
   const editAttr = isEditing ? "" : ` data-edit-instance="${escapeHtml(instance.id)}"`;
+  // Size badge (round 15): only rendered when a size tier was actually
+  // recorded — reuses .acq-flag, the existing provenance-pill convention
+  // (see acquisitionSection's "hand-researched" flag), not a new class.
+  const sizeBadge = instance.sizeClass
+    ? ` <span class="acq-flag">${escapeHtml(sizeClassLabel(instance.sizeClass))}</span>` : "";
+  // Showcase estimate line: only when both the observed height/weight AND
+  // this form's frozen-source baseline exist — showcaseEstimate() itself is
+  // the single honesty gate (see showcase.js), never a second null-check
+  // duplicating its logic here.
+  const estimate = showcaseEstimate(form, instance);
+  const showcaseLine = estimate
+    ? `<p class="dex-showcase-estimate">Showcase estimate: ${escapeHtml(estimate.label)}</p>` : "";
   return `<li class="instance-row${isEditing ? " is-editing" : ""}"${editAttr}>
     ${showStamp ? `<span class="saved-stamp">${escapeHtml(stamp.text)}</span>` : ""}
-    <h4>${escapeHtml(instance.nickname || form.name)}</h4>
+    <h4>${escapeHtml(instance.nickname || form.name)}${sizeBadge}</h4>
     <p>CP ${escapeHtml(instance.cp)} · ${escapeHtml(instance.ivs.atk)}/${escapeHtml(instance.ivs.def)}/${escapeHtml(instance.ivs.sta)} IV${level !== null ? ` · Level ${escapeHtml(level)}` : ""}</p>
+    ${showcaseLine}
     <p>${movesLine}</p>
     <button type="button" class="instance-edit-btn"${editAttr}${isEditing ? " disabled" : ""}>${isEditing ? "Editing…" : "Edit"}</button>
   </li>`;

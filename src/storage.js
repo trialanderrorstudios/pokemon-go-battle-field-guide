@@ -85,11 +85,18 @@ const EMPTY_ROSTER = Object.freeze({
 const INSTANCE_FIELDS = new Set([
   "id", "formId", "cp", "ivs", "fastMove", "chargedMoves", "nickname", "addedAt", "updatedAt",
   "isShiny", "isLucky", "megaUnlocked", "megaLevel",
+  "sizeClass", "heightM", "weightKg", "buddyLevel", "canDynamax", "canGigantamax",
 ]);
 // Mega Evolution level tiers (round 14): megaUnlocked's successor. "base" is
 // the honest floor for a legacy megaUnlocked:true backup that never recorded
 // how far the player got.
 const MEGA_LEVELS = new Set(["base", "high", "max"]);
+// Showcase/appraisal size class (round 15) — same optional-enum shape as
+// MEGA_LEVELS. Feeds the showcase-score estimate in instances.js; "avg" is
+// the non-extreme majority case, xxs/xs/xl/xxl are the appraisal-screen tiers.
+const SIZE_CLASSES = new Set(["xxs", "xs", "avg", "xl", "xxl"]);
+// Buddy adventure level (round 15) — optional enum, same shape as sizeClass.
+const BUDDY_LEVELS = new Set(["good", "great", "ultra", "best"]);
 
 
 export class RosterImportError extends Error {
@@ -301,6 +308,44 @@ function normalizeInstance(value, index, validFormIds) {
   // honest floor "base" — we know it was unlocked, not how far. megaLevel
   // wins if both are somehow present.
   const megaLevel = value.megaLevel ?? (value.megaUnlocked ? "base" : undefined);
+  // sizeClass/heightM/weightKg (round 15): the showcase-score estimate's raw
+  // inputs (see instances.js) — optional, same omit-when-absent convention as
+  // megaLevel. heightM/weightKg are the observed (displayed) values, not the
+  // species baseline, so they must be positive — a Pokemon can't have zero or
+  // negative height/weight.
+  if (value.sizeClass !== undefined && !SIZE_CLASSES.has(value.sizeClass)) {
+    throw new RosterImportError(
+      `instances[${index}].sizeClass must be "xxs", "xs", "avg", "xl", or "xxl" if present.`, "invalid_instance", { field: "instances", index },
+    );
+  }
+  if (value.heightM !== undefined && (typeof value.heightM !== "number" || !Number.isFinite(value.heightM) || value.heightM <= 0)) {
+    throw new RosterImportError(
+      `instances[${index}].heightM must be a positive finite number if present.`, "invalid_instance", { field: "instances", index },
+    );
+  }
+  if (value.weightKg !== undefined && (typeof value.weightKg !== "number" || !Number.isFinite(value.weightKg) || value.weightKg <= 0)) {
+    throw new RosterImportError(
+      `instances[${index}].weightKg must be a positive finite number if present.`, "invalid_instance", { field: "instances", index },
+    );
+  }
+  // buddyLevel (round 15): optional enum, same shape as megaLevel/sizeClass.
+  if (value.buddyLevel !== undefined && !BUDDY_LEVELS.has(value.buddyLevel)) {
+    throw new RosterImportError(
+      `instances[${index}].buddyLevel must be "good", "great", "ultra", or "best" if present.`, "invalid_instance", { field: "instances", index },
+    );
+  }
+  // canDynamax/canGigantamax (round 15): optional booleans, omit-when-false —
+  // same convention as isShiny/isLucky.
+  if (value.canDynamax !== undefined && typeof value.canDynamax !== "boolean") {
+    throw new RosterImportError(
+      `instances[${index}].canDynamax must be a boolean if present.`, "invalid_instance", { field: "instances", index },
+    );
+  }
+  if (value.canGigantamax !== undefined && typeof value.canGigantamax !== "boolean") {
+    throw new RosterImportError(
+      `instances[${index}].canGigantamax must be a boolean if present.`, "invalid_instance", { field: "instances", index },
+    );
+  }
   if (typeof value.addedAt !== "string" || Number.isNaN(Date.parse(value.addedAt))) {
     throw new RosterImportError(
       `instances[${index}].addedAt must be an ISO date string.`, "invalid_instance", { field: "instances", index },
@@ -325,6 +370,12 @@ function normalizeInstance(value, index, validFormIds) {
     ...(value.isShiny ? { isShiny: true } : {}),
     ...(value.isLucky ? { isLucky: true } : {}),
     ...(megaLevel ? { megaLevel } : {}),
+    ...(value.sizeClass ? { sizeClass: value.sizeClass } : {}),
+    ...(value.heightM !== undefined ? { heightM: value.heightM } : {}),
+    ...(value.weightKg !== undefined ? { weightKg: value.weightKg } : {}),
+    ...(value.buddyLevel ? { buddyLevel: value.buddyLevel } : {}),
+    ...(value.canDynamax ? { canDynamax: true } : {}),
+    ...(value.canGigantamax ? { canGigantamax: true } : {}),
     addedAt: value.addedAt,
     ...(value.updatedAt !== undefined ? { updatedAt: value.updatedAt } : {}),
   };
@@ -435,6 +486,12 @@ export function stableRosterJson(roster) {
       ...(instance.isShiny ? { isShiny: true } : {}),
       ...(instance.isLucky ? { isLucky: true } : {}),
       ...(instance.megaLevel ? { megaLevel: instance.megaLevel } : {}),
+      ...(instance.sizeClass ? { sizeClass: instance.sizeClass } : {}),
+      ...(instance.heightM !== undefined ? { heightM: instance.heightM } : {}),
+      ...(instance.weightKg !== undefined ? { weightKg: instance.weightKg } : {}),
+      ...(instance.buddyLevel ? { buddyLevel: instance.buddyLevel } : {}),
+      ...(instance.canDynamax ? { canDynamax: true } : {}),
+      ...(instance.canGigantamax ? { canGigantamax: true } : {}),
       addedAt: instance.addedAt,
       ...(instance.updatedAt ? { updatedAt: instance.updatedAt } : {}),
     }))

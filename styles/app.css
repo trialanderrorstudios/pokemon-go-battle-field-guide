@@ -6013,8 +6013,13 @@ html:not([data-app-booted]) #app .fallback-section {
    checkbox; class renamed from .mega-unlocked-field to .mega-level-field to
    match the landed markup). Row/label shape follows .iv-field/
    .iv-field-label; the select follows .iv-select (same border/background/
-   focus ring), just wider to fit "Not unlocked" — no new color introduced. */
-.mega-level-field {
+   focus ring), just wider to fit "Not unlocked" — no new color introduced.
+   Size class (round 15) and Buddy level are the same bounded-choice
+   <select> row shape (dex.js's own sizeClassFieldHtml/buddyLevelFieldHtml
+   comments), so they share this family rather than duplicating it. */
+.mega-level-field,
+.size-class-field,
+.buddy-level-field {
   display: flex;
   align-items: center;
   gap: 0.5rem;
@@ -6022,14 +6027,18 @@ html:not([data-app-booted]) #app .fallback-section {
   margin: 0.35rem 0;
 }
 
-.mega-level-field-label {
+.mega-level-field-label,
+.size-class-field-label,
+.buddy-level-field-label {
   color: var(--muted);
   font-size: 0.68rem;
   text-transform: uppercase;
   letter-spacing: 0.04em;
 }
 
-.mega-level-select {
+.mega-level-select,
+.size-class-select,
+.buddy-level-select {
   flex: none;
   min-width: 7rem;
   min-height: 44px;
@@ -6043,7 +6052,9 @@ html:not([data-app-booted]) #app .fallback-section {
   font-weight: 700;
 }
 
-.mega-level-select:focus-visible {
+.mega-level-select:focus-visible,
+.size-class-select:focus-visible,
+.buddy-level-select:focus-visible {
   outline: 2px solid var(--cyan);
   outline-offset: 1px;
 }
@@ -6120,8 +6131,11 @@ html:not([data-app-booted]) #app .fallback-section {
 
 /* Shiny/Lucky quick-add checkboxes (operator report, feature 1) — same
    row/label shape as .mega-level-field just above, sized checkboxes for a
-   real touch target instead of the browser default. */
-.shiny-lucky-field {
+   real touch target instead of the browser default. Dynamax/Gigantamax
+   (round 15, dex.js's dynamaxFieldHtml) is the identical checkbox-row
+   shape, so it shares this family. */
+.shiny-lucky-field,
+.dynamax-field {
   display: flex;
   align-items: center;
   gap: 1rem;
@@ -6129,7 +6143,8 @@ html:not([data-app-booted]) #app .fallback-section {
   margin: 0.35rem 0;
 }
 
-.shiny-lucky-option {
+.shiny-lucky-option,
+.dynamax-option {
   display: flex;
   align-items: center;
   gap: 0.35rem;
@@ -6138,10 +6153,50 @@ html:not([data-app-booted]) #app .fallback-section {
   font-weight: 700;
 }
 
-.shiny-lucky-option input[type="checkbox"] {
+.shiny-lucky-option input[type="checkbox"],
+.dynamax-option input[type="checkbox"] {
   width: 20px;
   height: 20px;
   accent-color: var(--cyan);
+}
+
+/* Observed height/weight (round 15, dex.js's sizeMeasurementFieldHtml) —
+   same block label+input shape as .cp-input above ("Same numeric-text-field
+   pattern as the CP field", per that function's own comment), just two
+   fields instead of one. */
+.height-input,
+.weight-input {
+  display: block;
+  margin: 0 0 0.35rem;
+  font-size: 0.82rem;
+  color: var(--text);
+}
+
+.height-input input,
+.weight-input input {
+  display: block;
+  width: 100%;
+  min-height: 44px;
+  margin-top: 0.25rem;
+  padding: 0.4rem 0.6rem;
+  border: 1px solid var(--line);
+  border-radius: 0.5rem;
+  background: var(--panel-raised);
+  color: var(--text);
+  font: inherit;
+  font-size: 0.95rem;
+}
+
+/* Showcase estimate line (round 15, showcase.js's showcaseEstimate()) —
+   sits inside .instance-row, so it inherits that row's muted <p> styling
+   (.dex-section[aria-labelledby="dex-roster-title"] .instance-row p)
+   already; italic marks it as a soft community-derived estimate rather
+   than a stat readout, keeping "Showcase estimate:" visually subordinate
+   to the CP/IV/moves facts above it — same subordination treatment
+   .instance-moves-missing already uses. */
+.dex-showcase-estimate {
+  font-style: italic;
+  opacity: 0.85;
 }
 
 /* Weak-to/Resists chip row (feature 5b) — reuses .type-chip's own color

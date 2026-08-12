@@ -572,6 +572,32 @@ function attackerRankRows(data) {
 // verdict (lowest investment tier, then rank). A boss with no ranked row at
 // all (most Tier 5 legendaries, most wild-caught Shadow raids) never gets a
 // featured slot — honest skip-log material instead, never a fabricated tier.
+// Operator ask (2026-08-12): the Mega, the main Tier 5 legendary, and the
+// Shadow raid target each get their own briefing card — not one winner and a
+// skip log. Within a lane: the ranked-verdict comparator first; with no
+// ranked boss in the lane, prefer a dated rotation window (the curated/hotfix
+// current boss) over the undated evergreen pool, then feed order.
+// ponytail: prefix regexes cover ScrapedDuck's tier vocabulary today
+// ("Mega", "Tier 5", "Shadow"); a new tier spelling means a new lane entry.
+const BRIEFING_LANES = Object.freeze([
+  ["mega", (tier) => /^mega/i.test(tier)],
+  ["legendary", (tier) => /^tier 5/i.test(tier)],
+  ["shadow", (tier) => /^shadow/i.test(tier)],
+]);
+
+function pickLaneBosses(bosses, rankedRows) {
+  const picks = [];
+  for (const [lane, matches] of BRIEFING_LANES) {
+    const laneBosses = bosses.filter((boss) => typeof boss.tier === "string" && matches(boss.tier));
+    if (!laneBosses.length) continue;
+    const ranked = pickFeaturedBoss(laneBosses, rankedRows);
+    if (ranked) { picks.push({ lane, ...ranked }); continue; }
+    const boss = laneBosses.find((row) => typeof row.endsAt === "string") ?? laneBosses[0];
+    picks.push({ lane, boss, rows: [], topRow: null });
+  }
+  return picks;
+}
+
 function pickFeaturedBoss(bosses, rankedRows) {
   let best = null;
   for (const boss of bosses) {
@@ -631,17 +657,23 @@ function briefingCatchLine(plan) {
 }
 
 function featuredBossCard({
-  featured, plan, currentBosses, forms, roster, ownedCount, now, shareMessage = "",
+  featured, plan, currentBosses, forms, roster, ownedCount, now, shareMessage = "", showShare = true,
 }) {
   const boss = (currentBosses?.bosses ?? []).find((row) => row.formId === featured.formId);
-  const shareCard = raidPlanCardData(featured, plan, boss, roster, forms);
+  // The share handler (share-raid-plan-card) recomputes the single overall
+  // pick via currentRaidPlanCardData, so only the card matching that pick may
+  // render the button — a button on a lane card would share a different boss.
+  const shareCard = showShare && featured.topRow ? raidPlanCardData(featured, plan, boss, roster, forms) : null;
   const bossTypes = plan?.target?.bossTypes
     ?? [forms?.[featured.formId]?.primary_type, forms?.[featured.formId]?.secondary_type].filter(Boolean);
   const endsToday = typeof boss?.endsAt === "string" && !Number.isNaN(Date.parse(boss.endsAt))
     && new Date(boss.endsAt).toDateString() === now.toDateString();
+  // A lane card without a ranked-attacker verdict (most Tier 5 legendaries,
+  // wild-caught Shadow raids) still earns its briefing slot — catch numbers
+  // and counters are boss facts — but never a fabricated tier/rank.
   const top = featured.topRow;
-  const rankLine = featured.rows.map((row) => `Rank #${row.rank} ${row.attackingType}`).join(", ");
-  const detail = Number.isFinite(top.matchups)
+  const rankLine = top ? featured.rows.map((row) => `Rank #${row.rank} ${row.attackingType}`).join(", ") : "";
+  const detail = top && Number.isFinite(top.matchups)
     ? ` ${top.matchups} winning ${top.attackingType} matchups.${top.resourceBurden ? ` Build cost: ${top.resourceBurden}.` : ""}`
     : "";
   return `<div class="briefing-section">
@@ -656,11 +688,11 @@ function featuredBossCard({
         ${bossTypes.length ? `<p class="briefing-eyebrow-row briefing-boss-types">${bossTypes.map((type) => `<span class="type-chip" data-type="${escapeHtml(type)}">${escapeHtml(type)}</span>`).join("")}</p>` : ""}
       </div>
     </div>
-    <p class="briefing-eyebrow-row">
+    ${top ? `<p class="briefing-eyebrow-row">
       <span class="invest-pill">${escapeHtml(top.investmentTier)} · ${escapeHtml(top.recommendation)}</span>
       <span class="acq-flag">ranked attacker</span>
     </p>
-    <p class="briefing-note">${escapeHtml(rankLine)} attacker.${escapeHtml(detail)}</p>
+    <p class="briefing-note">${escapeHtml(rankLine)} attacker.${escapeHtml(detail)}</p>` : `<p class="briefing-note">Not a ranked attacker in this release — catch it for the dex, don't build it.</p>`}
     ${briefingCatchLine(plan)}
     ${bringSection({
     featured, plan, forms, roster, ownedCount,
@@ -777,27 +809,50 @@ export function renderFieldBriefing({
   const liveIds = new Set(bosses.map((boss) => boss.formId));
   const liveRows = (summary?.worthRaiding ?? []).filter((row) => liveIds.has(row.formId));
   const bestRow = liveRows[0] ?? null;
-  const restRows = liveRows.filter((row) => row.formId !== featured?.formId);
 
-  let plan = null;
-  if (featured) {
+  // One card per lane (Mega / Tier 5 legendary / Shadow), operator ask
+  // 2026-08-12. The overall featured pick keeps the verdict line, collapsed
+  // name, and share button; if it somehow falls outside every lane (e.g. a
+  // ranked Tier 3), it gets its own card ahead of the lanes.
+  const lanePicks = pickLaneBosses(bosses, attackerRankRows(data));
+  const laneCards = lanePicks.map((pick) => ({
+    lane: pick.lane,
+    featured: {
+      formId: pick.boss.formId,
+      name: forms?.[pick.boss.formId]?.name ?? pick.boss.formId,
+      rows: pick.rows,
+      topRow: pick.topRow,
+    },
+  }));
+  if (featured && !laneCards.some((card) => card.featured.formId === featured.formId)) {
+    laneCards.unshift({ lane: "featured", featured });
+  }
+  const cardFormIds = new Set(laneCards.map((card) => card.featured.formId));
+  const restRows = liveRows.filter((row) => !cardFormIds.has(row.formId));
+
+  const planFor = (formId) => {
     try {
-      plan = buildRaidPlan({
-        targetFormId: featured.formId, ownedFormIds: roster?.ownedFormIds, roster, trainerLevel,
+      return buildRaidPlan({
+        targetFormId: formId, ownedFormIds: roster?.ownedFormIds, roster, trainerLevel,
       }, data);
     } catch {
-      plan = null; // not in this release's raid target tool — nothing to detail
+      return null; // not in this release's raid target tool — nothing to detail
     }
-  }
+  };
+  const plan = featured ? planFor(featured.formId) : null;
 
   const dateLabel = now.toLocaleDateString("en-US", { weekday: "long", month: "short", day: "numeric" });
   const bossCountLabel = `${bosses.length} boss${bosses.length === 1 ? "" : "es"} in today's rotation`
     + (expiredCount ? ` · ${expiredCount} ended — rotation data awaiting refresh` : "");
-  const body = `${featured
-    ? featuredBossCard({
-      featured, plan, currentBosses, forms, roster, ownedCount, now, shareMessage,
-    })
-    : `<div class="briefing-section"><p class="briefing-note">${escapeHtml(bestRow?.headline ?? "Not enough data yet — star more Pokémon you own.")}</p></div>`}
+  const cardsHtml = laneCards.map((card) => featuredBossCard({
+    featured: card.featured,
+    plan: card.featured.formId === featured?.formId ? plan : planFor(card.featured.formId),
+    currentBosses, forms, roster, ownedCount, now,
+    shareMessage: card.featured.formId === featured?.formId ? shareMessage : "",
+    showShare: card.featured.formId === featured?.formId,
+  })).join("");
+  const body = `${cardsHtml
+    || `<div class="briefing-section"><p class="briefing-note">${escapeHtml(bestRow?.headline ?? "Not enough data yet — star more Pokémon you own.")}</p></div>`}
     <hr class="briefing-divider">
     ${briefingSkipSection(restRows, forms, bosses)}`;
 

@@ -169,6 +169,7 @@ function requireValidCp(form, ivs, cp) {
 // invalid input.
 export function buildInstance(form, {
   cp, ivs, fastMove, chargedMoves, nickname, isShiny, isLucky, megaLevel, megaUnlocked,
+  sizeClass, heightM, weightKg, buddyLevel, canDynamax, canGigantamax,
 } = {}) {
   if (!form?.form_id) throw new RangeError("Unknown Pokémon form.");
   const moveError = validateMoves(form, fastMove, chargedMoves);
@@ -195,6 +196,17 @@ export function buildInstance(form, {
     // isShiny/isLucky above, so a mega-less species' instances never carry
     // this key at all.
     ...(resolvedMegaLevel ? { megaLevel: resolvedMegaLevel } : {}),
+    // sizeClass/heightM/weightKg (round 15) feed the community showcase-score
+    // estimate; buddyLevel/canDynamax/canGigantamax are the remaining I2
+    // quick-add detail fields. Same omit-when-absent convention as
+    // isShiny/isLucky/megaLevel above — enum/range validation happens at the
+    // storage boundary (storage.js normalizeInstance), not here.
+    ...(sizeClass ? { sizeClass } : {}),
+    ...(heightM !== undefined ? { heightM } : {}),
+    ...(weightKg !== undefined ? { weightKg } : {}),
+    ...(buddyLevel ? { buddyLevel } : {}),
+    ...(canDynamax ? { canDynamax: true } : {}),
+    ...(canGigantamax ? { canGigantamax: true } : {}),
     addedAt: new Date().toISOString(),
   };
 }
@@ -206,7 +218,10 @@ export function buildInstance(form, {
 // edit sheet. isLucky is the one Poke Genie collection flag with a real CSV
 // column (see poke-genie-import.js); isShiny isn't in that export, so
 // callers only pass it from other sources.
-export function buildImportedInstance(form, { cp, ivs, nickname, isShiny, isLucky, megaLevel, megaUnlocked } = {}) {
+export function buildImportedInstance(form, {
+  cp, ivs, nickname, isShiny, isLucky, megaLevel, megaUnlocked,
+  sizeClass, heightM, weightKg, buddyLevel, canDynamax, canGigantamax,
+} = {}) {
   if (!form?.form_id) throw new RangeError("Unknown Pokémon form.");
   const cpNumber = requireValidCp(form, ivs, cp);
   const trimmedNickname = typeof nickname === "string" ? nickname.trim() : "";
@@ -223,6 +238,14 @@ export function buildImportedInstance(form, { cp, ivs, nickname, isShiny, isLuck
     // Same omit-when-absent convention as buildInstance above — the moveless
     // quick-add save path (app.js's I2 sheet) routes through here too.
     ...(resolvedMegaLevel ? { megaLevel: resolvedMegaLevel } : {}),
+    // Same omit-when-absent convention as buildInstance above — the moveless
+    // quick-add save path (app.js's I2 sheet) routes through here too.
+    ...(sizeClass ? { sizeClass } : {}),
+    ...(heightM !== undefined ? { heightM } : {}),
+    ...(weightKg !== undefined ? { weightKg } : {}),
+    ...(buddyLevel ? { buddyLevel } : {}),
+    ...(canDynamax ? { canDynamax: true } : {}),
+    ...(canGigantamax ? { canGigantamax: true } : {}),
     addedAt: new Date().toISOString(),
   };
 }

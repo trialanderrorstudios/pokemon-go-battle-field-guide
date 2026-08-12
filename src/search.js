@@ -212,7 +212,10 @@ function bandVocabByFormId(gym) {
 function bandReferenceEntries(gym) {
   return antiBands(gym).map((band) => {
     const type = bandThreatType(band);
-    const title = `Anti-${type[0].toUpperCase()}${type.slice(1)} defenders`;
+    // Defensive framing (operator misread "Anti-Grass" as an offense pick,
+    // 2026-08-12); "anti <type>" stays findable via bandVocabulary below.
+    const typeName = `${type[0].toUpperCase()}${type.slice(1)}`;
+    const title = `Beats ${typeName} attackers — gym defenders`;
     const memberNames = (band.rows ?? []).map((row) => row.pokemon).filter(Boolean);
     return {
       formId: `gym-band-${band.id}`,

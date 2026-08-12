@@ -86,10 +86,20 @@ function percentileFromRank(rank, total) {
 // statProduct() above is the only one), then spreads are ordered by stat
 // product to find where this one lands. Ties (a real possibility from the
 // stamina floor) share a rank rather than getting an arbitrary tie-break.
-export function rankIvSpread(form, ivs, league) {
+// bestBuddy (default true, matching every existing direct caller/test):
+// gates ONLY the target spread's own ceiling, never the 4096-spread
+// comparison pool. The pool always searches up to RANK_MAX_LEVEL — "where
+// could this IV spread rank at its own best achievable build" is a property
+// of the species/league, not of one owned mon's real-world buddy status.
+// The target's own level/cp, though, should be honest about what THIS
+// instance can actually reach: bestBuddy:false caps it at the normal
+// level-50 power-up ceiling (iv.py's own level > 50 => bestBuddyRequired
+// convention) instead of assuming an unconfirmed Best Buddy level 51.
+export function rankIvSpread(form, ivs, league, { bestBuddy = true } = {}) {
   const cap = LEAGUE_CP_CAP[league];
   const maxLevel = RANK_MAX_LEVEL[league];
-  const level = bestLevelUnderCap(form, ivs, cap, maxLevel);
+  const targetMaxLevel = bestBuddy ? maxLevel : Math.min(maxLevel, 50);
+  const level = bestLevelUnderCap(form, ivs, cap, targetMaxLevel);
   if (level === null) return null;
   const target = statProduct(form, ivs, level);
   let better = 0;
@@ -118,7 +128,11 @@ export function instanceLeagueRank(form, instance, league, row) {
   if (!form || !instance?.ivs) return null;
   const eligibility = detailedEligibility(instance, league);
   if (!eligibility.eligible) return { league, eligible: false, reason: eligibility.reason };
-  const rank = rankIvSpread(form, instance.ivs, league);
+  // buddyLevel (dex.js's quick-add field, round 15): only an owned instance
+  // marked "best" gets ranked at a level-51 build — see rankIvSpread's own
+  // bestBuddy doc comment above.
+  const bestBuddy = instance.buddyLevel === "best";
+  const rank = rankIvSpread(form, instance.ivs, league, { bestBuddy });
   if (!rank) return { league, eligible: false, reason: "No level 1-51 build of these IVs fits this league's cap." };
   const delta = row?.rankOne?.statProduct ? ratioTier(rank.statProduct / row.rankOne.statProduct) : null;
   return { league, eligible: true, ...rank, delta };

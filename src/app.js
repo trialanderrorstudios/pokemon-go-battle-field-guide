@@ -1156,6 +1156,16 @@ function quickAddDraftFromInstance(instance) {
     // above — round-trip the instance's own flags into the flat draft.
     isShiny: Boolean(instance.isShiny),
     isLucky: Boolean(instance.isLucky),
+    // sizeClass/buddyLevel/heightM/weightKg/canDynamax/canGigantamax
+    // (round 15): same edit-prefill treatment as megaLevel/isShiny above —
+    // enum fields default null, heightM/weightKg round-trip to the raw typed
+    // string the CP field above already uses.
+    sizeClass: instance.sizeClass ?? null,
+    buddyLevel: instance.buddyLevel ?? null,
+    heightM: instance.heightM !== undefined ? String(instance.heightM) : "",
+    weightKg: instance.weightKg !== undefined ? String(instance.weightKg) : "",
+    canDynamax: Boolean(instance.canDynamax),
+    canGigantamax: Boolean(instance.canGigantamax),
   };
 }
 
@@ -1228,6 +1238,18 @@ function draftFromInstance(instance) {
     nickname: instance.nickname ?? "",
     isShiny: Boolean(instance.isShiny),
     isLucky: Boolean(instance.isLucky),
+    // Fields the instanceSheet UI doesn't edit must still ride the draft —
+    // save-instance rebuilds the row via buildInstance from this draft alone,
+    // so anything missing here is silently DELETED on save (the megaUnlocked
+    // data-loss incident pattern). buildInstance accepts all of these and
+    // omits the absent ones.
+    megaLevel: instance.megaLevel ?? (instance.megaUnlocked ? "base" : undefined),
+    sizeClass: instance.sizeClass,
+    heightM: instance.heightM,
+    weightKg: instance.weightKg,
+    buddyLevel: instance.buddyLevel,
+    canDynamax: Boolean(instance.canDynamax),
+    canGigantamax: Boolean(instance.canGigantamax),
     caughtYear: "", // not part of the persisted instance — re-entered per lucky-advice check, see instance-sheet.js
   };
 }
@@ -1610,6 +1632,37 @@ export function createInteractionController({
         nextInput?.setSelectionRange?.(caret, caret);
         return;
       }
+      // I2 quick-add height/weight fields (dex.js's sizeMeasurementFieldHtml)
+      // — same numpad-text-field, refocus-after-rerender shape as the CP
+      // field just above.
+      const quickAddHeightInput = event?.target?.closest?.("[data-height-input]");
+      if (quickAddHeightInput && ui.quickAdd) {
+        ui.quickAdd.heightM = String(quickAddHeightInput.value ?? "");
+        const caret = Math.min(
+          Number.isInteger(quickAddHeightInput.selectionStart) ? quickAddHeightInput.selectionStart : ui.quickAdd.heightM.length,
+          ui.quickAdd.heightM.length,
+        );
+        const ownerDocument = quickAddHeightInput.ownerDocument;
+        rerenderCurrent();
+        const nextInput = ownerDocument?.querySelector?.("[data-height-input]");
+        nextInput?.focus?.({ preventScroll: true });
+        nextInput?.setSelectionRange?.(caret, caret);
+        return;
+      }
+      const quickAddWeightInput = event?.target?.closest?.("[data-weight-input]");
+      if (quickAddWeightInput && ui.quickAdd) {
+        ui.quickAdd.weightKg = String(quickAddWeightInput.value ?? "");
+        const caret = Math.min(
+          Number.isInteger(quickAddWeightInput.selectionStart) ? quickAddWeightInput.selectionStart : ui.quickAdd.weightKg.length,
+          ui.quickAdd.weightKg.length,
+        );
+        const ownerDocument = quickAddWeightInput.ownerDocument;
+        rerenderCurrent();
+        const nextInput = ownerDocument?.querySelector?.("[data-weight-input]");
+        nextInput?.focus?.({ preventScroll: true });
+        nextInput?.setSelectionRange?.(caret, caret);
+        return;
+      }
       // I2 pressable IV bar (dex.js's ivRangeHtml) — a native range fires
       // "input" continuously while dragging, unlike the <select> it sits next
       // to (which only fires "change" on commit). Same draft path as the
@@ -1707,6 +1760,35 @@ export function createInteractionController({
       const luckyField = target?.closest?.("[data-quickadd-lucky]");
       if (luckyField && ui.quickAdd) {
         ui.quickAdd.isLucky = Boolean(luckyField.checked);
+        rerenderCurrent();
+        return;
+      }
+      // I2 quick-add size class / buddy level selects (dex.js's
+      // sizeClassFieldHtml/buddyLevelFieldHtml) — same round-trip-through-
+      // draft, empty-value-means-null shape as the mega level select above.
+      const sizeClassField = target?.closest?.("[data-size-class]");
+      if (sizeClassField && ui.quickAdd) {
+        ui.quickAdd.sizeClass = sizeClassField.value || null;
+        rerenderCurrent();
+        return;
+      }
+      const buddyLevelField = target?.closest?.("[data-buddy-level]");
+      if (buddyLevelField && ui.quickAdd) {
+        ui.quickAdd.buddyLevel = buddyLevelField.value || null;
+        rerenderCurrent();
+        return;
+      }
+      // Dynamax/Gigantamax quick-add checkboxes (dex.js's dynamaxFieldHtml)
+      // — same round-trip shape as the shiny/lucky checkboxes above.
+      const dynamaxField = target?.closest?.("[data-quickadd-dynamax]");
+      if (dynamaxField && ui.quickAdd) {
+        ui.quickAdd.canDynamax = Boolean(dynamaxField.checked);
+        rerenderCurrent();
+        return;
+      }
+      const gigantamaxField = target?.closest?.("[data-quickadd-gigantamax]");
+      if (gigantamaxField && ui.quickAdd) {
+        ui.quickAdd.canGigantamax = Boolean(gigantamaxField.checked);
         rerenderCurrent();
         return;
       }
@@ -2284,6 +2366,14 @@ export function createInteractionController({
           }
           const chosenCharged = qa.chargedMoves.filter(Boolean);
           const hasMoves = Boolean(qa.fastMove) && chosenCharged.length >= 1 && chosenCharged.length <= 2;
+          // heightM/weightKg (round 15): optional, unlike cp — a blank or
+          // non-positive typed value just omits the field (storage.js's
+          // normalizeInstance rejects a present-but-invalid heightM/weightKg
+          // outright, so an unparsed draft value must never reach it).
+          const heightNumber = Number(qa.heightM);
+          const heightValid = Number.isFinite(heightNumber) && heightNumber > 0;
+          const weightNumber = Number(qa.weightKg);
+          const weightValid = Number.isFinite(weightNumber) && weightNumber > 0;
           failureRoute = "dex";
           let savedId = null;
           if (qa.editingId) {
@@ -2316,6 +2406,21 @@ export function createInteractionController({
               else delete updated.isShiny;
               if (qa.isLucky) updated.isLucky = true;
               else delete updated.isLucky;
+              // sizeClass/heightM/weightKg/buddyLevel/canDynamax/
+              // canGigantamax (round 15): same omit-when-falsy convention as
+              // megaLevel/isShiny/isLucky above.
+              if (qa.sizeClass) updated.sizeClass = qa.sizeClass;
+              else delete updated.sizeClass;
+              if (heightValid) updated.heightM = heightNumber;
+              else delete updated.heightM;
+              if (weightValid) updated.weightKg = weightNumber;
+              else delete updated.weightKg;
+              if (qa.buddyLevel) updated.buddyLevel = qa.buddyLevel;
+              else delete updated.buddyLevel;
+              if (qa.canDynamax) updated.canDynamax = true;
+              else delete updated.canDynamax;
+              if (qa.canGigantamax) updated.canGigantamax = true;
+              else delete updated.canGigantamax;
               return {
                 ...current,
                 // Update in place (spec §2 I2) — views/dex.js renders
@@ -2325,10 +2430,18 @@ export function createInteractionController({
               };
             });
           } else {
+            // sizeClass/heightM/weightKg/buddyLevel/canDynamax/canGigantamax
+            // (round 15) ride both the moves and moveless save paths, same
+            // as megaLevel/isShiny/isLucky above — buildInstance/
+            // buildImportedInstance themselves own the omit-when-absent
+            // convention (see instances.js).
             const built = hasMoves
               ? buildInstance(form, {
                 cp: cpNumber, ivs: qa.ivs, fastMove: qa.fastMove, chargedMoves: chosenCharged, megaLevel: qa.megaLevel,
                 isShiny: qa.isShiny, isLucky: qa.isLucky,
+                sizeClass: qa.sizeClass, heightM: heightValid ? heightNumber : undefined,
+                weightKg: weightValid ? weightNumber : undefined, buddyLevel: qa.buddyLevel,
+                canDynamax: qa.canDynamax, canGigantamax: qa.canGigantamax,
               })
               : buildImportedInstance(form, {
                 // megaLevel rides the moveless path too — the select is
@@ -2337,6 +2450,9 @@ export function createInteractionController({
                 // isShiny/isLucky ride the same moveless path for the same
                 // reason.
                 cp: cpNumber, ivs: qa.ivs, megaLevel: qa.megaLevel, isShiny: qa.isShiny, isLucky: qa.isLucky,
+                sizeClass: qa.sizeClass, heightM: heightValid ? heightNumber : undefined,
+                weightKg: weightValid ? weightNumber : undefined, buddyLevel: qa.buddyLevel,
+                canDynamax: qa.canDynamax, canGigantamax: qa.canGigantamax,
               });
             savedId = built.id;
             await mutateRoster((current) => ({ ...current, instances: [...(current.instances ?? []), built] }));
