@@ -197,10 +197,13 @@ export function collectionSuggestions(forms, query, limit = 6) {
 }
 
 
-// I1 long-press mini-sheet mark semantics: unmarking caught always clears
-// shiny/lucky too (a released mon can't retain either); marking shiny or
-// lucky always force-sets caught (you can't own a shiny you never caught).
-// Pure so the three-way interaction is unit-testable without a DOM.
+// I1 long-press mini-sheet mark semantics, also the grid's Caught/Shiny/Lucky
+// mark-type control (views/collection.js's data-collection-marktype — same
+// `mark` id, no forked logic): unmarking caught always clears shiny/lucky too
+// (a released mon can't retain either); marking shiny or lucky always
+// force-sets caught (you can't own a shiny you never caught); unmarking shiny
+// or lucky alone leaves caught untouched. Pure so the three-way interaction is
+// unit-testable without a DOM.
 export function nextMarkState({ caught, shiny, lucky }, mark, value) {
   if (mark === "caught") {
     return value ? { caught: true, shiny, lucky } : { caught: false, shiny: false, lucky: false };

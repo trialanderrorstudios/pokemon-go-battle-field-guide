@@ -167,12 +167,19 @@ function requireValidCp(form, ivs, cp) {
 // flags (round 9 collection tracking) — omitted entirely when false/unset,
 // same convention as nickname. Throws a friendly, user-facing RangeError on
 // invalid input.
-export function buildInstance(form, { cp, ivs, fastMove, chargedMoves, nickname, isShiny, isLucky, megaUnlocked } = {}) {
+export function buildInstance(form, {
+  cp, ivs, fastMove, chargedMoves, nickname, isShiny, isLucky, megaLevel, megaUnlocked,
+} = {}) {
   if (!form?.form_id) throw new RangeError("Unknown Pokémon form.");
   const moveError = validateMoves(form, fastMove, chargedMoves);
   if (moveError) throw new RangeError(moveError);
   const cpNumber = requireValidCp(form, ivs, cp);
   const trimmedNickname = typeof nickname === "string" ? nickname.trim() : "";
+  // megaLevel (round 14) replaces the binary megaUnlocked flag. megaUnlocked
+  // is still accepted here as a deprecated alias — mapped to the honest
+  // floor "base" — so a caller mid-migration to the leveled UI can't drop
+  // the fact that the Pokemon was unlocked at all.
+  const resolvedMegaLevel = megaLevel ?? (megaUnlocked ? "base" : undefined);
   return {
     id: crypto.randomUUID(),
     formId: form.form_id,
@@ -183,11 +190,11 @@ export function buildInstance(form, { cp, ivs, fastMove, chargedMoves, nickname,
     ...(trimmedNickname ? { nickname: trimmedNickname } : {}),
     ...(isShiny ? { isShiny: true } : {}),
     ...(isLucky ? { isLucky: true } : {}),
-    // Mega/Primal quick-add capability flag (dex.js's I2 quick-add sheet,
-    // species-gated there) — same omit-when-false convention as
+    // Mega/Primal quick-add capability field (dex.js's I2 quick-add sheet,
+    // species-gated there) — same omit-when-absent convention as
     // isShiny/isLucky above, so a mega-less species' instances never carry
     // this key at all.
-    ...(megaUnlocked ? { megaUnlocked: true } : {}),
+    ...(resolvedMegaLevel ? { megaLevel: resolvedMegaLevel } : {}),
     addedAt: new Date().toISOString(),
   };
 }
@@ -199,10 +206,12 @@ export function buildInstance(form, { cp, ivs, fastMove, chargedMoves, nickname,
 // edit sheet. isLucky is the one Poke Genie collection flag with a real CSV
 // column (see poke-genie-import.js); isShiny isn't in that export, so
 // callers only pass it from other sources.
-export function buildImportedInstance(form, { cp, ivs, nickname, isShiny, isLucky, megaUnlocked } = {}) {
+export function buildImportedInstance(form, { cp, ivs, nickname, isShiny, isLucky, megaLevel, megaUnlocked } = {}) {
   if (!form?.form_id) throw new RangeError("Unknown Pokémon form.");
   const cpNumber = requireValidCp(form, ivs, cp);
   const trimmedNickname = typeof nickname === "string" ? nickname.trim() : "";
+  // Same deprecated-alias handling as buildInstance above.
+  const resolvedMegaLevel = megaLevel ?? (megaUnlocked ? "base" : undefined);
   return {
     id: crypto.randomUUID(),
     formId: form.form_id,
@@ -211,9 +220,9 @@ export function buildImportedInstance(form, { cp, ivs, nickname, isShiny, isLuck
     ...(trimmedNickname ? { nickname: trimmedNickname } : {}),
     ...(isShiny ? { isShiny: true } : {}),
     ...(isLucky ? { isLucky: true } : {}),
-    // Same omit-when-false convention as buildInstance:190 — the moveless
+    // Same omit-when-absent convention as buildInstance above — the moveless
     // quick-add save path (app.js's I2 sheet) routes through here too.
-    ...(megaUnlocked ? { megaUnlocked: true } : {}),
+    ...(resolvedMegaLevel ? { megaLevel: resolvedMegaLevel } : {}),
     addedAt: new Date().toISOString(),
   };
 }

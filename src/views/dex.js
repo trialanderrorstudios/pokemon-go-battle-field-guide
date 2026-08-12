@@ -266,7 +266,7 @@ function availabilitySection(form, currentEggs) {
 export function blankQuickAddDraft() {
   return {
     cp: "", ivs: { atk: null, def: null, sta: null }, fastMove: null, chargedMoves: [null, null],
-    editingId: null, removeConfirmPending: false, stamp: null, megaUnlocked: false,
+    editingId: null, removeConfirmPending: false, stamp: null, megaLevel: null,
   };
 }
 
@@ -693,20 +693,34 @@ function hasMegaSibling(form, forms) {
 }
 
 
+// Mega Evolution unlocks in tiers as Mega Energy accumulates (Base/High/Max),
+// not a single on/off flip — so this is a bounded-choice native <select>
+// (spec §1 "bounded choices are native <select>"), same picker-wheel win on
+// iOS as ivFieldHtml above, not a checkbox. Empty value = "Not unlocked".
+const MEGA_LEVELS = Object.freeze([
+  { value: "", label: "Not unlocked" },
+  { value: "base", label: "Base" },
+  { value: "high", label: "High" },
+  { value: "max", label: "Max" },
+]);
+
+
 // Capability, not state: a mega/primal form is a temporary in-battle
 // transformation the player triggers, not something a caught Pokémon
-// permanently "is" — so this reads "Mega unlocked" (can be triggered), never
-// "Is Mega". Rendered only for species with an actual mega/primal sibling
-// this release; most forms never show this control. data-mega-unlocked is
-// this lane's own attribute (mirrors data-iv-select/data-iv-range) — the
-// toggle wiring and the megaUnlocked round-trip through the draft live in
+// permanently "is" — so this reads "Mega level" (how far it's unlocked),
+// never "Is Mega". Rendered only for species with an actual mega/primal
+// sibling this release; most forms never show this control. data-mega-level
+// is this lane's own attribute (mirrors data-iv-select/data-iv-range) — the
+// select wiring and the megaLevel round-trip through the draft live in
 // app.js, out of this lane.
-function megaUnlockedFieldHtml(form, forms, checked) {
+function megaLevelFieldHtml(form, forms, level) {
   if (!hasMegaSibling(form, forms)) return "";
-  return `<label class="mega-unlocked-field">
-    <input type="checkbox" data-mega-unlocked${checked ? " checked" : ""}>
-    Mega unlocked
-  </label>`;
+  const value = level ?? "";
+  const options = MEGA_LEVELS.map(({ value: v, label }) => `<option value="${v}"${v === value ? " selected" : ""}>${label}</option>`).join("");
+  return `<div class="mega-level-field">
+    <label class="mega-level-field-label" for="mega-level-select">Mega level</label>
+    <select id="mega-level-select" class="mega-level-select" data-mega-level>${options}</select>
+  </div>`;
 }
 
 
@@ -790,7 +804,7 @@ function quickAddBodyHtml(form, draft, offensePairs, defensePair, forms) {
     + ivFieldHtml("Defense", "def", ivs.def)
     + ivFieldHtml("HP", "sta", ivs.sta)
     + levelHint
-    + megaUnlockedFieldHtml(form, forms, Boolean(draft.megaUnlocked))
+    + megaLevelFieldHtml(form, forms, draft.megaLevel)
     + `<p class="quickadd-moves-title">Moves</p>`
     + useOptimalHtml
     + fastFieldHtml + charged1FieldHtml + charged2FieldHtml

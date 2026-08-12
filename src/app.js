@@ -1144,7 +1144,10 @@ function quickAddDraftFromInstance(instance) {
     fastMove: instance.fastMove ?? null,
     chargedMoves: [instance.chargedMoves?.[0] ?? null, instance.chargedMoves?.[1] ?? null],
     editingId: instance.id,
-    megaUnlocked: Boolean(instance.megaUnlocked),
+    // megaLevel (round 14) replaces megaUnlocked; same legacy-migration rule
+    // as storage.js/instances.js — an old instance with only the binary flag
+    // seeds the honest floor "base", never invents a higher tier.
+    megaLevel: instance.megaLevel ?? (instance.megaUnlocked ? "base" : null),
   };
 }
 
@@ -1262,6 +1265,10 @@ export function createInteractionState({
     // etc.): default off = taps navigate.
     collectionMarkMode: false,
     collectionMarkSessionFormIds: [],
+    // Caught/Shiny/Lucky segmented control (views/collection.js's
+    // [data-collection-marktype]) — which flag a mark-mode grid tap applies.
+    // Default "caught" preserves pre-control tap behaviour untouched.
+    collectionMarkType: "caught",
     collectionSuggestOpen: false,
     // I1 long-press mini-sheet: the formId it's open for, or null. Rendered
     // by views/collection.js's own collectionSheet(), not app.js.
@@ -1443,9 +1450,14 @@ export function createInteractionController({
       };
     });
     if (ui.collectionMarkMode) {
-      if (next.caught && !before.caught && !ui.collectionMarkSessionFormIds.includes(formId)) {
+      // Tally tracks net adds of the mark this tap actually applied (caught/
+      // shiny/lucky), not always caught — so a shiny-type tap that flips an
+      // already-caught mon's shiny flag still counts, and a caught-type tap
+      // still behaves exactly as before.
+      const trackedField = mark === "shiny" || mark === "lucky" ? mark : "caught";
+      if (next[trackedField] && !before[trackedField] && !ui.collectionMarkSessionFormIds.includes(formId)) {
         ui.collectionMarkSessionFormIds.push(formId);
-      } else if (!next.caught && before.caught) {
+      } else if (!next[trackedField] && before[trackedField]) {
         ui.collectionMarkSessionFormIds = ui.collectionMarkSessionFormIds.filter((id) => id !== formId);
       }
     }
@@ -1654,12 +1666,13 @@ export function createInteractionController({
         ownerDocument?.querySelector?.(`[data-move-select="${slot}"]`)?.focus?.({ preventScroll: true });
         return;
       }
-      // I2 quick-add mega/primal capability checkbox (dex.js's
-      // megaUnlockedFieldHtml) — round-trips through draft.megaUnlocked, then
-      // buildInstance on save (see the save-instance dispatch below).
-      const megaUnlockedField = target?.closest?.("[data-mega-unlocked]");
-      if (megaUnlockedField && ui.quickAdd) {
-        ui.quickAdd.megaUnlocked = Boolean(megaUnlockedField.checked);
+      // I2 quick-add mega level select (dex.js's megaLevelFieldHtml) —
+      // round-trips through draft.megaLevel, then buildInstance/
+      // buildImportedInstance on save (see the save-instance dispatch below).
+      // Empty option value ("Not unlocked") means null, not the string "".
+      const megaLevelField = target?.closest?.("[data-mega-level]");
+      if (megaLevelField && ui.quickAdd) {
+        ui.quickAdd.megaLevel = megaLevelField.value || null;
         rerenderCurrent();
         return;
       }
@@ -2070,7 +2083,19 @@ export function createInteractionController({
           return;
         }
         const formId = markCard.dataset.formId;
-        await applyMarkState(formId, "caught", !(roster.ownedFormIds ?? []).includes(formId));
+        const markType = ui.collectionMarkType === "shiny" || ui.collectionMarkType === "lucky"
+          ? ui.collectionMarkType : "caught";
+        const currentValue = markType === "shiny" ? (roster.shinyOwnedFormIds ?? []).includes(formId)
+          : markType === "lucky" ? (roster.luckyOwnedFormIds ?? []).includes(formId)
+          : (roster.ownedFormIds ?? []).includes(formId);
+        await applyMarkState(formId, markType, !currentValue);
+        rerenderCurrent();
+        return;
+      }
+      const markTypeButton = target?.closest?.("[data-collection-marktype]");
+      if (ui.collectionMarkMode && markTypeButton) {
+        const type = markTypeButton.dataset.collectionMarktype;
+        ui.collectionMarkType = type === "shiny" || type === "lucky" ? type : "caught";
         rerenderCurrent();
         return;
       }
@@ -2241,11 +2266,14 @@ export function createInteractionController({
                 chargedMoves: hasMoves ? chosenCharged : [],
                 updatedAt: new Date().toISOString(),
               };
-              // Same convention buildInstance uses below: only carry the flag
-              // when set, so unchecking it in the edit draft actually clears
-              // it instead of the ...original spread leaving a stale true.
-              if (qa.megaUnlocked) updated.megaUnlocked = true;
-              else delete updated.megaUnlocked;
+              // Same convention buildInstance uses below: only carry the
+              // field when set, so clearing it in the edit draft actually
+              // clears it instead of the ...original spread leaving a stale
+              // value. megaUnlocked is never re-emitted here even if the
+              // original (pre-migration) instance still carried it.
+              if (qa.megaLevel) updated.megaLevel = qa.megaLevel;
+              else delete updated.megaLevel;
+              delete updated.megaUnlocked;
               return {
                 ...current,
                 // Update in place (spec §2 I2) — views/dex.js renders
@@ -2257,13 +2285,13 @@ export function createInteractionController({
           } else {
             const built = hasMoves
               ? buildInstance(form, {
-                cp: cpNumber, ivs: qa.ivs, fastMove: qa.fastMove, chargedMoves: chosenCharged, megaUnlocked: qa.megaUnlocked,
+                cp: cpNumber, ivs: qa.ivs, fastMove: qa.fastMove, chargedMoves: chosenCharged, megaLevel: qa.megaLevel,
               })
               : buildImportedInstance(form, {
-                // megaUnlocked rides the moveless path too — the checkbox is
+                // megaLevel rides the moveless path too — the select is
                 // interactive whether or not moves are set, and dropping it
                 // here was the last leg of the sweep's data-loss finding.
-                cp: cpNumber, ivs: qa.ivs, megaUnlocked: qa.megaUnlocked,
+                cp: cpNumber, ivs: qa.ivs, megaLevel: qa.megaLevel,
               });
             savedId = built.id;
             await mutateRoster((current) => ({ ...current, instances: [...(current.instances ?? []), built] }));
@@ -3931,6 +3959,7 @@ export function bootstrap({
         collectionFilter: ui.collectionFilter,
         collectionMarkMode: ui.collectionMarkMode,
         collectionMarkTally: ui.collectionMarkSessionFormIds.length,
+        collectionMarkType: ui.collectionMarkType,
         collectionSuggestOpen: ui.collectionSuggestOpen,
         collectionSheetFormId: ui.collectionSheetFormId,
         collectionExitingFormIds: ui.collectionExitingFormIds,

@@ -12,6 +12,18 @@ const FILTERS = Object.freeze([
   { id: "lucky", label: "Lucky" },
 ]);
 
+// Mark-type segmented control (operator ask: "shiny button"). Chooses what a
+// mark-mode grid tap applies — id is the exact `mark` value nextMarkState()
+// (collection.js) already accepts, so app.js's grid-tap handler only needs to
+// thread data.collectionMarkType through as applyMarkState's second argument
+// instead of hardcoding "caught". Default "caught" preserves today's tap
+// behavior when the control is never touched.
+const MARK_TYPES = Object.freeze([
+  { id: "caught", label: "Caught" },
+  { id: "shiny", label: "Shiny" },
+  { id: "lucky", label: "Lucky" },
+]);
+
 
 // §5 accent: overall completion ring for the grid header, computed from the
 // same overall caught/total the text line already states — no new data
@@ -39,19 +51,46 @@ function progressLine(bucket) {
 }
 
 
-// I1: mode toggle + persistent banner + session tally. app.js owns
+// Tap-action copy for the active mark type: caught keeps the original
+// catch/release wording (long-press still reaches shiny/lucky via the
+// sheet); shiny/lucky name what the tap now does directly and note caught
+// is untouched (nextMarkState's "unmarking a flag alone never touches
+// caught" rule), long-press still opens the full sheet for the mixed case.
+function markTypeBannerCopy(markType) {
+  if (markType === "shiny" || markType === "lucky") {
+    return `tap any card to mark/unmark ${markType} (caught stays) · long-press for the full sheet · taps no longer open the dex entry`;
+  }
+  return "tap any card to catch/release it · long-press for shiny &amp; lucky · taps no longer open the dex entry";
+}
+
+// Segmented Caught/Shiny/Lucky control, mark mode only. app.js owns
+// [data-collection-marktype]'s dispatch (sets ui.collectionMarkType, read
+// back here as collectionMarkType) the same way it owns the mode toggle and
+// filter buttons above.
+function markTypeBar(markType) {
+  return `<div class="i1-marktype" role="group" aria-label="Mark type">
+    ${MARK_TYPES.map((entry) => `<button type="button" data-collection-marktype="${entry.id}" aria-pressed="${entry.id === markType}">${entry.label}</button>`).join("")}
+  </div>`;
+}
+
+// I1: mode toggle + persistent banner + session tally, extended for the
+// Caught/Shiny/Lucky mark-type control. app.js owns
 // [data-collection-mode-toggle]'s dispatch (flips ui.collectionMarkMode);
 // tally is a plain session count app.js keeps in ui state and threads
 // through as collectionMarkTally, same as collectionQuery/collectionFilter.
-function modeBar(markMode, tally) {
+// The banner names the active type ("Marking: Shiny") so a tap's effect is
+// never a guess.
+function modeBar(markMode, tally, markType) {
+  const activeLabel = MARK_TYPES.find((entry) => entry.id === markType)?.label ?? "Caught";
   return `<div class="i1-modebar">
     <button type="button" class="i1-mode-toggle" data-collection-mode-toggle aria-pressed="${markMode}">
       <span aria-hidden="true">✓</span> Mark mode
     </button>
     <span class="i1-tally${markMode ? " is-visible" : ""}">+${tally} this session</span>
   </div>
+  ${markMode ? markTypeBar(markType) : ""}
   <div class="i1-banner"${markMode ? "" : " hidden"}>
-    <strong>MARK MODE ON</strong> — tap any card to catch/release it · long-press for shiny &amp; lucky · taps no longer open the dex entry
+    <strong>MARK MODE ON</strong> — Marking: ${activeLabel} — ${markTypeBannerCopy(markType)}
   </div>`;
 }
 
@@ -154,15 +193,17 @@ function collectionSheet(formId, forms, roster) {
 
 
 // Progress readouts (overall + per-generation), I1 grid mark mode (toggle,
-// banner, tally, search+autocomplete, long-press sheet), and a filterable,
-// missing-first living-dex grid. Tracks only what the user has marked — no
-// shiny-availability claims (see collection.js honesty note).
+// Caught/Shiny/Lucky mark-type control, banner, tally, search+autocomplete,
+// long-press sheet), and a filterable, missing-first living-dex grid. Tracks
+// only what the user has marked — no shiny-availability claims (see
+// collection.js honesty note).
 export function renderCollectionView(data = {}) {
   const forms = data.forms ?? {};
   const roster = data.roster ?? {};
   const query = String(data.collectionQuery ?? "");
   const filter = FILTERS.some((entry) => entry.id === data.collectionFilter) ? data.collectionFilter : "all";
   const markMode = Boolean(data.collectionMarkMode);
+  const markType = MARK_TYPES.some((entry) => entry.id === data.collectionMarkType) ? data.collectionMarkType : "caught";
   const tally = Number.isInteger(data.collectionMarkTally) ? data.collectionMarkTally : 0;
   const progress = collectionProgress(forms, roster);
   const rows = livingDexRows(forms, roster, { query, filter, exitingFormIds: data.collectionExitingFormIds });
@@ -172,7 +213,7 @@ export function renderCollectionView(data = {}) {
     <p class="status-kicker">Collection guide</p>
     <h2 id="collection-title">Living Dex Collection</h2>
     <p>Tracks only what you've marked owned, shiny, or lucky on this device — there's no shiny-odds or availability data here.</p>
-    ${modeBar(markMode, tally)}
+    ${modeBar(markMode, tally, markType)}
     <div class="i1-overall-head">
       ${completionRing(progress.overall.caught, progress.overall.total)}
       <p class="collection-overall"><strong>${progress.overall.caught}/${progress.overall.total} caught</strong> · ${progress.overall.shiny} shiny · ${progress.overall.lucky} lucky</p>

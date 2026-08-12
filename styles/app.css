@@ -4829,6 +4829,58 @@ html:not([data-app-booted]) #app .fallback-section {
   display: none;
 }
 
+/* Caught/Shiny/Lucky segmented control (views/collection.js markTypeBar).
+   Scoped under .i1-marktype rather than joining the shared .pvp-controls/
+   .view-segments button list above — same pressed-state language
+   (aria-pressed → cyan fill/ink) without restyling those shared classes. */
+.i1-marktype {
+  display: flex;
+  gap: 0.4rem;
+  margin-top: 0.5rem;
+}
+
+.i1-marktype button {
+  flex: 1;
+  min-height: 44px;
+  padding: 0.4rem 0.6rem;
+  border: 1px solid var(--cyan);
+  border-radius: 0.6rem;
+  background: var(--panel-raised);
+  color: var(--text);
+  font: inherit;
+  font-weight: 750;
+  font-size: 0.78rem;
+}
+
+.i1-marktype button[aria-pressed="true"] {
+  color: var(--cyan-ink);
+  background: var(--cyan);
+}
+
+.i1-marktype button:focus-visible {
+  outline: 3px solid var(--focus);
+  box-shadow: 0 0 0 5px rgba(24, 32, 56, 0.85);
+  outline-offset: 2px;
+}
+
+/* Banner accent by active mark type. .i1-banner above already defaults to
+   the amber "caught" look; modeBar renders .i1-marktype immediately before
+   .i1-banner as siblings, so :has() on the pressed button picks the accent
+   up without a markup change. Shiny reuses --dx-led-yellow (the app's one
+   shiny-sparkle token — see .i1-shiny-flash below) for the border/tint
+   only, never for text, matching the light-theme contrast reason
+   .raid-hour-kicker above avoids it for text. Lucky reuses --cyan, the
+   existing "selected"/mega accent — no new colors introduced. */
+.i1-marktype:has([data-collection-marktype="shiny"][aria-pressed="true"]) + .i1-banner {
+  border-color: var(--dx-led-yellow);
+  background: color-mix(in srgb, var(--dx-led-yellow) 12%, var(--panel));
+}
+
+.i1-marktype:has([data-collection-marktype="lucky"][aria-pressed="true"]) + .i1-banner {
+  border-color: var(--cyan);
+  background: color-mix(in srgb, var(--cyan) 12%, var(--panel));
+}
+
 /* Autocomplete dropdown under .roster-search — new surface; the search
    input itself is real shipped UI (views/collection.js), unchanged here. */
 .i1-search-wrap {
@@ -5811,35 +5863,44 @@ html:not([data-app-booted]) #app .fallback-section {
   outline-offset: 2px;
 }
 
-/* Mega checkbox row — native checkbox + label, a field sibling to the IV/
-   move fields in the same quick-add form. Cyan accent-color matches the
-   app's existing "selected" language (.move-chip.is-selected, .iv-select
-   focus ring) — the closest already-shipped token for a mega-adjacent
-   highlight, no new color introduced. */
-.mega-unlocked-field {
+/* Mega level row — a real <select> field sibling to the IV/move fields in
+   the same quick-add form (round 14: megaLevel replaced the megaUnlocked
+   checkbox; class renamed from .mega-unlocked-field to .mega-level-field to
+   match the landed markup). Row/label shape follows .iv-field/
+   .iv-field-label; the select follows .iv-select (same border/background/
+   focus ring), just wider to fit "Not unlocked" — no new color introduced. */
+.mega-level-field {
   display: flex;
   align-items: center;
-  gap: 0.4rem;
+  gap: 0.5rem;
   min-height: 44px;
   margin: 0.35rem 0;
-  color: var(--text);
-  font-size: 0.8rem;
-  cursor: pointer;
 }
 
-.mega-unlocked-field input[type="checkbox"] {
-  width: 20px;
-  height: 20px;
-  margin: 0;
+.mega-level-field-label {
+  color: var(--muted);
+  font-size: 0.68rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.mega-level-select {
   flex: none;
-  accent-color: var(--cyan);
+  min-width: 7rem;
+  min-height: 44px;
+  padding: 0 0.4rem;
+  border: 1px solid var(--line);
+  border-radius: 0.4rem;
+  background: var(--panel-raised);
+  color: var(--text);
+  font: inherit;
+  font-size: 0.85rem;
+  font-weight: 700;
 }
 
-.mega-unlocked-field input[type="checkbox"]:focus-visible {
-  outline: 3px solid var(--focus);
-  box-shadow: 0 0 0 5px rgba(24, 32, 56, 0.85);
-  outline-offset: 2px;
-  border-radius: 3px;
+.mega-level-select:focus-visible {
+  outline: 2px solid var(--cyan);
+  outline-offset: 1px;
 }
 
 .quickadd-actions {

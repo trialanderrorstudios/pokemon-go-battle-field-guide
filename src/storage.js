@@ -84,8 +84,12 @@ const EMPTY_ROSTER = Object.freeze({
 });
 const INSTANCE_FIELDS = new Set([
   "id", "formId", "cp", "ivs", "fastMove", "chargedMoves", "nickname", "addedAt", "updatedAt",
-  "isShiny", "isLucky", "megaUnlocked",
+  "isShiny", "isLucky", "megaUnlocked", "megaLevel",
 ]);
+// Mega Evolution level tiers (round 14): megaUnlocked's successor. "base" is
+// the honest floor for a legacy megaUnlocked:true backup that never recorded
+// how far the player got.
+const MEGA_LEVELS = new Set(["base", "high", "max"]);
 
 
 export class RosterImportError extends Error {
@@ -277,13 +281,26 @@ function normalizeInstance(value, index, validFormIds) {
       `instances[${index}].isLucky must be a boolean if present.`, "invalid_instance", { field: "instances", index },
     );
   }
-  // megaUnlocked follows the same additive, omit-when-false convention as
-  // isShiny/isLucky (see instances.js buildInstance).
+  // megaUnlocked (legacy binary flag, round 12) is still ACCEPTED on input
+  // forever so old backups keep restoring, but it's migrated to megaLevel
+  // below and never appears in normalized output again.
   if (value.megaUnlocked !== undefined && typeof value.megaUnlocked !== "boolean") {
     throw new RosterImportError(
       `instances[${index}].megaUnlocked must be a boolean if present.`, "invalid_instance", { field: "instances", index },
     );
   }
+  // megaLevel (round 14) replaces megaUnlocked: a leveled field instead of a
+  // binary one. Absent = not unlocked, same omit-when-absent convention as
+  // isShiny/isLucky.
+  if (value.megaLevel !== undefined && !MEGA_LEVELS.has(value.megaLevel)) {
+    throw new RosterImportError(
+      `instances[${index}].megaLevel must be "base", "high", or "max" if present.`, "invalid_instance", { field: "instances", index },
+    );
+  }
+  // Migration: a legacy megaUnlocked:true with no megaLevel becomes the
+  // honest floor "base" — we know it was unlocked, not how far. megaLevel
+  // wins if both are somehow present.
+  const megaLevel = value.megaLevel ?? (value.megaUnlocked ? "base" : undefined);
   if (typeof value.addedAt !== "string" || Number.isNaN(Date.parse(value.addedAt))) {
     throw new RosterImportError(
       `instances[${index}].addedAt must be an ISO date string.`, "invalid_instance", { field: "instances", index },
@@ -307,7 +324,7 @@ function normalizeInstance(value, index, validFormIds) {
     ...(value.nickname !== undefined ? { nickname: value.nickname } : {}),
     ...(value.isShiny ? { isShiny: true } : {}),
     ...(value.isLucky ? { isLucky: true } : {}),
-    ...(value.megaUnlocked ? { megaUnlocked: true } : {}),
+    ...(megaLevel ? { megaLevel } : {}),
     addedAt: value.addedAt,
     ...(value.updatedAt !== undefined ? { updatedAt: value.updatedAt } : {}),
   };
@@ -417,7 +434,7 @@ export function stableRosterJson(roster) {
       ...(instance.nickname ? { nickname: instance.nickname } : {}),
       ...(instance.isShiny ? { isShiny: true } : {}),
       ...(instance.isLucky ? { isLucky: true } : {}),
-      ...(instance.megaUnlocked ? { megaUnlocked: true } : {}),
+      ...(instance.megaLevel ? { megaLevel: instance.megaLevel } : {}),
       addedAt: instance.addedAt,
       ...(instance.updatedAt ? { updatedAt: instance.updatedAt } : {}),
     }))
