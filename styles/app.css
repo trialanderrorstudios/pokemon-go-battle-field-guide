@@ -6394,6 +6394,9 @@ html:not([data-app-booted]) #app .fallback-section {
    style-src 'self' in both browsers — the gate the unit suite cannot see. */
 .briefing-boss-types { margin-top: 0.3rem; }
 .briefing-note { margin: 0; font-size: 0.82rem; line-height: 1.42; color: var(--text); }
+/* Catch-screen line on the featured card: hundo + floor CP at a glance. */
+.briefing-catch { margin: 0.3rem 0 0; font-size: 0.78rem; color: var(--muted); }
+.briefing-catch strong { color: var(--text); }
 .briefing-note strong { color: var(--text); }
 
 .briefing-bring-label {

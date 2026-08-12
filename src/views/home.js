@@ -595,6 +595,23 @@ function bringSection({
     ${intakeLink}`;
 }
 
+
+// The catch-screen numbers, on the card you read while walking to the raid
+// (operator ask, 2026-08-12): hundo and floor CP for both encounter bands,
+// straight from the same raid-target data the hundo checker uses — including
+// the per-band IV floor (6/6/6 for Shadow raids). raid-targets.json is eager
+// on Home, so this renders on first paint; a boss without a target row (or a
+// plan that failed to build) renders nothing rather than a guess.
+function briefingCatchLine(plan) {
+  const normal = plan?.target?.normal;
+  if (!normal?.hundoCP) return "";
+  const boosted = plan?.target?.weatherBoosted;
+  const floor = Number.isFinite(normal.minimumIV) ? normal.minimumIV : 10;
+  return `<p class="briefing-catch">Catch: hundo <strong>${escapeHtml(normal.hundoCP)}</strong>` +
+    `${boosted?.hundoCP ? ` (${escapeHtml(boosted.hundoCP)} weather-boosted)` : ""}` +
+    ` · floor ${escapeHtml(`${floor}/${floor}/${floor}`)}: ${escapeHtml(normal.minimumRaidIVCP)}</p>`;
+}
+
 function featuredBossCard({
   featured, plan, currentBosses, forms, roster, ownedCount, now,
 }) {
@@ -625,6 +642,7 @@ function featuredBossCard({
       <span class="acq-flag">ranked attacker</span>
     </p>
     <p class="briefing-note">${escapeHtml(rankLine)} attacker.${escapeHtml(detail)}</p>
+    ${briefingCatchLine(plan)}
     ${bringSection({
     featured, plan, forms, roster, ownedCount,
   })}
@@ -691,11 +709,21 @@ export function renderFieldBriefing({
   // per-boss one-liners (unaffected by the change above) and, only as a
   // fallback, the verdict line when nothing in the rotation has a real
   // built verdict yet.
-  const summary = ownedCount ? buildCoachSummary({
-    data, roster, now, trainerLevel,
-  }) : null;
-  const bestRow = summary?.worthRaiding?.[0] ?? null;
-  const restRows = (summary?.worthRaiding ?? []).filter((row) => row.formId !== featured?.formId);
+  // Not gated on ownedCount: buildCoachSummary handles an empty roster and
+  // returns honest per-boss "not enough data" headlines — the gate was a
+  // leftover of the r99 all-or-nothing verdict path, and it left the skip log
+  // EMPTY for exactly the users the header promised "N bosses in today's
+  // rotation" to (operator-visible on fresh installs, 2026-08-12).
+  const summary = buildCoachSummary({
+    data, roster: roster ?? { ownedFormIds: [], ownedFormCounts: {} }, now, trainerLevel,
+  });
+  // The summary reads data.currentBosses internally and so bypasses the
+  // expiry filter above — restRows must re-apply it, or the expired boss
+  // re-enters through the skip log (my own regression test caught this).
+  const liveIds = new Set(bosses.map((boss) => boss.formId));
+  const liveRows = (summary?.worthRaiding ?? []).filter((row) => liveIds.has(row.formId));
+  const bestRow = liveRows[0] ?? null;
+  const restRows = liveRows.filter((row) => row.formId !== featured?.formId);
 
   let plan = null;
   if (featured) {
