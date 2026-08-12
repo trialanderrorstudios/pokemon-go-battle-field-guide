@@ -9,6 +9,7 @@ import { moveLink, displayMoveName } from "./move-sheet.js";
 import { spriteHtml } from "../sprites.js";
 import { typeChip } from "./types.js";
 import { candidateIvsForTier, instanceLevel, legalMoves, solveLevel } from "../instances.js";
+import { instanceLeagueRank } from "../pvp-team.js";
 
 const LEAGUE_NAMES = Object.freeze({ great: "Great League", ultra: "Ultra League", master: "Master League" });
 
@@ -147,7 +148,16 @@ function raidAttackerSection(form, raids, raidsLoaded) {
 
 
 function bossSection(form, raidTargetTool) {
-  const target = (raidTargetTool?.targets ?? []).find((entry) => entry.bossFormId === form.form_id);
+  // No raidTargetTool at all = the raid-targets.json chunk has not landed —
+  // show the same honest loading state pvpSection uses instead of silently
+  // omitting the section (operator report 2026-08-12: Garchomp's hundo CP
+  // "missing" — the data existed; the section vanished without a trace while
+  // the chunk was in flight or after its bounded retry gave up).
+  if (!raidTargetTool) {
+    return `<section class="dex-section" aria-labelledby="dex-boss-title">
+    <h3 id="dex-boss-title">As a raid boss</h3><p class="dex-loading">Loading…</p></section>`;
+  }
+  const target = (raidTargetTool.targets ?? []).find((entry) => entry.bossFormId === form.form_id);
   if (!target) return "";
   return `<section class="dex-section" aria-labelledby="dex-boss-title">
     <h3 id="dex-boss-title">As a raid boss</h3>
@@ -157,17 +167,115 @@ function bossSection(form, raidTargetTool) {
 }
 
 
-function pvpSection(form, pvp) {
+// This form's saved roster instances — shared by rosterSection (the
+// quick-add list) and pvpSection (the per-league "Yours" rank line) so both
+// read the exact same owned copies.
+function formInstancesFor(form, roster) {
+  return (roster.instances ?? []).filter((instance) => instance.formId === form.form_id);
+}
+
+
+// PvP rows ship eliteFastTM/eliteChargedTM as a row-level OR across every
+// chargedMoves slot (src/pogo_encyclopedia/pvp.py: any(move in elite_moves)),
+// not a per-move flag — and, like raidMoveBadge/eliteMoveLabel above exist to
+// fix, raw form.elite_moves membership lumps Community Day classics in with
+// genuinely restricted moves (real fixture case: Metagross's Meteor Mash is
+// membership-"Elite" but its own researched raid row says
+// communityDayClassic). Prefer this form's own researched raid-row
+// availabilityClass per move (same lookup eliteMoveLabel does) when one
+// exists; fall back to per-move form.elite_moves membership — the same
+// source data the row's OR'd flag itself came from, just not collapsed
+// across both charged-move slots — when no raid row researches this move.
+function pvpMoveBadge(moveId, kind, form, raids) {
+  const raidRows = [...(raids?.regular ?? []), ...(raids?.shadow ?? [])].filter((row) => row.formId === form.form_id);
+  const hit = raidRows.find((row) => row.fastMove === moveId || row.chargedMove === moveId);
+  const cls = hit && (hit.fastMove === moveId ? (hit.fastAvailabilityClass ?? hit.availabilityClass) : (hit.chargedAvailabilityClass ?? hit.availabilityClass));
+  // eliteOnly ONLY — folding eventOnly in here is the original 96-badge bug
+  // (r96 audit) in a new coat: raidMoveBadge checks elite before eventOnly,
+  // so the fold made "Event-only move" unreachable and fabricated an Elite TM
+  // path for Zacian's Behemoth Blade. Review caught the reintroduction.
+  const elite = cls ? cls === "eliteOnly" : (form.elite_moves ?? []).includes(moveId);
+  return raidMoveBadge(moveId, { kind, elite, eventOnly: cls === "eventOnly", availabilityClass: cls });
+}
+
+
+// IV code for the "Copy IV code" affordance (spec item 7): default is the
+// familiar slash spread ("4/15/14"); the compact variant appends the solved
+// level once known, dash-separated so a trailing "L21" doesn't read as a
+// fraction ("4-15-14 L21"). Exact level is kept (never truncated/rounded) —
+// a half-level build (e.g. L21.5) is a real, distinct build from L21, and
+// silently rounding it would misstate what's actually saved. Pure and
+// exported: app.js wires the actual clipboard write from this string.
+export function formatIvCode(ivs, level = null) {
+  const spread = `${ivs.atk}/${ivs.def}/${ivs.sta}`;
+  if (level === null || !Number.isFinite(level)) return spread;
+  return `${ivs.atk}-${ivs.def}-${ivs.sta} L${level}`;
+}
+
+
+// Poke-Genie-style "where does the exact IV spread you saved stand" line for
+// one instance under one league card, from pvp-team.js's own
+// instanceLeagueRank (the full-4096-IV-space rank/percentile machinery — no
+// second ranking formula invented here). Honest about ineligible instances
+// (over the league's CP cap, etc.) rather than silently skipping them.
+// delta.percent (how close this exact spread's stat product is to the
+// league's published rank-1 build) is the decimal readout; percentile (whole
+// number, position across all 4096 spreads) is the fallback when rankOne
+// data isn't shipped for this league.
+function pvpInstanceRankHtml(form, instance, league, row) {
+  const result = instanceLeagueRank(form, instance, league, row);
+  if (!result) return "";
+  const name = escapeHtml(instance.nickname || form.name);
+  if (!result.eligible) {
+    return `<p class="dex-pvp-yours dex-pvp-ineligible">${name}: ${escapeHtml(result.reason)}</p>`;
+  }
+  const percent = result.delta ? result.delta.percent : result.percentile;
+  const copyCode = formatIvCode(instance.ivs, result.level);
+  return `<p class="dex-pvp-yours">Yours: ${escapeHtml(formatIvCode(instance.ivs))} — ${escapeHtml(percent)}% (CP ${escapeHtml(result.cp)} @ L${escapeHtml(result.level)})
+    <button type="button" class="copy-iv-btn" data-copy-nickname="${escapeHtml(copyCode)}">Copy IV code</button></p>`;
+}
+
+
+// One league card: header (rank/tier/role/recommendation), target build
+// (rankOne — read from the actual encyclopedia.json shape, not guessed),
+// moveset, the caveat line's named checks (one muted line), and a Yours line
+// per saved instance. Unranked stays the honest "outside the shipped
+// top-150" line — never a fabricated spread.
+function pvpLeagueCardHtml(form, league, label, row, raids, formInstances) {
+  if (!row) {
+    return `<li class="dex-pvp-card dex-pvp-unranked"><h4>${escapeHtml(label)}</h4><p>Outside the shipped top-150 league rankings.</p></li>`;
+  }
+  const rankOneIvs = row.rankOne?.ivs;
+  const targetHtml = rankOneIvs
+    ? `<p class="dex-pvp-target">Target build: ${escapeHtml(rankOneIvs.attack)}/${escapeHtml(rankOneIvs.defense)}/${escapeHtml(rankOneIvs.stamina)} IVs — CP ${escapeHtml(row.rankOne.cp)} @ Level ${escapeHtml(row.rankOne.level)}</p>`
+    : "";
+  const fastBadge = pvpMoveBadge(row.fastMove, "Fast", form, raids);
+  const chargedBadges = (row.chargedMoves ?? []).map((moveId) => pvpMoveBadge(moveId, "Charged", form, raids)).join(" + ");
+  const yoursHtml = formInstances.map((instance) => pvpInstanceRankHtml(form, instance, league, row)).join("");
+  return `<li class="dex-pvp-card">
+    <div class="dex-pvp-head">
+      <h4>${escapeHtml(label)}</h4>
+      <span class="dex-pvp-rank">Rank ${escapeHtml(row.rank)} · ${escapeHtml(row.investmentTier)} tier</span>
+      <span class="dex-pvp-role">${escapeHtml(row.primaryRole)} — ${escapeHtml(row.recommendation)}</span>
+    </div>
+    ${targetHtml}
+    <p class="dex-pvp-moves">${fastBadge} + ${chargedBadges}</p>
+    ${row.caveat ? `<p class="dex-pvp-caveat">${escapeHtml(row.caveat)}</p>` : ""}
+    ${yoursHtml}
+  </li>`;
+}
+
+
+function pvpSection(form, pvp, roster, raids) {
   if (!pvp) return `<section class="dex-section" aria-labelledby="dex-pvp-title"><h3 id="dex-pvp-title">PvP</h3><p class="dex-loading">Loading…</p></section>`;
-  const rows = Object.entries(LEAGUE_NAMES).map(([league, label]) => {
+  const formInstances = formInstancesFor(form, roster);
+  const cards = Object.entries(LEAGUE_NAMES).map(([league, label]) => {
     const row = (pvp[league] ?? []).find((entry) => entry.formId === form.form_id);
-    return row
-      ? `<li>${escapeHtml(label)}: rank ${escapeHtml(row.rank)}, ${escapeHtml(row.investmentTier)} tier</li>`
-      : `<li>${escapeHtml(label)}: outside the shipped top-150 league rankings</li>`;
+    return pvpLeagueCardHtml(form, league, label, row, raids, formInstances);
   }).join("");
   return `<section class="dex-section" aria-labelledby="dex-pvp-title">
     <h3 id="dex-pvp-title">PvP</h3>
-    <ul class="dex-list">${rows}</ul>
+    <ul class="dex-list dex-pvp-cards">${cards}</ul>
   </section>`;
 }
 
@@ -838,7 +946,7 @@ function quickAddInstanceRowHtml(form, instance, editingId, stamp) {
 function rosterSection(form, roster, quickAdd, raids, raidsLoaded, gym, forms) {
   const owned = new Set(roster.ownedFormIds ?? []);
   const isOwned = owned.has(form.form_id);
-  const formInstances = (roster.instances ?? []).filter((instance) => instance.formId === form.form_id);
+  const formInstances = formInstancesFor(form, roster);
   const draft = quickAdd ?? blankQuickAddDraft();
   const roles = raidsLoaded ? offenseRoles(form, raids) : [];
   const defenseRow = gym ? (gymVerdict(form, gym).row ?? null) : null;
@@ -908,7 +1016,7 @@ export function renderDex({
     ${gymSection(form, gym)}
     ${raidAttackerSection(form, raids, raidsLoaded)}
     ${bossSection(form, raidTargetTool)}
-    ${pvpSection(form, pvp)}
+    ${pvpSection(form, pvp, roster, raids)}
     ${movesSection(form)}
     ${evolutionSection(form, forms)}
     ${acquisitionSection(form, acquisitionGuide)}

@@ -1393,6 +1393,11 @@ export function createInteractionController({
   let markLongPressTimer = null;
   let markSuppressClick = false;
   let markLongPressCardEl = null;
+  // dex-pvp "Copy IV code" (data-copy-nickname) one-shot label swap. dex.js
+  // owns no render state for this button, so the "Copied"/failure text lives
+  // directly on the button node and self-reverts — keyed by node (not ui
+  // state) since a re-render swaps in a fresh node anyway.
+  const copyIvCodeResetTimers = new WeakMap();
   // I2 IV drag-bar coalescing: a native range fires "input" on every drag
   // tick. The draft updates immediately below so the number stays honest,
   // but the full rerender (tick-bar gradient + solver text) is coalesced to
@@ -2305,6 +2310,26 @@ export function createInteractionController({
           rerenderCurrent();
           return;
         }
+      }
+      // I2/dex-pvp "Copy IV code" (views/dex.js's pvpInstanceRankHtml, the
+      // "Yours" line under each league card — data-copy-nickname carries
+      // formatIvCode()'s compact "A-D-S L<level>" string). One-shot on-
+      // button "Copied" stamp on success; an honest inline failure otherwise
+      // (navigator.clipboard.writeText can reject even in a secure context)
+      // — never alert().
+      const copyIvCode = target?.closest?.("[data-copy-nickname]");
+      if (copyIvCode) {
+        const payload = copyIvCode.dataset.copyNickname;
+        const copied = Boolean(payload) && await (api.onRosterShareCopy ?? onRosterShareCopy)?.(payload);
+        if (!("copyNicknameLabel" in copyIvCode.dataset)) {
+          copyIvCode.dataset.copyNicknameLabel = copyIvCode.textContent ?? "";
+        }
+        clearTimeout(copyIvCodeResetTimers.get(copyIvCode));
+        copyIvCode.textContent = copied ? "Copied" : "Couldn't copy — copy manually";
+        copyIvCodeResetTimers.set(copyIvCode, setTimeout(() => {
+          copyIvCode.textContent = copyIvCode.dataset.copyNicknameLabel;
+        }, copied ? 1500 : 2500));
+        return;
       }
       const moveTrigger = target?.closest?.("[data-move-id]");
       if (moveTrigger) {

@@ -645,10 +645,31 @@ function briefingVerdictLine(featured, fallbackHeadline) {
 // type-chart degrade), stamped skip log, collapsible to one filed line.
 // Exported standalone (not just via renderFieldTimeline) so it's directly
 // unit-testable against fixture rotation data.
+// endsAt in the rotation feed is a bare date — the boss runs THROUGH that
+// day (Blaziken "2026-08-11" ended 22:00 local on the 11th). Comparing the
+// bare date against `now` would expire a boss at midnight at the START of its
+// last day, so expiry is end-of-day.
+function endOfDay(dateString) {
+  const parsed = new Date(dateString);
+  parsed.setHours(23, 59, 59, 999);
+  return parsed;
+}
+
 export function renderFieldBriefing({
   currentBosses, raidTargetTool, forms, roster, data, storage, trainerLevel, now = new Date(),
 } = {}) {
-  const bosses = currentBosses?.bosses ?? [];
+  const allBosses = currentBosses?.bosses ?? [];
+  // A boss whose endsAt has passed is not in "today's rotation", full stop —
+  // it must never be featured or filed as a live option. The rotation feed
+  // lags the game (2026-08-12: Mega Blaziken, ended the 11th, was still the
+  // featured verdict while Groudon ran in-game), and the client cannot know
+  // what replaced an expired boss — but it always knows the date. Expired
+  // rows drop here, and when any dropped, the header carries an honest
+  // rotation-refresh note instead of implying now-ness the data cannot back.
+  const bosses = allBosses.filter((boss) => !(typeof boss.endsAt === "string"
+    && !Number.isNaN(Date.parse(boss.endsAt))
+    && endOfDay(boss.endsAt) < now));
+  const expiredCount = allBosses.length - bosses.length;
   if (!bosses.length) return "";
   const fingerprint = rotationFingerprint(currentBosses);
   const collapsed = storage?.getItem?.(briefingCollapsedKey(fingerprint)) === "1";
@@ -688,7 +709,8 @@ export function renderFieldBriefing({
   }
 
   const dateLabel = now.toLocaleDateString("en-US", { weekday: "long", month: "short", day: "numeric" });
-  const bossCountLabel = `${bosses.length} boss${bosses.length === 1 ? "" : "es"} in today's rotation`;
+  const bossCountLabel = `${bosses.length} boss${bosses.length === 1 ? "" : "es"} in today's rotation`
+    + (expiredCount ? ` · ${expiredCount} ended — rotation data awaiting refresh` : "");
   const body = `${featured
     ? featuredBossCard({
       featured, plan, currentBosses, forms, roster, ownedCount, now,

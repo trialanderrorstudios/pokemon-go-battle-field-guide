@@ -5318,6 +5318,129 @@ html:not([data-app-booted]) #app .fallback-section {
   font-weight: 800;
 }
 
+/* PvP league cards — dex.js's pvpSection()/pvpLeagueCardHtml(). Card shell
+   reuses the .optimal-row border+gradient convention. No per-league color
+   token exists (only type/team accents in :root), so cards stay neutral
+   rather than inventing an untokened league tint. */
+.dex-pvp-cards {
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.dex-pvp-card {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 0.7rem 0.75rem;
+  background: linear-gradient(145deg, var(--panel-raised), var(--panel));
+}
+
+.dex-pvp-head {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+
+.dex-pvp-head h4 {
+  margin: 0;
+  font-size: 0.85rem;
+  color: var(--text);
+}
+
+.dex-pvp-rank,
+.dex-pvp-role {
+  font-size: 0.7rem;
+  color: var(--muted);
+}
+
+.dex-pvp-target,
+.dex-pvp-caveat {
+  margin: 0.35rem 0 0;
+  font-size: 0.72rem;
+  line-height: 1.4;
+  color: var(--muted);
+}
+
+.dex-pvp-caveat {
+  color: var(--amber);
+}
+
+.dex-pvp-moves {
+  margin: 0.35rem 0 0;
+  font-size: 0.78rem;
+  line-height: 1.4;
+  color: var(--text);
+}
+
+/* Unranked card — form has no row in this league's shipped top-150. Stays
+   quieter than a ranked card: flat panel, no gradient. */
+.dex-pvp-unranked {
+  background: var(--panel);
+}
+
+.dex-pvp-unranked p {
+  margin: 0.35rem 0 0;
+  color: var(--muted);
+  font-size: 0.72rem;
+}
+
+/* "Yours" line — a saved instance's rank/percentile under this league, from
+   pvp-team.js's instanceLeagueRank(). One line per saved instance, each
+   divided from the card body/previous line the same way .optimal-yours-line
+   stacks. Ineligible (over the CP cap, etc.) reads muted+italic, same
+   treatment as .instance-moves-missing. */
+.dex-pvp-yours {
+  margin: 0.5rem 0 0;
+  padding-top: 0.5rem;
+  border-top: 1px dashed var(--line);
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.73rem;
+  line-height: 1.4;
+  color: var(--text);
+}
+
+.dex-pvp-ineligible {
+  color: var(--muted);
+  font-style: italic;
+}
+
+/* Copy-nickname chip — the .move-chip pill convention. is-copied is the
+   confirmation state (app.js toggles it after a successful clipboard write
+   via data-copy-nickname), same is-selected/is-correct pattern as
+   .move-chip/.drill-chip. */
+.copy-iv-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 48px;
+  padding: 0.3rem 0.7rem;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--panel-raised);
+  color: var(--text);
+  font: inherit;
+  font-size: 0.72rem;
+  cursor: pointer;
+}
+
+.copy-iv-btn:focus-visible {
+  outline: 3px solid var(--focus);
+  box-shadow: 0 0 0 5px rgba(24, 32, 56, 0.85);
+  outline-offset: 2px;
+}
+
+.copy-iv-btn.is-copied {
+  border-color: var(--dx-good);
+  color: var(--dx-good);
+  font-weight: 800;
+}
+
 /* Roster summary + quick-add. */
 .roster-summary {
   display: flex;
