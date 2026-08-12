@@ -5942,6 +5942,10 @@ html:not([data-app-booted]) #app .fallback-section {
 .briefing-boss-heading { min-width: 0; flex: 1; }
 .briefing-boss-heading h3 { margin: 0; font-size: 1.05rem; line-height: 1.2; }
 .briefing-eyebrow-row { margin: 0 0 0.15rem; display: flex; flex-wrap: wrap; gap: 0.35rem; align-items: center; }
+/* The featured card's type-chip row. Was an inline style="margin-top:0.3rem"
+   until 2026-08-11, when the publish e2e caught it violating the CSP's
+   style-src 'self' in both browsers — the gate the unit suite cannot see. */
+.briefing-boss-types { margin-top: 0.3rem; }
 .briefing-note { margin: 0; font-size: 0.82rem; line-height: 1.42; color: var(--text); }
 .briefing-note strong { color: var(--text); }
 

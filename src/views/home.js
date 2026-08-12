@@ -402,16 +402,19 @@ function releaseDiffCard(diff, roster, storage) {
 // against this app's real state/render model — the mockup's JS is reference
 // behaviour only, not portable code.
 //
-// Data constraint: raids.json (the per-boss counter rankings) is
-// deliberately NOT eager on Home (ROUTE_CHUNKS.home / app.js) — it's the
-// single biggest release file and it chain-loads after Home's other four
-// chunks land. buildRaidPlan()/beatability() degrade to band
-// "not-enough-data" until it arrives, same as they always have for Today's
-// "Worth your free daily pass?" row and the Coach's rest-of-week list — so
-// the featured boss below is simply absent on that first paint and appears
-// once the deferred chunk lands and Home re-renders (the existing
-// onRouteVisit chaining home() already relies on). Nothing here requires
-// raids.json to render; it only gets more useful once it's there.
+// Data constraint: raids.json (the per-boss ranked-attacker rows, split into
+// raids-regular.json/raids-shadow.json) is deliberately NOT eager on Home
+// (ROUTE_CHUNKS.home / app.js) — it's the single biggest release file and it
+// chain-loads after Home's other four chunks land. The featured boss below
+// (pickFeaturedBoss/attackerRankRows) reads those ranked rows directly, so a
+// boss is simply not resolvable as "featured" until that deferred chunk
+// lands and Home re-renders (the existing onRouteVisit chaining home()
+// already relies on) — UNLESS it's a Mega/Primal, in which case
+// extras.json's megasPrimals (eager on Home) carries the same rows already
+// and the featured card can resolve on the first paint. This is a fact about
+// the BOSS (is it worth building?), never gated on the roster — buildRaidPlan()/
+// beatability() is a separate, roster-dependent signal that only ever
+// affects the "bring these" slot inside the card and the skip log below it.
 //
 // Deletion accounting (spec §3 point 5 — the briefing supersedes, it does
 // not stack):
@@ -516,14 +519,95 @@ function briefingSkipSection(restRows, forms) {
   </div>`;
 }
 
+const INVEST_TIER_ORDER = Object.freeze({
+  "S+": 0, S: 1, A: 2, B: 3, C: 4,
+});
+
+// Every ranked-attacker row for this boss's own formId, across attacking
+// types — deduped by attackingType (raids.regular/shadow and extras.json's
+// megasPrimals can carry the same row twice once both have landed; dedupe
+// keeps whichever copy claims the better rank), sorted best-first. This is
+// the boss's OWN verdict as something to build ("is this worth my time") —
+// a different question from beatability()'s roster-dependent "can my team
+// beat it in a raid".
+function attackerRowsFor(formId, rows) {
+  const byType = new Map();
+  for (const row of rows) {
+    if (row.formId !== formId) continue;
+    const existing = byType.get(row.attackingType);
+    if (!existing || row.rank < existing.rank) byType.set(row.attackingType, row);
+  }
+  return [...byType.values()].sort((left, right) => left.rank - right.rank);
+}
+
+// raids.regular/raids.shadow (raids-regular.json/raids-shadow.json) are the
+// deliberately-deferred chunk — see the file-top note; empty until that
+// second fetch lands and Home re-renders. extras.json's megasPrimals is
+// eager on Home, so a Mega headliner's real verdict can resolve on the
+// FIRST paint even before raids.json arrives.
+function attackerRankRows(data) {
+  const raids = data?.raids ?? {};
+  return [...(raids.regular ?? []), ...(raids.shadow ?? []), ...(data?.megasPrimals ?? [])];
+}
+
+// The featured boss: the one rotation boss with the best real ranked-attacker
+// verdict (lowest investment tier, then rank). A boss with no ranked row at
+// all (most Tier 5 legendaries, most wild-caught Shadow raids) never gets a
+// featured slot — honest skip-log material instead, never a fabricated tier.
+function pickFeaturedBoss(bosses, rankedRows) {
+  let best = null;
+  for (const boss of bosses) {
+    const rows = attackerRowsFor(boss.formId, rankedRows);
+    if (!rows.length) continue;
+    const topRow = rows[0];
+    const better = !best
+      || (INVEST_TIER_ORDER[topRow.investmentTier] ?? 9) < (INVEST_TIER_ORDER[best.topRow.investmentTier] ?? 9)
+      || ((INVEST_TIER_ORDER[topRow.investmentTier] ?? 9) === (INVEST_TIER_ORDER[best.topRow.investmentTier] ?? 9)
+        && topRow.rank < best.topRow.rank);
+    if (better) best = { boss, rows, topRow };
+  }
+  return best;
+}
+
+// "Bring these": a fact about the ROSTER, not the boss — owned counters when
+// the roster has them, else the honest type-chart-plus-intake-pointer
+// degrade (spec §3 point 4), scoped to just this slot inside the featured
+// card rather than replacing the whole verdict.
+function bringSection({
+  featured, plan, forms, roster, ownedCount,
+}) {
+  if (ownedCount > 0) {
+    const bringCounters = (plan?.ownedCounters ?? []).slice(0, BRING_CARD_LIMIT);
+    if (!bringCounters.length) return "";
+    return `<p class="briefing-bring-label">Bring these — your owned counters</p>
+    <div class="bring-row" role="list" aria-label="Your owned counters for ${escapeHtml(featured.name)}">
+      ${bringCounters.map((counter) => briefingBringCard(counter, roster, forms)).join("")}
+    </div>`;
+  }
+  const bossTypes = plan?.target?.bossTypes
+    ?? [forms?.[featured.formId]?.primary_type, forms?.[featured.formId]?.secondary_type].filter(Boolean);
+  const weaknesses = bossTypes.length ? topWeaknesses(bossTypes) : [];
+  const intakeLink = `<p><a class="safe-escape" href="./#more/roster" data-route="more" data-view="roster">Add the Pokémon you own →</a></p>`;
+  return `<p class="briefing-bring-label">Bring these</p>
+    <p class="briefing-note">${weaknesses.length
+    ? `No roster yet — type chart says bring <strong>${weaknesses.map(escapeHtml).join(", ")}</strong>-type attackers.`
+    : "No roster yet."}</p>
+    ${intakeLink}`;
+}
+
 function featuredBossCard({
-  featured, plan, currentBosses, forms, roster, now,
+  featured, plan, currentBosses, forms, roster, ownedCount, now,
 }) {
   const boss = (currentBosses?.bosses ?? []).find((row) => row.formId === featured.formId);
-  const bossTypes = plan?.target?.bossTypes ?? [];
+  const bossTypes = plan?.target?.bossTypes
+    ?? [forms?.[featured.formId]?.primary_type, forms?.[featured.formId]?.secondary_type].filter(Boolean);
   const endsToday = typeof boss?.endsAt === "string" && !Number.isNaN(Date.parse(boss.endsAt))
     && new Date(boss.endsAt).toDateString() === now.toDateString();
-  const bringCounters = (plan?.ownedCounters ?? []).slice(0, BRING_CARD_LIMIT);
+  const top = featured.topRow;
+  const rankLine = featured.rows.map((row) => `Rank #${row.rank} ${row.attackingType}`).join(", ");
+  const detail = Number.isFinite(top.matchups)
+    ? ` ${top.matchups} winning ${top.attackingType} matchups.${top.resourceBurden ? ` Build cost: ${top.resourceBurden}.` : ""}`
+    : "";
   return `<div class="briefing-section">
     <div class="briefing-boss-head">
       ${spriteHtml(featured.formId, forms, featured.name, bossTypes[0])}
@@ -533,67 +617,34 @@ function featuredBossCard({
           ${endsToday ? `<span class="ends-today">Ends today</span>` : ""}
         </p>
         <h3>${escapeHtml(featured.name)}</h3>
-        ${bossTypes.length ? `<p class="briefing-eyebrow-row" style="margin-top:0.3rem;">${bossTypes.map((type) => `<span class="type-chip" data-type="${escapeHtml(type)}">${escapeHtml(type)}</span>`).join("")}</p>` : ""}
+        ${bossTypes.length ? `<p class="briefing-eyebrow-row briefing-boss-types">${bossTypes.map((type) => `<span class="type-chip" data-type="${escapeHtml(type)}">${escapeHtml(type)}</span>`).join("")}</p>` : ""}
       </div>
     </div>
     <p class="briefing-eyebrow-row">
-      <span class="invest-pill">${escapeHtml(BRIEFING_BAND_STAMP[featured.band] ?? "Check")}</span>
-      <span class="acq-flag">from your roster</span>
+      <span class="invest-pill">${escapeHtml(top.investmentTier)} · ${escapeHtml(top.recommendation)}</span>
+      <span class="acq-flag">ranked attacker</span>
     </p>
-    <p class="briefing-note">${escapeHtml(featured.headline)}.${featured.detail ? ` ${escapeHtml(featured.detail)}` : ""}</p>
-    ${bringCounters.length ? `<p class="briefing-bring-label">Bring these — your owned counters</p>
-    <div class="bring-row" role="list" aria-label="Your owned counters for ${escapeHtml(featured.name)}">
-      ${bringCounters.map((counter) => briefingBringCard(counter, roster, forms)).join("")}
-    </div>` : ""}
-  </div>`;
-}
-
-// Empty-roster degrade (spec §3 point 4): no fabricated "bring these" list
-// when there's nothing owned to build one from — the honest fallback is the
-// plain type chart against the rotation's headliner, plus a pointer to
-// intake instead of a verdict this roster can't back yet.
-function emptyRosterDegrade({ currentBosses, forms, raidTargetTool }) {
-  const bosses = currentBosses?.bosses ?? [];
-  const pick = bosses.find((row) => row.tier === "Tier 5")
-    ?? bosses.find((row) => row.tier === "Mega")
-    ?? bosses[0]
-    ?? null;
-  const intakeLink = `<p><a class="safe-escape" href="./#more/roster" data-route="more" data-view="roster">Add the Pokémon you own →</a></p>`;
-  if (!pick) {
-    return `<div class="briefing-section">
-      <p class="briefing-note">No roster yet — add the Pokémon you own to get real raid verdicts here.</p>
-      ${intakeLink}
-    </div>`;
-  }
-  const target = (raidTargetTool?.targets ?? []).find((row) => row.bossFormId === pick.formId);
-  const bossTypes = target?.bossTypes
-    ?? [forms?.[pick.formId]?.primary_type, forms?.[pick.formId]?.secondary_type].filter(Boolean);
-  const weaknesses = bossTypes.length ? topWeaknesses(bossTypes) : [];
-  const name = forms?.[pick.formId]?.name ?? target?.boss ?? pick.formId;
-  return `<div class="briefing-section">
-    <div class="briefing-boss-head">
-      ${spriteHtml(pick.formId, forms, name, bossTypes[0])}
-      <div class="briefing-boss-heading"><h3>${escapeHtml(name)}</h3></div>
-    </div>
-    <p class="briefing-note">${weaknesses.length
-    ? `No roster yet — type chart says bring <strong>${weaknesses.map(escapeHtml).join(", ")}</strong>-type attackers.`
-    : "No roster yet."}</p>
-    ${intakeLink}
+    <p class="briefing-note">${escapeHtml(rankLine)} attacker.${escapeHtml(detail)}</p>
+    ${bringSection({
+    featured, plan, forms, roster, ownedCount,
+  })}
   </div>`;
 }
 
 function briefingVerdictLine(featured, fallbackHeadline) {
   if (featured) {
-    return `One raid worth your time today: <strong>${escapeHtml(featured.name)}</strong> — ${escapeHtml(featured.headline)}`;
+    const top = featured.topRow;
+    return `One raid worth your time today: <strong>${escapeHtml(featured.name)}</strong> — ${escapeHtml(top.investmentTier)} · ${escapeHtml(top.recommendation)} (rank #${escapeHtml(top.rank)} ${escapeHtml(top.attackingType)})`;
   }
   return escapeHtml(fallbackHeadline ?? "Nothing rises above “not enough data” yet in today’s rotation — add owned counters to get a real verdict.");
 }
 
 // The field briefing card itself — date-stamped header, one-line verdict,
-// featured boss (only with a real signal — see worthRaiding gating below),
-// "bring these" from the roster, stamped skip log, collapsible to one filed
-// line. Exported standalone (not just via renderFieldTimeline) so it's
-// directly unit-testable against fixture rotation data.
+// featured boss (only a boss with a real ranked-attacker verdict — see
+// pickFeaturedBoss above), "bring these" from the roster (or the honest
+// type-chart degrade), stamped skip log, collapsible to one filed line.
+// Exported standalone (not just via renderFieldTimeline) so it's directly
+// unit-testable against fixture rotation data.
 export function renderFieldBriefing({
   currentBosses, raidTargetTool, forms, roster, data, storage, trainerLevel, now = new Date(),
 } = {}) {
@@ -603,18 +654,27 @@ export function renderFieldBriefing({
   const collapsed = storage?.getItem?.(briefingCollapsedKey(fingerprint)) === "1";
   const ownedCount = roster?.ownedFormIds?.length ?? 0;
 
-  // "Real verified worth-it signal" = the same worthRaiding beatability()
-  // list Today's daily-pass row and Coach's week list already read — never
-  // a second opinion computed here. band "not-enough-data" (weak roster, or
-  // raids.json not landed yet) means no real signal, so no featured boss —
-  // honesty over a guess, not a fallback path to work around.
+  // "Is this boss worth my time" is a fact about the BOSS: its own shipped
+  // ranked-attacker verdict, picked below — never gated on the roster
+  // existing, and never a fabricated tier for a boss with no ranked row.
+  const pick = pickFeaturedBoss(bosses, attackerRankRows(data));
+  const featured = pick ? {
+    formId: pick.boss.formId,
+    name: forms?.[pick.boss.formId]?.name ?? pick.boss.formId,
+    rows: pick.rows,
+    topRow: pick.topRow,
+  } : null;
+
+  // The roster's own beatability() list — "what do I bring" — is a
+  // different, roster-dependent question. It still powers the skip log's
+  // per-boss one-liners (unaffected by the change above) and, only as a
+  // fallback, the verdict line when nothing in the rotation has a real
+  // built verdict yet.
   const summary = ownedCount ? buildCoachSummary({
     data, roster, now, trainerLevel,
   }) : null;
   const bestRow = summary?.worthRaiding?.[0] ?? null;
-  const hasSignal = Boolean(bestRow && bestRow.band !== "not-enough-data");
-  const featured = hasSignal ? bestRow : null;
-  const restRows = hasSignal ? summary.worthRaiding.slice(1) : [];
+  const restRows = (summary?.worthRaiding ?? []).filter((row) => row.formId !== featured?.formId);
 
   let plan = null;
   if (featured) {
@@ -629,13 +689,11 @@ export function renderFieldBriefing({
 
   const dateLabel = now.toLocaleDateString("en-US", { weekday: "long", month: "short", day: "numeric" });
   const bossCountLabel = `${bosses.length} boss${bosses.length === 1 ? "" : "es"} in today's rotation`;
-  const body = ownedCount === 0
-    ? emptyRosterDegrade({ currentBosses, forms, raidTargetTool })
-    : `${featured
-      ? featuredBossCard({
-        featured, plan, currentBosses, forms, roster, now,
-      })
-      : `<div class="briefing-section"><p class="briefing-note">${escapeHtml(bestRow?.headline ?? "Not enough data yet — star more Pokémon you own.")}</p></div>`}
+  const body = `${featured
+    ? featuredBossCard({
+      featured, plan, currentBosses, forms, roster, ownedCount, now,
+    })
+    : `<div class="briefing-section"><p class="briefing-note">${escapeHtml(bestRow?.headline ?? "Not enough data yet — star more Pokémon you own.")}</p></div>`}
     <hr class="briefing-divider">
     ${briefingSkipSection(restRows, forms)}`;
 
