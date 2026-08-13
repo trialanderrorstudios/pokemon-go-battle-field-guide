@@ -1381,6 +1381,30 @@ function ocrIntakeRowHtml(row) {
   </li>`;
 }
 
+// Scan-session summary (operator ask 2026-08-13): one bucket per row, in the
+// same priority order the row's own action prose already implies —
+// mutually exclusive, so the six counts always sum to the row total. Pure:
+// reads the same row shape ocrIntakeRowHtml renders (row.accepted, row.parsed,
+// row.draft.ivs), no separate state to keep in sync.
+function ocrRowBucket(row) {
+  if (row.accepted) return "saved";
+  const parsed = row.parsed ?? null;
+  if (!parsed || (!parsed.name && parsed.cp == null)) return "unreadable";
+  if (!parsed.formId) return "needsPick";
+  const ivs = row.draft?.ivs ?? {};
+  const ivsComplete = [ivs.atk, ivs.def, ivs.sta]
+    .every((value) => Number.isInteger(value) && value >= 0 && value <= 15);
+  return ivsComplete ? "ready" : "needsIvs";
+}
+
+function ocrScanSummaryHtml(rows) {
+  const counts = { saved: 0, ready: 0, needsPick: 0, needsIvs: 0, unreadable: 0 };
+  for (const row of rows) counts[ocrRowBucket(row)] += 1;
+  const line = `${rows.length} scanned · ${counts.saved} saved · ${counts.ready} ready to accept · `
+    + `${counts.needsPick} need a form pick · ${counts.needsIvs} need IVs · ${counts.unreadable} unreadable`;
+  return `<p class="ocr-scan-summary">${escapeHtml(line)}</p>`;
+}
+
 function ocrIntakeBodyHtml(state) {
   if (state.status === "idle") return ocrScanEntryHtml();
   if (state.status === "loading-engine") {
@@ -1395,7 +1419,7 @@ function ocrIntakeBodyHtml(state) {
     // reload — reviewer catch, 2026-08-12. Error status stays reset-free by
     // design (no retry loop); review is a completed pass, so returning to
     // idle for another batch is the normal flow, not a retry.
-    return `<ul class="ocr-intake-rows">${rows.map(ocrIntakeRowHtml).join("")}</ul>
+    return `${ocrScanSummaryHtml(rows)}<ul class="ocr-intake-rows">${rows.map(ocrIntakeRowHtml).join("")}</ul>
       <button type="button" class="ocr-scan-done-btn" data-action="ocr-scan-done">Done — scan more</button>`;
   }
   // 'error': the same-session fallback notice, pointing at the manual

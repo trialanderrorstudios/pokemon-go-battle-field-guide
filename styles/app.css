@@ -7463,3 +7463,27 @@ html:not([data-app-booted]) #app .fallback-section {
   .owned-star.is-stamping { animation: none; }
   .sec-card.done .sec-tick path { animation: none; stroke-dashoffset: 0; }
 }
+
+/* I3 OCR intake-finish lane (2026-08-13): scan-session summary line above
+   the review rows (dex.js's ocrScanSummaryHtml). */
+.ocr-scan-summary {
+  margin: 0 0 0.5rem;
+  font-family: var(--dx-mono);
+  font-size: 0.72rem;
+  color: var(--muted);
+}
+
+
+/* Duplicate Advisor (dupes view) — coordinator styling for the lane's
+   unstyled hooks; reuses tokens only. */
+.dupe-group { margin-bottom: 1rem; border: 1px solid var(--line); border-radius: 0.6rem; padding: 0.6rem; }
+.dupe-group-count { color: var(--muted); font-size: 0.72rem; }
+.dupe-instance-row { display: flex; gap: 0.5rem; align-items: flex-start; padding: 0.45rem 0; border-top: 1px dashed var(--line); }
+.dupe-instance-row:first-of-type { border-top: none; }
+.dupe-instance-body { flex: 1; min-width: 0; }
+.dupe-badges { font-size: 0.68rem; color: var(--muted); }
+.dupe-verdict-chip { flex: none; font-family: var(--dx-mono); font-size: 0.66rem; font-weight: 800; padding: 0.2rem 0.5rem; border-radius: 999px; border: 1px solid var(--line); color: var(--muted); }
+.dupe-verdict-chip[data-keep="true"] { color: var(--green); border-color: var(--green); }
+.dupe-verdict-chip[data-keep="false"] { color: var(--danger); border-color: var(--danger); }
+.dupe-verdict-why { font-size: 0.7rem; color: var(--muted); margin: 0.15rem 0 0; }
+.dupe-moves-missing { font-style: italic; color: var(--muted); }

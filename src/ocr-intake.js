@@ -296,11 +296,11 @@ function matchName(rawName, forms, scannedTypes = null) {
 // candy line, then a unique species-name hit anywhere in the text. Base
 // species names only (word-boundary, case-insensitive); ambiguity returns
 // null — the existing candidates path stays the fallback.
-function baseSpeciesName(form) {
+export function baseSpeciesName(form) {
   return String(form.name ?? "").replace(/ \(.*\)$/, "");
 }
 
-function speciesFromContext(text, formList) {
+export function speciesFromContext(text, formList) {
   const haystack = String(text ?? "");
   const names = [...new Set(formList.map(baseSpeciesName).filter(Boolean))];
   const footerHits = [];
@@ -426,6 +426,30 @@ function moveNameFromId(moveId) {
 
 function escapeRegExp(value) {
   return String(value).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+// Appraisal-screen fallback (operator ask 2026-08-13: narrow OCR'd CP/HP IV
+// chips using the team-leader's spoken "Overall" verdict). Closed set of
+// verbatim leader phrases per star tier, cross-checked against
+// pokemongohub.net's Appraisal Chart (all three leaders — Candela, Blanche,
+// Spark — 2026-08-13). The game's own "Overall" line is IDENTICAL for a
+// plain 3-star roll and the highlighted 45-sum hundo (that distinction is a
+// color glow, not text — see the STAR_TIER_RANGES comment in instances.js),
+// so the top band below can only ever resolve to tier 3, never 4. Unknown
+// text stays null — never a guess.
+const APPRAISAL_PHRASES = Object.freeze([
+  { tier: 0, phrases: ["not likely to make much headway", "room for improvement", "may not be great in battle"] },
+  { tier: 1, phrases: ["above average", "pretty decent", "is a decent pok"] },
+  { tier: 2, phrases: ["caught my attention", "really strong", "strong pok"] },
+  { tier: 3, phrases: ["simply amazes me", "accomplish anything", "breathtaking", "is a wonder", "battle with the best of them"] },
+]);
+
+export function appraisalTierFromText(rawText) {
+  const text = String(rawText ?? "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+  for (const { tier, phrases } of APPRAISAL_PHRASES) {
+    if (phrases.some((phrase) => text.includes(phrase))) return tier;
+  }
+  return null;
 }
 
 export function extractMoves(rawText, form) {

@@ -9,6 +9,7 @@ import { raidPlanCardData } from "../share-card.js";
 // anymore; upcoming.js and its exports are otherwise untouched.
 import { buildCoachSummary } from "../coach.js";
 import { bestInstanceForForm } from "../instances.js";
+import { showcaseEstimate } from "../showcase.js";
 // Home absorbed Today and Weekly Coach. Both keep their own modules — this is
 // a consolidation of routes and entrances, not of capability.
 import { renderToday } from "./today.js";
@@ -622,6 +623,150 @@ function pickFeaturedBoss(bosses, rankedRows) {
   return best;
 }
 
+// ── Max lane card (operator ask 2026-08-13) — a fourth briefing lane card,
+// after Shadow. Sourced from currentEvents (kind "max-mondays"/"max-battles"),
+// not currentBosses — there is no Max boss ROTATION in any feed this app
+// ingests, only scheduled Max Monday/Max Battle Day windows, so this card
+// never claims to know which boss is up next after the one the feed names.
+const MAX_EVENT_KINDS = new Set(["max-mondays", "max-battles"]);
+const MAX_LANE_LABEL = Object.freeze({
+  "max-mondays": "Max Monday",
+  "max-battles": "Max Battle Day",
+});
+// ScrapedDuck bakes the subject into the event name itself (same gap as
+// raid-hour) — "Dynamax <species> during Max Monday" / "Gigantamax <species>
+// Max Battle Day". scripts/sync-rotation.mjs's maxBattleSubject does the same
+// extraction build-side (to resolve formId); this is the client-side mirror
+// for display — today.js already established the modifier word must survive,
+// since the dex has no separate Gmax form and a plain resolved species name
+// alone would drop the only word that says which fight this is.
+const MAX_SUBJECT_PATTERN = /^(Dynamax|Gigantamax)\s+(.+?)\s+(?:during Max Monday|Max Battle Day)$/i;
+
+export function maxEventSubject(name) {
+  const match = String(name ?? "").match(MAX_SUBJECT_PATTERN);
+  return match ? { modifier: match[1], species: match[2] } : null;
+}
+
+// Live-first, else nearest upcoming — same "what do I do right now, else
+// what's next" contract as nextRaidHour above.
+export function pickMaxEvent(events, now = new Date()) {
+  const candidates = (events ?? [])
+    .filter((event) => MAX_EVENT_KINDS.has(event.kind))
+    .map((event) => ({ ...event, start: new Date(event.startsAt), end: new Date(event.endsAt) }))
+    .filter((event) => !Number.isNaN(event.start.valueOf()));
+  if (!candidates.length) return null;
+  const live = candidates.filter((event) => event.start <= now
+    && (Number.isNaN(event.end.valueOf()) || event.end > now));
+  if (live.length) return [...live].sort((left, right) => left.start - right.start)[0];
+  const upcoming = candidates.filter((event) => event.start > now)
+    .sort((left, right) => left.start - right.start);
+  return upcoming[0] ?? null;
+}
+
+// canDynamax/canGigantamax (instances.js's I2 quick-add fields) are only ever
+// present when true (omit-when-false convention) — count either flag, this
+// isn't scoped to the featured event's own modifier, just "how many of my
+// Pokemon are Max-ready at all".
+function maxReadyLine(instances) {
+  const count = (instances ?? []).filter((instance) => instance.canDynamax || instance.canGigantamax).length;
+  return count > 0 ? `You have ${count} Max-ready Pokémon` : "None flagged yet — mark them in quick-add";
+}
+
+function maxLaneCardHtml({
+  event, forms, roster, storage, now,
+}) {
+  const subject = maxEventSubject(event.name);
+  const displayName = subject ? `${subject.modifier} ${subject.species}` : event.name;
+  const formId = event.formId ?? null;
+  const sprite = formId
+    ? spriteHtml(formId, forms, displayName, forms?.[formId]?.primary_type)
+    : `<span class="tl-glyph" aria-hidden="true">&#9670;</span>`;
+  const linkedName = formId
+    ? `<a href="./?boss=${encodeURIComponent(formId)}#raids">${escapeHtml(displayName)}</a>`
+    : escapeHtml(displayName);
+  const laneLabel = MAX_LANE_LABEL[event.kind] ?? "Max event";
+  const key = "max-lane";
+  const collapsed = storage?.getItem?.(briefingCardCollapsedKey(key)) === "1";
+  const inner = `<div class="briefing-section">
+    <div class="briefing-boss-head">
+      ${sprite}
+      <div class="briefing-boss-heading">
+        <p class="briefing-eyebrow-row"><span class="tier-pill" data-tier="max">${escapeHtml(laneLabel)}</span></p>
+        <h3>${linkedName}</h3>
+      </div>
+    </div>
+    <p class="briefing-note">${escapeHtml(formatEventWhen(event.startsAt, event.endsAt, now))}</p>
+    <p class="briefing-note">${escapeHtml(maxReadyLine(roster?.instances))}</p>
+    <p class="briefing-note">Boss rotation isn't in the data feed — this card tracks scheduled Max events.</p>
+  </div>`;
+  return `<div class="briefing-lane-card${collapsed ? " is-collapsed" : ""}">
+    <button type="button" class="briefing-collapsed-line" data-action="toggle-briefing-card" data-briefing-card-key="${escapeHtml(key)}" aria-label="Reopen the Max card">
+      ${sprite}
+      <span class="briefing-collapsed-text"><strong>${escapeHtml(displayName)}</strong><span>${escapeHtml(laneLabel)} · dismissed</span></span>
+      <span class="briefing-reopen">Reopen ⌃</span>
+    </button>
+    <button type="button" class="briefing-dismiss briefing-lane-dismiss" data-action="toggle-briefing-card" data-briefing-card-key="${escapeHtml(key)}" aria-expanded="${!collapsed}">Dismiss ⌄</button>
+    <div class="briefing-lane-body">${inner}</div>
+  </div>`;
+}
+
+// ── Showcase advisor (item 7) — PokeStop Showcases carry no ScrapedDuck
+// event kind of their own (unlike Max/Community Day/Spotlight above), so the
+// feed never resolves a formId for one; the only signal is the event's own
+// name. Exact, case-insensitive match against a form's display name only —
+// no fuzzy matching, so an unparseable name degrades to the honest generic
+// line below instead of guessing a species.
+// Plain includes(), not a regex literal — the public-safety scanner reads
+// /showcase/ as an absolute path (the 2026-08-11 slash-comment class).
+const isShowcaseName = (name) => String(name ?? "").toLowerCase().includes("showcase");
+
+function pickShowcaseEvent(events, now = new Date()) {
+  const candidates = (events ?? [])
+    .filter((event) => isShowcaseName(event?.name))
+    .map((event) => ({ ...event, end: new Date(event.endsAt) }))
+    .filter((event) => Number.isNaN(event.end.valueOf()) || event.end >= now);
+  if (!candidates.length) return null;
+  return [...candidates].sort((left, right) => new Date(left.startsAt) - new Date(right.startsAt))[0];
+}
+
+function showcaseSpeciesFormId(eventName, forms) {
+  const stripped = String(eventName ?? "").replace(/\s*showcase.*$/i, "").trim();
+  if (!stripped) return null;
+  const lowered = stripped.toLowerCase();
+  const match = Object.values(forms ?? {}).find((form) => form?.name?.toLowerCase() === lowered);
+  return match?.form_id ?? null;
+}
+
+function hasRecordedSize(instance) {
+  return Number.isFinite(instance?.heightM) && instance.heightM > 0
+    && Number.isFinite(instance?.weightKg) && instance.weightKg > 0;
+}
+
+// A single line, not a card — spliced into the timeline rail. "" when there's
+// no showcase running/upcoming, or the roster has no sized instances at all.
+export function showcaseAdvisorLine({
+  currentEvents, forms, roster, now = new Date(),
+} = {}) {
+  const event = pickShowcaseEvent(currentEvents?.events, now);
+  if (!event) return "";
+  const sized = (roster?.instances ?? []).filter(hasRecordedSize);
+  if (!sized.length) return "";
+  const formId = showcaseSpeciesFormId(event.name, forms);
+  if (formId) {
+    const form = forms?.[formId];
+    const best = sized
+      .filter((instance) => instance.formId === formId)
+      .map((instance) => ({ instance, estimate: showcaseEstimate(form, instance) }))
+      .filter((row) => row.estimate)
+      .sort((left, right) => right.estimate.score - left.estimate.score)[0];
+    if (best) {
+      return `<p class="briefing-note showcase-advisor-line">Your ${escapeHtml(String(best.instance.heightM))}m ${escapeHtml(form?.name ?? event.name)} scores ${escapeHtml(best.estimate.label)}</p>`;
+    }
+  }
+  const live = typeof event.startsAt === "string" && new Date(event.startsAt) <= now;
+  return `<p class="briefing-note showcase-advisor-line">Showcase ${live ? "running" : "upcoming"} — you have ${sized.length} Pokémon with recorded sizes.</p>`;
+}
+
 // "Bring these": a fact about the ROSTER, not the boss — owned counters when
 // the roster has them, else the honest type-chart-plus-intake-pointer
 // degrade (spec §3 point 4), scoped to just this slot inside the featured
@@ -769,7 +914,7 @@ export function currentRaidPlanCardData({
 }
 
 export function renderFieldBriefing({
-  currentBosses, raidTargetTool, forms, roster, data, storage, trainerLevel, now = new Date(), shareMessage = "",
+  currentBosses, currentEvents, raidTargetTool, forms, roster, data, storage, trainerLevel, now = new Date(), shareMessage = "",
 } = {}) {
   const allBosses = currentBosses?.bosses ?? [];
   // A boss whose endsAt has passed is not in "today's rotation", full stop —
@@ -874,8 +1019,18 @@ export function renderFieldBriefing({
       <div class="briefing-lane-body">${inner}</div>
     </div>`;
   }).join("");
-  const body = `${cardsHtml
-    || `<div class="briefing-section"><p class="briefing-note">${escapeHtml(bestRow?.headline ?? "Not enough data yet — star more Pokémon you own.")}</p></div>`}
+  // Max lane card (operator ask 2026-08-13) — after Shadow, sourced from
+  // currentEvents rather than the boss rotation this whole function is
+  // otherwise scoped to (see the block's own comment above). Still gated on
+  // the same `!bosses.length` return above: a Max Monday with no other
+  // rotation up doesn't get a briefing shell of its own today.
+  const maxEvent = pickMaxEvent(currentEvents?.events, now);
+  const maxCardHtml = maxEvent ? maxLaneCardHtml({
+    event: maxEvent, forms, roster, storage, now,
+  }) : "";
+  const body = `${cardsHtml || maxCardHtml
+    ? `${cardsHtml}${maxCardHtml}`
+    : `<div class="briefing-section"><p class="briefing-note">${escapeHtml(bestRow?.headline ?? "Not enough data yet — star more Pokémon you own.")}</p></div>`}
     <hr class="briefing-divider">
     ${briefingSkipSection(restRows, forms, bosses)}`;
 
@@ -1066,7 +1221,7 @@ export function renderFieldTimeline({
   currentBosses, currentEvents, raidTargetTool, forms, roster, data, storage, trainerLevel, gapByFormId = null, now = new Date(), briefingShareMessage = "",
 } = {}) {
   const briefingHtml = renderFieldBriefing({
-    currentBosses, raidTargetTool, forms, roster, data, storage, trainerLevel, now, shareMessage: briefingShareMessage,
+    currentBosses, currentEvents, raidTargetTool, forms, roster, data, storage, trainerLevel, now, shareMessage: briefingShareMessage,
   });
   const buckets = buildTimelineBuckets(currentEvents?.events, now);
   const hasEvents = buckets.endingToday.length || buckets.startingTonight.length
@@ -1114,7 +1269,13 @@ export function renderFieldTimeline({
   }));
 
   const nowLabel = now.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
+  // Showcase advisor (item 7) — one honest line, not a bucket item; it
+  // doesn't compete with the rail's own sectioning above.
+  const showcaseLine = showcaseAdvisorLine({
+    currentEvents, forms, roster, now,
+  });
   return `<div class="tl-now"><span class="tl-now-chip"><span class="tl-now-dot" aria-hidden="true"></span>NOW · ${escapeHtml(nowLabel)}</span></div>
+  ${showcaseLine}
   <div class="tl">${items.join("")}</div>
   <p class="tl-honesty">Filed for this rotation — the briefing re-files when the rotation changes, not on every open. End times come straight from today's release data; nothing above is a live clock.</p>`;
 }

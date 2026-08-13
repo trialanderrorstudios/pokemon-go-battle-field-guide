@@ -4,6 +4,9 @@ import { moveLink } from "./move-sheet.js";
 import { stableRosterJson } from "../storage.js";
 import { renderCollectionView } from "./collection.js";
 import { SHOP_GUIDE } from "../shop-guide.js";
+import { renderPurgeView } from "./purge.js";
+import { renderDupesView } from "./dupes.js";
+import { renderPowerupView } from "./powerup.js";
 import { luckyOwnedFormIdSet, shinyOwnedFormIdSet } from "../collection.js";
 import { formatFriendCode, friendCodeQrMatrix, isValidFriendCode } from "../friend-codes.js";
 
@@ -676,6 +679,9 @@ function renderMoreMenu() {
         ...["budget", "future", "megas", "coverage", "collection"]
           .map((listId) => [`./#more/${listId}`, MORE_LISTS[listId].title]),
         ["./#more/shopguide", "Shop & Storage Value Guide"],
+        ["./#more/purge", "Purge Planner — transfer search strings"],
+        ["./#more/dupes", "Duplicate Advisor"],
+        ["./#more/powerup", "Power-Up Planner"],
       ],
     })}
     ${menuSection({
@@ -727,6 +733,12 @@ function shopGuideView() {
 export function renderMore(data = {}) {
   const view = data.view ?? "";
   if (view === "shopguide") return shopGuideView();
+  if (view === "purge") return `<div class="more-view">${BACK_TO_MORE}${renderPurgeView(data)}</div>`;
+  if (view === "dupes") return `<div class="more-view">${BACK_TO_MORE}${renderDupesView(data)}</div>`;
+  if (view === "powerup") return `<div class="more-view">${BACK_TO_MORE}${renderPowerupView({
+    roster: data.roster, forms: data.forms, raids: data.raids,
+    currentBosses: data.currentBosses, trainerLevel: data.trainerProfile?.level ?? null,
+  })}</div>`;
   if (MORE_LISTS[view]) return renderMoreList(view, data);
   if (view === "roster") {
     return `<div class="more-view">

@@ -48,11 +48,13 @@ import { STANDARD_TARGET_DEFENSE, instanceBreakpointReports } from "./breakpoint
 import { clearBuddyPlan, loadBuddyPlan, saveBuddyPlan } from "./buddy.js";
 import {
   bestInstanceForForm, buildImportedInstance, buildInstance, instanceLevel, ivCandidatesFromCpHp,
-  reviseInstanceCp, solveLevel,
+  reviseInstanceCp, solveLevel, STAR_TIER_RANGES,
 } from "./instances.js";
 import { nextMarkState } from "./collection.js";
 import { parsePokeGenieCsv } from "./poke-genie-import.js";
-import { draftFromParse, extractMoves, parseMonScreenText } from "./ocr-intake.js";
+import {
+  appraisalTierFromText, baseSpeciesName, draftFromParse, extractMoves, parseMonScreenText, speciesFromContext,
+} from "./ocr-intake.js";
 import { cpBannerRetry } from "./ocr-worker.js";
 import { createOcrEngine as createOcrEngineDefault, OcrEngineError } from "./ocr-worker.js";
 import {
@@ -1623,6 +1625,39 @@ export function createInteractionController({
     }
   };
 
+  // Appraisal-screen fallback (operator ask 2026-08-13): the team-leader's
+  // spoken "Overall" verdict (ocr-intake.js's appraisalTierFromText) narrows
+  // an already-ambiguous CP/HP solve (row.ivCandidates, 2-8 spreads) by
+  // IV-sum band (instances.js's STAR_TIER_RANGES) — the same math the app's
+  // own "I only know the star tier" widget uses. One survivor auto-fills
+  // exactly like a chip tap; several survivors stay as narrowed chips; zero
+  // survivors means the CP/HP solve and the appraisal disagree — keep the
+  // original chips and say so, never silently drop evidence.
+  const applyAppraisalNarrowing = (row, tier) => {
+    const range = STAR_TIER_RANGES.find((entry) => entry.stars === tier);
+    if (!range || !row.ivCandidates?.length) return;
+    // OCR text can't tell a hundo from a plain 3-star (identical leader
+    // phrase — see appraisalTierFromText), so tier 3 must include the
+    // 45-sum band or a true hundo gets silently filtered out (review
+    // catch: Metagross CP339/HP48 auto-filled 15/14/15 and dropped the
+    // real 15/15/15).
+    const bandMax = tier === 3 ? 45 : range.max;
+    const narrowed = row.ivCandidates.filter((combo) => {
+      const sum = combo.ivs.atk + combo.ivs.def + combo.ivs.sta;
+      return sum >= range.min && sum <= bandMax;
+    });
+    if (narrowed.length === 1) {
+      row.draft = { ...row.draft, ivs: { ...narrowed[0].ivs } };
+      row.solvedIvs = narrowed[0];
+      row.ivCandidates = null;
+    } else if (narrowed.length > 1) {
+      row.ivCandidates = narrowed;
+    } else {
+      const note = `Appraisal says ${tier}-star, but that doesn't match any CP/HP-solved IV spread — keeping all ${row.ivCandidates.length} options.`;
+      row.issues = [...(row.issues ?? []), note];
+    }
+  };
+
   // A saved instance IS ownership evidence — every append path marks the
   // species caught (ownedFormIds/counts), or the collection grid keeps
   // showing it missing after a save (operator hit this scanning from the
@@ -2356,20 +2391,48 @@ export function createInteractionController({
               accepted: false,
             };
             applyOcrIvSolve(row);
-            // Two-part scans (operator, 2026-08-13): a moves-screen photo
-            // has no CP and no HP — it is a FRAGMENT of the previous mon,
-            // not its own. When its text carries moves legal for the
-            // previous row's form, merge them there and drop the fragment.
-            const prevRow = rows[rows.length - 1];
+            // Two-part scans (operator, 2026-08-13): a moves-screen or
+            // appraisal-screen photo has no CP and no HP — it is a FRAGMENT
+            // of some other mon in this batch, not its own. Shuffled photo
+            // order breaks plain previous-row adjacency (operator,
+            // 2026-08-13), so a fragment first tries to name its own species
+            // (speciesFromContext — the same candy-line/footer anchors used
+            // for nicknames) and merges into the LAST row of that species
+            // anywhere in the batch (never an already-accepted row); falls
+            // back to previous-row adjacency; falls back to standing as its
+            // own row.
             const isFragment = parsed.cp === null && parsed.hp === null;
-            const prevForm = prevRow?.parsed?.formId ? forms[prevRow.parsed.formId] : null;
-            const fragmentMoves = isFragment && prevForm ? extractMoves(text, prevForm) : null;
-            if (fragmentMoves && (fragmentMoves.fastMove || fragmentMoves.chargedMoves.length)) {
-              if (fragmentMoves.fastMove) prevRow.draft = { ...prevRow.draft, fastMove: fragmentMoves.fastMove };
-              if (fragmentMoves.chargedMoves.length) {
-                prevRow.draft = { ...prevRow.draft, chargedMoves: [fragmentMoves.chargedMoves[0], fragmentMoves.chargedMoves[1] ?? null] };
+            let mergeTarget = null;
+            if (isFragment) {
+              const contextSpecies = speciesFromContext(text, Object.values(forms));
+              if (contextSpecies) {
+                const lowerSpecies = contextSpecies.toLowerCase();
+                mergeTarget = [...rows].reverse().find((candidate) => {
+                  if (candidate.accepted) return false;
+                  const form = candidate.parsed?.formId ? forms[candidate.parsed.formId] : null;
+                  return form && baseSpeciesName(form).toLowerCase() === lowerSpecies;
+                }) ?? null;
               }
-              prevRow.rawText += `\n--- merged moves from ${file.name || `Screenshot ${index + 1}`} ---\n${text}`;
+              const prevRow = rows[rows.length - 1];
+              if (!mergeTarget && prevRow && !prevRow.accepted) mergeTarget = prevRow;
+            }
+            const targetForm = mergeTarget?.parsed?.formId ? forms[mergeTarget.parsed.formId] : null;
+            const fragmentMoves = isFragment && targetForm ? extractMoves(text, targetForm) : null;
+            const appraisalTier = isFragment ? appraisalTierFromText(text) : null;
+            const mergedParts = [];
+            if (mergeTarget && fragmentMoves && (fragmentMoves.fastMove || fragmentMoves.chargedMoves.length)) {
+              if (fragmentMoves.fastMove) mergeTarget.draft = { ...mergeTarget.draft, fastMove: fragmentMoves.fastMove };
+              if (fragmentMoves.chargedMoves.length) {
+                mergeTarget.draft = { ...mergeTarget.draft, chargedMoves: [fragmentMoves.chargedMoves[0], fragmentMoves.chargedMoves[1] ?? null] };
+              }
+              mergedParts.push("moves");
+            }
+            if (mergeTarget && appraisalTier != null && mergeTarget.ivCandidates?.length) {
+              applyAppraisalNarrowing(mergeTarget, appraisalTier);
+              mergedParts.push("appraisal");
+            }
+            if (mergedParts.length) {
+              mergeTarget.rawText += `\n--- merged ${mergedParts.join(" + ")} from ${file.name || `Screenshot ${index + 1}`} ---\n${text}`;
             } else {
               rows.push(row);
             }
@@ -3555,6 +3618,9 @@ export function createInteractionController({
           ui.bulkRemove = { pattern: "", error: "", matches: null };
           rerender("more");
         }
+      } else if (action === "purge-copy-chunk") {
+        const payload = actionEl.dataset.purgeChunk;
+        if (payload) await api.onClipboardCopy?.(payload);
       } else if (action === "clear-roster-data") {
         // Whole-roster wipe (2026-08-12 operator ask). Double confirm — this
         // is the one action in the app that destroys everything at once.
@@ -4584,6 +4650,8 @@ export function bootstrap({
         ocrIntake: ui.ocrIntake,
         rosterShareOpen: ui.rosterShareOpen,
         bulkRemove: ui.bulkRemove,
+        raids: state.raids,
+        currentBosses: state.currentBosses ?? state.core?.currentBosses,
         textSize: ui.textSize,
         theme: ui.theme,
         trainerProfile: ui.trainerProfile,
