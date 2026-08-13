@@ -1595,6 +1595,27 @@ export function createInteractionController({
     }
   };
 
+  // A saved instance IS ownership evidence — every append path marks the
+  // species caught (ownedFormIds/counts), or the collection grid keeps
+  // showing it missing after a save (operator hit this scanning from the
+  // grid, 2026-08-13). Never decrements; edits/deletes are untouched.
+  const withInstanceAdded = (current, built) => {
+    const owned = new Set(current.ownedFormIds ?? []);
+    const counts = { ...(current.ownedFormCounts ?? {}) };
+    if (!owned.has(built.formId)) {
+      owned.add(built.formId);
+      counts[built.formId] = Math.max(1, counts[built.formId] ?? 0);
+    }
+    return {
+      ...current,
+      ownedFormIds: [...owned].sort(),
+      ownedFormCounts: Object.fromEntries(
+        Object.entries(counts).sort(([left], [right]) => left.localeCompare(right)),
+      ),
+      instances: [...(current.instances ?? []), built],
+    };
+  };
+
   const api = {
     onRosterExport,
     cpBannerRetry: cpBannerRetryOption,
@@ -2500,7 +2521,7 @@ export function createInteractionController({
             // !row.accepted gate would save duplicate instances.
             row.accepted = true;
             try {
-              await mutateRoster((current) => ({ ...current, instances: [...(current.instances ?? []), built] }));
+              await mutateRoster((current) => withInstanceAdded(current, built));
             } catch (error) {
               row.accepted = false;
               throw error;
@@ -2571,7 +2592,9 @@ export function createInteractionController({
           const chargedMove = useOptimal.dataset.useOptimalCharged;
           if (fastMove && chargedMove) {
             qa.fastMove = fastMove;
-            qa.chargedMoves = [chargedMove, null];
+            // Second slot rides along when the dex computed a suggestion
+            // (coverage role or PvP pair — see secondChargeSuggestion).
+            qa.chargedMoves = [chargedMove, useOptimal.dataset.useOptimalCharged2 ?? null];
           }
           rerenderCurrent();
           return;
@@ -2708,7 +2731,7 @@ export function createInteractionController({
                 canDynamax: qa.canDynamax, canGigantamax: qa.canGigantamax,
               });
             savedId = built.id;
-            await mutateRoster((current) => ({ ...current, instances: [...(current.instances ?? []), built] }));
+            await mutateRoster((current) => withInstanceAdded(current, built));
           }
           ui.quickAdd = {
             ...blankQuickAddDraft(),
@@ -3578,10 +3601,12 @@ export function createInteractionController({
             const original = editingId ? (roster.instances ?? []).find((row) => row.id === editingId) : null;
             const saved = original ? { ...instance, id: original.id, addedAt: original.addedAt } : instance;
             failureRoute = returnRoute;
-            await mutateRoster((current) => ({
-              ...current,
-              instances: [...(current.instances ?? []).filter((row) => row.id !== editingId), saved],
-            }));
+            await mutateRoster((current) => (original
+              ? {
+                ...current,
+                instances: [...(current.instances ?? []).filter((row) => row.id !== editingId), saved],
+              }
+              : withInstanceAdded(current, saved)));
             if (returnRoute === "triage") ui.instanceSheet = null;
             else {
               ui.instanceSheet.draft = blankInstanceDraft();

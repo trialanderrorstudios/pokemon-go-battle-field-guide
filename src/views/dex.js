@@ -584,6 +584,27 @@ function offenseRoles(form, raids) {
 // block stays bounded for forms ranked across many attacking types.
 const OFFENSE_ROLE_CAP = 3;
 
+// Second charge-slot suggestion (operator, 2026-08-13: "pokedex isn't
+// suggesting secondary move"). The raid rows' own secondChargedMove field is
+// a shipped stub ("Not needed" on all 270 rows) — the honest sources are:
+// another ranked offense role's charged move (real coverage data), else the
+// form's PvP-recommended charged pair partner (labeled as such). Null when
+// neither exists — the second slot is optional and no suggestion beats a
+// fabricated one.
+function secondChargeSuggestion(form, roles, pvp) {
+  const primary = roles[0];
+  if (!primary) return null;
+  const other = roles.find((row) => row.chargedMove && row.chargedMove !== primary.chargedMove);
+  if (other) return { move: other.chargedMove, why: `${other.attackingType} coverage — its own ranked role` };
+  const LEAGUE_LABEL = { master: "Master League", ultra: "Ultra League", great: "Great League" };
+  for (const league of ["master", "ultra", "great"]) {
+    const row = (pvp?.[league] ?? []).find((entry) => entry.formId === form.form_id);
+    const partner = (row?.chargedMoves ?? []).find((move) => move && move !== primary.chargedMove);
+    if (partner) return { move: partner, why: `PvP-recommended pair (${LEAGUE_LABEL[league]})` };
+  }
+  return null;
+}
+
 
 function raidHonorableMentions(form, raids) {
   return (raids?.honorableMentions ?? []).filter((row) => row.formId === form.form_id);
@@ -781,15 +802,20 @@ function offenseRoleCardHtml(row, isStrongest) {
 // (gyms, stays single) with one-line whys and availability badges, above the
 // flat Raid attacker/Gym defense lists further down the page (spec §2 item
 // 3).
-function optimalBlockHtml(form, gym, raids, raidsLoaded, formInstances) {
+function optimalBlockHtml(form, gym, raids, raidsLoaded, formInstances, pvp) {
   const roles = raidsLoaded ? offenseRoles(form, raids) : [];
   const shownRoles = roles.slice(0, OFFENSE_ROLE_CAP);
   const moreRoles = roles.length - shownRoles.length;
   const mentionRows = raidsLoaded ? raidHonorableMentions(form, raids) : [];
+  const secondCharge = raidsLoaded ? secondChargeSuggestion(form, roles, pvp) : null;
+  const secondChargeLine = secondCharge
+    ? `<p class="optimal-second-charge">Second slot: ${moveLink(secondCharge.move)} — ${escapeHtml(secondCharge.why)}.${Number.isFinite(form.third_move_cost) ? ` Unlock cost: ${escapeHtml(form.third_move_cost.toLocaleString("en-US"))} dust.` : ""}</p>`
+    : "";
   const offenseBody = !raidsLoaded
     ? `<div class="optimal-head"><span class="optimal-kind">Offense</span></div><p class="dex-loading">Loading…</p>`
     : shownRoles.length
       ? shownRoles.map((row, index) => offenseRoleCardHtml(row, index === 0)).join("")
+        + secondChargeLine
         + (moreRoles > 0 ? `<p class="optimal-more-roles">+${escapeHtml(moreRoles)} more role${moreRoles === 1 ? "" : "s"}</p>` : "")
       : `<div class="optimal-head"><span class="optimal-kind">Offense</span></div><p class="optimal-why">Not a ranked raid attacker in this release.</p>`;
   const offenseYours = `${raidsLoaded ? offenseEliteLines(form, raids) : ""}${optimalYoursHtml(formInstances, (instance) => instanceOffenseDiff(form, instance, roles, mentionRows, raids))}`;
@@ -822,9 +848,9 @@ function optimalBlockHtml(form, gym, raids, raidsLoaded, formInstances) {
 // content as before, now its own dex-section between the weakness row and
 // Gym defense instead of living inside Your roster, so it renders whether
 // or not the operator ever scrolls to the roster/quick-add card below.
-function optimalSection(form, gym, raids, raidsLoaded, formInstances) {
+function optimalSection(form, gym, raids, raidsLoaded, formInstances, pvp) {
   return `<section class="dex-section" aria-labelledby="dex-optimal-title">
-    ${optimalBlockHtml(form, gym, raids, raidsLoaded, formInstances)}
+    ${optimalBlockHtml(form, gym, raids, raidsLoaded, formInstances, pvp)}
   </section>`;
 }
 
@@ -1138,7 +1164,7 @@ function quickAddBodyHtml(form, draft, offensePairs, defensePair, forms) {
   // stays a single button (spec: "Defense stays single").
   const useOptimalHtml = `<div class="explore-row use-optimal-row">
     <button type="button" class="explore-chip" data-candidate-fill="15,15,15">Hundo (15/15/15)</button>
-    ${offensePairs.map((pair) => `<button type="button" class="explore-chip" data-use-optimal="offense" data-use-optimal-fast="${escapeHtml(pair.fastMove)}" data-use-optimal-charged="${escapeHtml(pair.chargedMove)}">Use ${escapeHtml(pair.type)} set</button>`).join("")}
+    ${offensePairs.map((pair) => `<button type="button" class="explore-chip" data-use-optimal="offense" data-use-optimal-fast="${escapeHtml(pair.fastMove)}" data-use-optimal-charged="${escapeHtml(pair.chargedMove)}"${pair.charged2 ? ` data-use-optimal-charged2="${escapeHtml(pair.charged2)}"` : ""}>Use ${escapeHtml(pair.type)} set</button>`).join("")}
     ${defensePair ? `<button type="button" class="explore-chip" data-use-optimal="defense" data-use-optimal-fast="${escapeHtml(defensePair.fastMove)}" data-use-optimal-charged="${escapeHtml(defensePair.chargedMove)}">Use optimal (defense)</button>` : ""}
     </div>`;
 
@@ -1381,14 +1407,18 @@ export function ocrIntakeSectionHtml(state) {
 // Renamed from rosterSection (spec item 5 reorder split the Optimal block
 // out into its own top-level optimalSection() above, which used to open
 // this same section).
-function yourRosterSection(form, roster, quickAdd, raids, raidsLoaded, gym, forms, ocrIntake) {
+function yourRosterSection(form, roster, quickAdd, raids, raidsLoaded, gym, forms, ocrIntake, pvp) {
   const owned = new Set(roster.ownedFormIds ?? []);
   const isOwned = owned.has(form.form_id);
   const formInstances = formInstancesFor(form, roster);
   const draft = quickAdd ?? blankQuickAddDraft();
   const roles = raidsLoaded ? offenseRoles(form, raids) : [];
   const defenseRow = gym ? (gymVerdict(form, gym).row ?? null) : null;
-  const offensePairs = roles.slice(0, OFFENSE_ROLE_CAP).map((row) => ({ type: row.attackingType, fastMove: row.fastMove, chargedMove: row.chargedMove }));
+  const qaSecondCharge = raidsLoaded ? secondChargeSuggestion(form, roles, pvp) : null;
+  const offensePairs = roles.slice(0, OFFENSE_ROLE_CAP).map((row) => ({
+    type: row.attackingType, fastMove: row.fastMove, chargedMove: row.chargedMove,
+    charged2: qaSecondCharge && qaSecondCharge.move !== row.chargedMove ? qaSecondCharge.move : null,
+  }));
   const defensePair = defenseRow ? { fastMove: defenseRow.bestFastMove, chargedMove: defenseRow.bestChargedMove } : null;
 
   return `<section class="dex-section" aria-labelledby="dex-roster-title">
@@ -1459,7 +1489,7 @@ export function renderDex({
     ${statsSection(form)}
     ${bossSection(form, raidTargetTool)}
     ${weaknessSection(form)}
-    ${optimalSection(form, gym, raids, raidsLoaded, formInstancesFor(form, roster))}
+    ${optimalSection(form, gym, raids, raidsLoaded, formInstancesFor(form, roster), pvp)}
     ${gymSection(form, gym)}
     ${raidAttackerSection(form, raids, raidsLoaded)}
     ${pvpSection(form, pvp, roster, raids)}
@@ -1467,7 +1497,7 @@ export function renderDex({
     ${evolutionSection(form, forms)}
     ${acquisitionSection(form, acquisitionGuide, forms)}
     ${availabilitySection(form, currentEggs)}
-    ${yourRosterSection(form, roster, quickAdd, raids, raidsLoaded, gym, forms, ocrIntake)}
+    ${yourRosterSection(form, roster, quickAdd, raids, raidsLoaded, gym, forms, ocrIntake, pvp)}
   </div>`;
 }
 
