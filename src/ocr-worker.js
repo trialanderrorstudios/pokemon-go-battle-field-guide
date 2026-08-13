@@ -266,9 +266,12 @@ export async function cpBannerRetry(engine, file, documentObject = globalThis.do
         if (!blob) continue;
         const text = String(await engine.recognize(blob)).trim();
         attempts.push(`[${label}] ${text || "(empty)"}`);
-        const runs = [...text.matchAll(/\d[\d, ]{0,6}/g)]
+        // Contiguous runs of 3+ digits only (commas ok): spaced single
+        // digits are noise, not a number — "7 8 4" fabricated CP 784 on a
+        // real device (2026-08-13), and 2-digit reads were battery/junk.
+        const runs = [...text.matchAll(/\d[\d,]{2,6}/g)]
           .map((match) => Number(match[0].replace(/\D/g, "")))
-          .filter((value) => value >= 10 && value <= 6000)
+          .filter((value) => value >= 100 && value <= 9000)
           .sort((a, b) => String(b).length - String(a).length || b - a);
         if (runs.length) {
           cp = runs[0];

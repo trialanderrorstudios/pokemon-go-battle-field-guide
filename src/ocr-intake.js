@@ -10,7 +10,10 @@
 // docs/mockups/delight-2026-08-11/I3-ocr-bulk-intake.html
 
 const CP_MIN = 10;
-const CP_MAX = 6000;
+// Megas overshoot the old 6000 ceiling (Mega Mewtwo Y reads 6460+ on a real
+// device, 2026-08-13; its true max is ~8000). 9000 still rejects
+// stardust-scale numbers.
+const CP_MAX = 9000;
 
 // "CP" prefix, optional punctuation/space, then a run of digits that may be
 // broken up by spaces ("CP2 4 5 3") or thousands-commas ("CP 2,453").
@@ -65,6 +68,22 @@ function parseCp(text) {
     if (bare) {
       match = bare;
       noisyBanner = true;
+    }
+  }
+  if (!match) {
+    // "ws ae 6460" — the CP glyphs mangle into short letter junk with the
+    // digits surviving at the end of the line (real device, 2026-08-13).
+    const lines = String(text ?? "").split(/\r?\n/).map((line) => line.trim());
+    const hpIndex = lines.findIndex((line) => HP_RE.test(line) || HP_TRAILING_RE.test(line));
+    const stop = hpIndex > 0 ? hpIndex : lines.length;
+    for (let i = 0; i < stop; i += 1) {
+      if (STATUS_JUNK_RE.test(lines[i])) continue;
+      const junkPrefix = lines[i].match(/^[a-z ]{0,8}(\d{3,5})$/i);
+      if (junkPrefix) {
+        match = junkPrefix;
+        noisyBanner = true;
+        break;
+      }
     }
   }
   const digits = match ? match[1].replace(/\D/g, "") : "";
@@ -164,6 +183,15 @@ function levenshtein(a, b) {
 // overlays/tools render instead of the dex's parenthetical form. A known
 // naming convention, not a guess, so it counts as an exact/high-confidence
 // match.
+// "Mewtwo (Mega Y)" -> "mega mewtwo y" — the order the game itself renders
+// while mega-evolved (real device scan, 2026-08-13). Same known-convention
+// treatment as regionFirstAlt: an exact hit is high confidence.
+function megaFirstAlt(name) {
+  const match = String(name ?? "").match(/^(.*)\s\(Mega( [XY])?\)$/);
+  if (!match) return null;
+  return `mega ${match[1]}${match[2] ?? ""}`.toLowerCase();
+}
+
 function regionFirstAlt(name) {
   const match = String(name ?? "").match(REGION_SUFFIX_RE);
   return match ? `${match[2]} ${match[1]}`.toLowerCase() : null;
@@ -198,7 +226,7 @@ function matchName(rawName, forms, scannedTypes = null) {
   const formList = Object.values(forms ?? {});
   const exact = formList.find((form) => {
     const canonical = String(form.name ?? "").toLowerCase();
-    return canonical === lowerName || regionFirstAlt(form.name) === lowerName;
+    return canonical === lowerName || regionFirstAlt(form.name) === lowerName || megaFirstAlt(form.name) === lowerName;
   });
   if (exact) return { formId: exact.form_id, confidence: "high", issue: null };
   if (!formList.length) {
@@ -261,6 +289,35 @@ function matchName(rawName, forms, scannedTypes = null) {
   };
 }
 
+// Nickname-proof species identification (operator, 2026-08-13: "a lot of
+// people nickname their pokemon"). The screen prints the SPECIES name in
+// places a nickname never touches: the candy counter ("ZACIAN CANDY") and
+// the catch footer ("This Zacian was caught on..."). Priority: footer, then
+// candy line, then a unique species-name hit anywhere in the text. Base
+// species names only (word-boundary, case-insensitive); ambiguity returns
+// null — the existing candidates path stays the fallback.
+function baseSpeciesName(form) {
+  return String(form.name ?? "").replace(/ \(.*\)$/, "");
+}
+
+function speciesFromContext(text, formList) {
+  const haystack = String(text ?? "");
+  const names = [...new Set(formList.map(baseSpeciesName).filter(Boolean))];
+  const footerHits = [];
+  const candyHits = [];
+  const anywhereHits = [];
+  for (const name of names) {
+    const escaped = escapeRegExp(name);
+    if (new RegExp(`this\\s+${escaped}\\s+was\\s+caught`, "i").test(haystack)) footerHits.push(name);
+    if (new RegExp(`\\b${escaped}\\s+candy\\b`, "i").test(haystack)) candyHits.push(name);
+    if (new RegExp(`\\b${escaped}\\b`, "i").test(haystack)) anywhereHits.push(name);
+  }
+  for (const hits of [footerHits, candyHits, anywhereHits]) {
+    if (hits.length === 1) return hits[0];
+  }
+  return null;
+}
+
 // Parses a single Pokémon GO mon-info-screen OCR dump into a structured,
 // conservative draft. `forms` is the app's form map (formId -> form record,
 // same shape as data/processed/encyclopedia.json's `forms`).
@@ -285,6 +342,21 @@ export function parseMonScreenText(rawText, { forms } = {}) {
       }
     }
   }
+  let nickname = null;
+  if (!nameMatch.formId) {
+    // Nickname-proof anchors (candy line / catch footer) identify the
+    // species even when the display name is a nickname — which then becomes
+    // the instance's nickname instead of a dead end.
+    const contextSpecies = speciesFromContext(text, Object.values(forms ?? {}));
+    if (contextSpecies) {
+      const contextMatch = matchName(contextSpecies, forms, scannedTypes);
+      if (contextMatch.formId || contextMatch.candidates?.length) {
+        if (nameLine && nameLine.toLowerCase() !== contextSpecies.toLowerCase()) nickname = nameLine;
+        nameLine = contextSpecies;
+        nameMatch = contextMatch;
+      }
+    }
+  }
   if (nameMatch.issue) issues.push(nameMatch.issue);
   if (nameMatch.confidence) confidence.formId = nameMatch.confidence;
 
@@ -306,6 +378,7 @@ export function parseMonScreenText(rawText, { forms } = {}) {
 
   return {
     name: nameLine,
+    nickname,
     formId: nameMatch.formId,
     candidates: nameMatch.candidates ?? [],
     candidatesKind: nameMatch.candidatesKind ?? null,
@@ -330,7 +403,7 @@ export function draftFromParse(parsed) {
     cp: parsed?.cp != null ? String(parsed.cp) : "",
     heightM: parsed?.heightM != null ? String(parsed.heightM) : "",
     weightKg: parsed?.weightKg != null ? String(parsed.weightKg) : "",
-    nickname: "",
+    nickname: parsed?.nickname ?? "",
   };
 }
 

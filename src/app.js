@@ -1585,6 +1585,26 @@ export function createInteractionController({
       }
     }
     if (!parsed.formId) return;
+    // Mega screens: mega LEVEL boosts stats beyond the single stat block the
+    // frozen source carries (operator: level-4 Mega Y hundo ~7500), so a
+    // CP+HP solve against a mega form is unreliable — any "solution" may be
+    // coincidence. Advise the un-mega'd scan instead of pretending.
+    if (parsed.formId.includes("-mega") && Number.isInteger(parsed.cp) && Number.isInteger(parsed.hp)) {
+      const advisory = "Mega stats scale with mega level — IVs solved from a mega screen may be wrong. Scan the un-mega'd screen for exact IVs.";
+      if (!row.issues?.includes(advisory)) row.issues = [...(row.issues ?? []), advisory];
+    }
+    // A low-confidence (banner-retry / junk-prefix) CP gets one free
+    // validation: a real CP+HP pair ALWAYS admits at least one IV spread,
+    // so zero solutions means the read was noise ("629" off a cropped 5629,
+    // real device 2026-08-13) — drop it rather than poison the row.
+    if (parsed.confidence?.cp === "low" && Number.isInteger(parsed.cp) && Number.isInteger(parsed.hp)
+      && ivCandidatesFromCpHp(forms[parsed.formId], parsed.cp, parsed.hp).length === 0) {
+      parsed.cp = null;
+      delete parsed.confidence.cp;
+      parsed.issues = [...(parsed.issues ?? []), "CP banner read rejected — it fits no IV spread for this Pokémon's HP."];
+      row.issues = [...(row.issues ?? []), "CP banner read rejected — it fits no IV spread for this Pokémon's HP."];
+      row.draft = { ...row.draft, cp: "" };
+    }
     // Moves read from the same scan, matched against the resolved form's
     // legal move list (see extractMoves) — only ever set, never cleared.
     const moves = extractMoves(row.rawText ?? "", forms[parsed.formId]);
@@ -2298,7 +2318,7 @@ export function createInteractionController({
             // Version stamp: a pasted raw dump must say which shell parsed it
             // (three stale-device round-trips on 2026-08-12 without it).
             let rawText = `[shell ${APP_SHELL_REVISION}]\n${text}`;
-            if (parsed.cp === null) {
+            if (parsed.cp === null && parsed.hp !== null) {
               // Full-screen pass lost the CP banner — targeted crop retry
               // (see cpBannerRetry). Merged at low confidence; the "CP not
               // found." issue dies only when the retry actually delivers.
@@ -2333,7 +2353,23 @@ export function createInteractionController({
               accepted: false,
             };
             applyOcrIvSolve(row);
-            rows.push(row);
+            // Two-part scans (operator, 2026-08-13): a moves-screen photo
+            // has no CP and no HP — it is a FRAGMENT of the previous mon,
+            // not its own. When its text carries moves legal for the
+            // previous row's form, merge them there and drop the fragment.
+            const prevRow = rows[rows.length - 1];
+            const isFragment = parsed.cp === null && parsed.hp === null;
+            const prevForm = prevRow?.parsed?.formId ? forms[prevRow.parsed.formId] : null;
+            const fragmentMoves = isFragment && prevForm ? extractMoves(text, prevForm) : null;
+            if (fragmentMoves && (fragmentMoves.fastMove || fragmentMoves.chargedMoves.length)) {
+              if (fragmentMoves.fastMove) prevRow.draft = { ...prevRow.draft, fastMove: fragmentMoves.fastMove };
+              if (fragmentMoves.chargedMoves.length) {
+                prevRow.draft = { ...prevRow.draft, chargedMoves: [fragmentMoves.chargedMoves[0], fragmentMoves.chargedMoves[1] ?? null] };
+              }
+              prevRow.rawText += `\n--- merged moves from ${file.name || `Screenshot ${index + 1}`} ---\n${text}`;
+            } else {
+              rows.push(row);
+            }
             ui.ocrIntake.progress = { done: index + 1, total: files.length };
             rerenderCurrent();
           }
@@ -2524,6 +2560,7 @@ export function createInteractionController({
             const shared = {
               cp: cpNumber,
               ivs,
+              nickname: typeof draft.nickname === "string" && draft.nickname.trim() ? draft.nickname : undefined,
               heightM: heightValid ? heightNumber : undefined,
               weightKg: weightValid ? weightNumber : undefined,
             };
