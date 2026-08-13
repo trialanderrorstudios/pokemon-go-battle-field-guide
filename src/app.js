@@ -275,7 +275,7 @@ const CHUNK_FIELDS = Object.freeze({
   "pvp.json": ["pvp", "pvpTeams", "pvpAlternatives"],
   "extras.json": ["budgets", "megasPrimals", "futureProof", "coveragePlanner"],
   "acquisition.json": ["acquisitionGuide", "shinyOdds"],
-  "current-bosses.json": ["currentBosses"],
+  "current-bosses.json": ["currentBosses", "currentMaxBattles"],
   "current-events.json": ["currentEvents"],
   "current-eggs.json": ["currentEggs"],
   "rocket-lineups.json": ["rocketLineups"],

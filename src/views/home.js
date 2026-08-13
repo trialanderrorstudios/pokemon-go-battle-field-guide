@@ -672,8 +672,18 @@ function maxReadyLine(instances) {
   return count > 0 ? `You have ${count} Max-ready Pokémon` : "None flagged yet — mark them in quick-add";
 }
 
+// Current Max Battle bosses — operator-maintained curated data
+// (data/curated/max-battles.json, operator-as-sensor like the raid hotfix).
+// Expiry is end-of-day fail-closed, same endOfDay semantics as the raid
+// briefing: an expired row disappears rather than lying.
+function liveMaxBosses(currentMaxBattles, now) {
+  return (currentMaxBattles?.bosses ?? []).filter((boss) => !(typeof boss.endsAt === "string"
+    && !Number.isNaN(Date.parse(boss.endsAt))
+    && endOfDay(boss.endsAt) < now));
+}
+
 function maxLaneCardHtml({
-  event, forms, roster, storage, now,
+  event, forms, roster, storage, now, currentMaxBattles,
 }) {
   const subject = maxEventSubject(event.name);
   const displayName = subject ? `${subject.modifier} ${subject.species}` : event.name;
@@ -696,8 +706,11 @@ function maxLaneCardHtml({
       </div>
     </div>
     <p class="briefing-note">${escapeHtml(formatEventWhen(event.startsAt, event.endsAt, now))}</p>
+    ${liveMaxBosses(currentMaxBattles, now).map((boss) => `<p class="briefing-note">Now in Max Battle spots: <a href="./#dex/${encodeURIComponent(boss.formId)}" data-route="dex">${escapeHtml(`${boss.kind} ${forms?.[boss.formId]?.name ?? boss.formId}`)}</a> (through ${escapeHtml(boss.endsAt)})</p>`).join("")}
     <p class="briefing-note">${escapeHtml(maxReadyLine(roster?.instances))}</p>
-    <p class="briefing-note">Boss rotation isn't in the data feed — this card tracks scheduled Max events.</p>
+    <p class="briefing-note">${liveMaxBosses(currentMaxBattles, now).length
+      ? "Current boss reported by the operator from in-game — no public feed carries it."
+      : "Boss rotation isn't in the data feed — this card tracks scheduled Max events."}</p>
   </div>`;
   return `<div class="briefing-lane-card${collapsed ? " is-collapsed" : ""}">
     <button type="button" class="briefing-collapsed-line" data-action="toggle-briefing-card" data-briefing-card-key="${escapeHtml(key)}" aria-label="Reopen the Max card">
@@ -1026,7 +1039,7 @@ export function renderFieldBriefing({
   // rotation up doesn't get a briefing shell of its own today.
   const maxEvent = pickMaxEvent(currentEvents?.events, now);
   const maxCardHtml = maxEvent ? maxLaneCardHtml({
-    event: maxEvent, forms, roster, storage, now,
+    event: maxEvent, forms, roster, storage, now, currentMaxBattles: data?.currentMaxBattles,
   }) : "";
   const body = `${cardsHtml || maxCardHtml
     ? `${cardsHtml}${maxCardHtml}`

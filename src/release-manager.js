@@ -1,5 +1,5 @@
 export const APP_VERSION = 1;
-export const APP_SHELL_REVISION = "r128";
+export const APP_SHELL_REVISION = "r129";
 export const MANIFEST_SCHEMA_VERSION = 1;
 export const DATA_SCHEMA_VERSION = 1;
 export const RELEASE_STATES = Object.freeze([

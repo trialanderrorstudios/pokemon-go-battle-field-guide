@@ -18,7 +18,14 @@ const ROUTE_VIEWS = Object.freeze({
   pvp: ["rankings", "antimeta", "swap"],
   triage: ["gaps", "candy"],
   basics: ["types", "glossary", "drill", "tricks", "max", "items"],
-  more: ["roster", "settings", "about", "trades", "delta", "budget", "future", "megas", "coverage", "collection"],
+  // Adding a renderMore view without listing it here is the "lands at the
+  // top of More" bug (operator hit it on five views at once, 2026-08-13) —
+  // the router deliberately drops unknown views to keep typo'd bookmarks
+  // working, which silently eats real ones too.
+  more: [
+    "roster", "settings", "about", "trades", "delta", "budget", "future", "megas", "coverage", "collection",
+    "shopguide", "purge", "dupes", "powerup", "capabilities", "changelog",
+  ],
 });
 
 // Routes retired by the 23 -> 10 consolidation, and where their content lives

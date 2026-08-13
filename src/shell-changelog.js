@@ -6,6 +6,15 @@
 
 export const SHELL_CHANGELOG = Object.freeze([
   Object.freeze({
+    rev: "r129", date: "2026-08-13",
+    added: Object.freeze([
+      "Current Max Battle boss on the Max card — operator-reported (Dynamax Beldum seeded), expiry-honest, linked to its dex entry.",
+    ]),
+    tweaked: Object.freeze([
+      "Fixed: the five newest More pages (shop guide, purge, dupes, power-up, capability tour) landed at the top of More instead of opening — the router's view allowlist never learned them.",
+    ]),
+  }),
+  Object.freeze({
     rev: "r128", date: "2026-08-13",
     added: Object.freeze(["This version history page (More → This build)."]),
   }),
