@@ -1569,7 +1569,12 @@ export function createInteractionController({
       const withSolutions = parsed.candidates.filter((candidate) => (
         ivCandidatesFromCpHp(forms[candidate.formId], parsed.cp, parsed.hp).length > 0
       ));
-      if (withSolutions.length === 1) {
+      // Auto-resolve ONLY within a form family (same species, different
+      // form). "closest" candidates are edit-distance guesses for a
+      // nicknamed mon — a wrong species can admit the same CP/HP pair by
+      // coincidence, so those never auto-pick (operator question
+      // 2026-08-13: nicknames must not fabricate a species).
+      if (parsed.candidatesKind === "family" && withSolutions.length === 1) {
         parsed.formId = withSolutions[0].formId;
         parsed.name = withSolutions[0].name;
         parsed.candidates = [];

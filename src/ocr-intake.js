@@ -235,6 +235,7 @@ function matchName(rawName, forms, scannedTypes = null) {
       formId: null,
       confidence: null,
       candidates: family.map(candidateEntry),
+      candidatesKind: "family",
       issue: `"${rawName}" has multiple forms — pick one below.`,
     };
   }
@@ -252,6 +253,10 @@ function matchName(rawName, forms, scannedTypes = null) {
     formId: null,
     confidence: null,
     candidates: closest.map(candidateEntry),
+    // Edit-distance guesses, NOT a form family: a nicknamed mon's "closest
+    // names" are unrelated species, so downstream solving may narrow these
+    // but must never auto-resolve to one.
+    candidatesKind: "closest",
     issue: `name not in dex — nicknamed? pick manually (closest: ${candidates.join(", ")}).`,
   };
 }
@@ -303,6 +308,7 @@ export function parseMonScreenText(rawText, { forms } = {}) {
     name: nameLine,
     formId: nameMatch.formId,
     candidates: nameMatch.candidates ?? [],
+    candidatesKind: nameMatch.candidatesKind ?? null,
     cp: cpResult.value,
     hp: hpResult.value,
     weightKg: weightResult.value,
