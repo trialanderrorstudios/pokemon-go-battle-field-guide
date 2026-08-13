@@ -6347,6 +6347,13 @@ html:not([data-app-booted]) #app .fallback-section {
   font-weight: 700;
 }
 
+.ocr-row-solved {
+  margin-top: 0.35rem;
+  font-size: 0.76rem;
+  color: var(--green);
+  font-weight: 700;
+}
+
 .ocr-row-next {
   margin-top: 0.4rem;
   font-size: 0.72rem;

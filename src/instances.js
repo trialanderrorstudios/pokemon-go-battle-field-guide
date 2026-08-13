@@ -56,6 +56,43 @@ export function solveLevel(form, ivs, cp) {
 }
 
 
+// CP + max-HP jointly pin the IV spread (screenshot-intake ask, 2026-08-12:
+// "the point of screenshot ingestion was to avoid the manual part"). The mon
+// screen shows both numbers; for a given species only a handful of
+// (ivs, level) pairs — usually exactly one IV spread — reproduce the exact
+// pair. GO's displayed max HP is floor(cpm * (base_stamina + sta)), floored
+// at 10 like CP. Returns distinct IV spreads (each with its lowest matching
+// level), capped at 8 — an empty array means the CP/HP pair is impossible
+// for this species (wrong form, or an OCR misread).
+export function maxHp(form, staIv, level) {
+  return Math.max(10, Math.floor(cpMultiplier(level) * (form.base_stamina + staIv)));
+}
+
+export function ivCandidatesFromCpHp(form, cp, hp) {
+  if (!form || !Number.isInteger(cp) || !Number.isInteger(hp)) return [];
+  const out = [];
+  const seen = new Set();
+  for (const level of ALL_LEVELS) {
+    for (let sta = 0; sta <= 15; sta += 1) {
+      if (maxHp(form, sta, level) !== hp) continue;
+      for (let atk = 0; atk <= 15; atk += 1) {
+        for (let def = 0; def <= 15; def += 1) {
+          const ivs = { atk, def, sta };
+          if (calculateCp(form, ivs, level) !== cp) continue;
+          const key = `${atk}/${def}/${sta}`;
+          if (!seen.has(key)) {
+            seen.add(key);
+            out.push({ ivs, level });
+            if (out.length > 8) return out; // caller treats >8 as "too many"
+          }
+        }
+      }
+    }
+  }
+  return out;
+}
+
+
 // In-game team-leader "Overall" appraisal star tiers, as IV-sum (0-45)
 // ranges. 4 stars is a distinct tier here for the perfect-roll (45) highlight
 // the game shows with a pink/red glow; the in-game UI itself only ever shows

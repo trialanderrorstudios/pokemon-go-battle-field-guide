@@ -47,7 +47,8 @@ import { renderInstanceSheet } from "./views/instance-sheet.js";
 import { STANDARD_TARGET_DEFENSE, instanceBreakpointReports } from "./breakpoints.js";
 import { clearBuddyPlan, loadBuddyPlan, saveBuddyPlan } from "./buddy.js";
 import {
-  bestInstanceForForm, buildImportedInstance, buildInstance, instanceLevel, reviseInstanceCp, solveLevel,
+  bestInstanceForForm, buildImportedInstance, buildInstance, instanceLevel, ivCandidatesFromCpHp,
+  reviseInstanceCp, solveLevel,
 } from "./instances.js";
 import { nextMarkState } from "./collection.js";
 import { parsePokeGenieCsv } from "./poke-genie-import.js";
@@ -1556,6 +1557,39 @@ export function createInteractionController({
   };
   const rerender = (route) => renderRoute(route);
 
+  // CP + max-HP jointly pin the IV spread and, when a form family is
+  // ambiguous, usually identify the form too (a Hero-stat Zacian cannot
+  // produce a Crowned-stat CP/HP pair). Runs after every scan parse and
+  // after a manual form pick. Mutates the row in place; pure math on
+  // numbers OCR already read — never a guess (empty solve changes nothing).
+  const applyOcrIvSolve = (row) => {
+    const parsed = row?.parsed;
+    if (!parsed || !Number.isInteger(parsed.cp) || !Number.isInteger(parsed.hp)) return;
+    if (!parsed.formId && parsed.candidates?.length) {
+      const withSolutions = parsed.candidates.filter((candidate) => (
+        ivCandidatesFromCpHp(forms[candidate.formId], parsed.cp, parsed.hp).length > 0
+      ));
+      if (withSolutions.length === 1) {
+        parsed.formId = withSolutions[0].formId;
+        parsed.name = withSolutions[0].name;
+        parsed.candidates = [];
+        row.issues = (row.issues ?? []).filter((issue) => !/pick (one|manually)/i.test(issue));
+        if (parsed.issues) parsed.issues = parsed.issues.filter((issue) => !/pick (one|manually)/i.test(issue));
+      } else if (withSolutions.length > 1) {
+        parsed.candidates = withSolutions;
+      }
+    }
+    if (!parsed.formId) return;
+    const combos = ivCandidatesFromCpHp(forms[parsed.formId], parsed.cp, parsed.hp);
+    if (combos.length === 1) {
+      row.draft = { ...row.draft, ivs: { ...combos[0].ivs } };
+      row.solvedIvs = combos[0];
+      row.ivCandidates = null;
+    } else if (combos.length >= 2 && combos.length <= 8) {
+      row.ivCandidates = combos;
+    }
+  };
+
   const api = {
     onRosterExport,
     cpBannerRetry: cpBannerRetryOption,
@@ -2251,7 +2285,7 @@ export function createInteractionController({
                 rawText += "\n--- banner retry unavailable on this device ---";
               }
             }
-            rows.push({
+            const row = {
               id: crypto.randomUUID(),
               imageLabel: file.name || `Screenshot ${index + 1}`,
               // The verbatim engine output: the only way a parse-miss report
@@ -2266,7 +2300,9 @@ export function createInteractionController({
               draft: draftFromParse(parsed),
               issues: parsed.issues,
               accepted: false,
-            });
+            };
+            applyOcrIvSolve(row);
+            rows.push(row);
             ui.ocrIntake.progress = { done: index + 1, total: files.length };
             rerenderCurrent();
           }
@@ -2413,6 +2449,20 @@ export function createInteractionController({
           // The "pick one" issue is answered now — drop it, keep the rest.
           row.issues = (row.issues ?? []).filter((issue) => !/pick (one|manually)/i.test(issue));
           if (row.parsed.issues) row.parsed.issues = row.parsed.issues.filter((issue) => !/pick (one|manually)/i.test(issue));
+          applyOcrIvSolve(row);
+        }
+        rerenderCurrent();
+        return;
+      }
+      const ocrRowSetIvs = target?.closest?.("[data-ocr-row-set-ivs]");
+      if (ocrRowSetIvs) {
+        const row = ui.ocrIntake?.rows?.find((candidate) => candidate.id === ocrRowSetIvs.dataset.ocrRowSetIvs);
+        const parts = String(ocrRowSetIvs.dataset.ocrIvs ?? "").split(",").map(Number);
+        if (row && parts.length === 3 && parts.every((value) => Number.isInteger(value) && value >= 0 && value <= 15)) {
+          const ivs = { atk: parts[0], def: parts[1], sta: parts[2] };
+          row.draft = { ...row.draft, ivs };
+          row.solvedIvs = row.ivCandidates?.find((combo) => combo.ivs.atk === ivs.atk && combo.ivs.def === ivs.def && combo.ivs.sta === ivs.sta) ?? { ivs, level: null };
+          row.ivCandidates = null;
         }
         rerenderCurrent();
         return;
