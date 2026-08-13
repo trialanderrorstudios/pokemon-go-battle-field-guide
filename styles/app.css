@@ -6347,6 +6347,14 @@ html:not([data-app-booted]) #app .fallback-section {
   font-weight: 700;
 }
 
+.shop-guide-meta {
+  font-size: 0.68rem;
+  color: var(--muted);
+  margin-top: -0.3rem;
+}
+
+.shop-guide-priorities li { margin-bottom: 0.45rem; }
+
 .ocr-row-solved {
   margin-top: 0.35rem;
   font-size: 0.76rem;

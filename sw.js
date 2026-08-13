@@ -84,6 +84,7 @@ const SHELL_CODE_FILES = Object.freeze([
   "./src/poke-genie-import.js",
   "./src/search.js",
   "./src/share-card.js",
+  "./src/shop-guide.js",
   "./src/showcase.js",
   "./src/sprites.js",
   "./src/swap.js",

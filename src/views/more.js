@@ -3,6 +3,7 @@ import { jargonTerm } from "../glossary.js";
 import { moveLink } from "./move-sheet.js";
 import { stableRosterJson } from "../storage.js";
 import { renderCollectionView } from "./collection.js";
+import { SHOP_GUIDE } from "../shop-guide.js";
 import { luckyOwnedFormIdSet, shinyOwnedFormIdSet } from "../collection.js";
 import { formatFriendCode, friendCodeQrMatrix, isValidFriendCode } from "../friend-codes.js";
 
@@ -671,8 +672,11 @@ function renderMoreMenu() {
       id: "library",
       kicker: "Spend Stardust and Candy deliberately",
       title: "Library",
-      links: ["budget", "future", "megas", "coverage", "collection"]
-        .map((listId) => [`./#more/${listId}`, MORE_LISTS[listId].title]),
+      links: [
+        ...["budget", "future", "megas", "coverage", "collection"]
+          .map((listId) => [`./#more/${listId}`, MORE_LISTS[listId].title]),
+        ["./#more/shopguide", "Shop & Storage Value Guide"],
+      ],
     })}
     ${menuSection({
       id: "build",
@@ -687,8 +691,42 @@ function renderMoreMenu() {
 }
 
 
+// Static reference page — hand-curated coin/storage guidance (shop-guide.js),
+// every claim carrying its confidence label and source names inline. No
+// chunk dependency: renders on first paint like the menu itself.
+function shopGuideView() {
+  const claim = (entry) => `<p>${escapeHtml(entry.text)}</p>
+    <p class="shop-guide-meta"><span class="acq-flag">${escapeHtml(entry.label)}</span> ${escapeHtml(entry.source)}</p>`;
+  return `<div class="more-view">
+    ${BACK_TO_MORE}
+    <section class="more-section" aria-labelledby="shop-guide-title">
+      <p class="status-kicker">Spend coins deliberately · verified ${escapeHtml(SHOP_GUIDE.lastVerified)}</p>
+      <h2 id="shop-guide-title">Shop &amp; Storage Value Guide</h2>
+      ${claim(SHOP_GUIDE.freeCoins)}
+      <h3>Coin priority — best value first</h3>
+      <ol class="shop-guide-priorities">
+        ${SHOP_GUIDE.priorities.map((row) => `<li><strong>${escapeHtml(row.item)}</strong> — ${escapeHtml(row.verdict)}</li>`).join("")}
+      </ol>
+      <p class="shop-guide-meta"><span class="acq-flag">community consensus</span> GamePress coin guides · Pokémon GO Hub</p>
+      <h3>Storage — how much to shoot for</h3>
+      ${claim(SHOP_GUIDE.storage.upgradeCost)}
+      ${claim(SHOP_GUIDE.storage.caps)}
+      ${SHOP_GUIDE.storage.targets.map((target) => `<p><strong>${escapeHtml(target.who)}:</strong> ${escapeHtml(target.text)}</p>
+        <p class="shop-guide-meta"><span class="acq-flag">${escapeHtml(target.label)}</span> ${escapeHtml(target.source)}</p>`).join("")}
+      <h3>Boxes</h3>
+      ${claim(SHOP_GUIDE.boxes)}
+      <h3>Remote Raid Passes</h3>
+      ${claim(SHOP_GUIDE.remotePasses)}
+      <h3>Buying coins</h3>
+      ${claim(SHOP_GUIDE.webStore)}
+    </section>
+  </div>`;
+}
+
+
 export function renderMore(data = {}) {
   const view = data.view ?? "";
+  if (view === "shopguide") return shopGuideView();
   if (MORE_LISTS[view]) return renderMoreList(view, data);
   if (view === "roster") {
     return `<div class="more-view">
