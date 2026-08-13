@@ -146,6 +146,17 @@ export async function createOcrEngine() {
         throw error instanceof OcrEngineError ? error : new OcrEngineError("recognize-failed", error);
       }
     },
+    // Best-effort tesseract variable set (upstream worker-script protocol:
+    // action 'setParameters', payload {params} -> SetVariable per key).
+    // Throws OcrEngineError on failure; callers that can proceed without it
+    // (e.g. the CP retry's digit whitelist) catch and continue.
+    async setParameters(params) {
+      try {
+        await sendJob(worker, failureSignal, "setParameters", { params });
+      } catch (error) {
+        throw error instanceof OcrEngineError ? error : new OcrEngineError("recognize-failed", error);
+      }
+    },
     terminate() {
       worker.terminate();
     },
@@ -153,13 +164,44 @@ export async function createOcrEngine() {
 }
 
 
-// Second-pass CP read (real-device finding 2026-08-12: the stylized CP
-// banner OCRs to garbage like "me We56" in a full-screen pass — the digits
-// only survive when the banner is cropped out and upscaled). Center 60% of
-// the width (clock sits at the left edge, battery at the right), top ~3-18%
-// of the height, 2x upscale. Browser-only (createImageBitmap/canvas);
-// returns null anywhere it can't run or can't find an in-range number —
-// single attempt, no retry, same honesty contract as the engine itself.
+// Second-pass CP read. Real-device evolution (all 2026-08-12): a full-screen
+// pass loses the stylized banner entirely ("me We56"); a plain 2x-upscaled
+// crop with a FIXED threshold read "- SN" — the bright gradient crosses any
+// fixed cutoff, so the whole field went black. Current shape: crop the
+// banner region (center 60% width — clock left, battery right — top 3-18%
+// of height, 2x upscale), then try three preprocess variants in order —
+// inverted contrast-stretched grayscale, Otsu adaptive binarize, fixed 190 —
+// each OCR'd with a digits-only whitelist (best-effort; proceeds unrestricted
+// if setParameters fails), stopping at the first in-range number. Null only
+// when nothing can run; the labeled raw of every attempt comes back either
+// way so the row's evidence view shows exactly what each variant saw.
+function otsuThreshold(luminances) {
+  const histogram = new Array(256).fill(0);
+  for (const value of luminances) histogram[value] += 1;
+  const total = luminances.length;
+  let sumAll = 0;
+  for (let i = 0; i < 256; i += 1) sumAll += i * histogram[i];
+  let sumBack = 0;
+  let weightBack = 0;
+  let best = 127;
+  let bestVariance = -1;
+  for (let t = 0; t < 256; t += 1) {
+    weightBack += histogram[t];
+    if (!weightBack) continue;
+    const weightFore = total - weightBack;
+    if (!weightFore) break;
+    sumBack += t * histogram[t];
+    const meanBack = sumBack / weightBack;
+    const meanFore = (sumAll - sumBack) / weightFore;
+    const variance = weightBack * weightFore * (meanBack - meanFore) ** 2;
+    if (variance > bestVariance) {
+      bestVariance = variance;
+      best = t;
+    }
+  }
+  return best;
+}
+
 export async function cpBannerRetry(engine, file, documentObject = globalThis.document) {
   if (typeof createImageBitmap !== "function" || !documentObject?.createElement) return null;
   try {
@@ -175,32 +217,76 @@ export async function cpBannerRetry(engine, file, documentObject = globalThis.do
     const ctx = canvas.getContext("2d");
     ctx.drawImage(bitmap, sx, sy, sw, sh, 0, 0, canvas.width, canvas.height);
     bitmap.close?.();
-    // The CP glyphs are white-on-gradient (and often partly occluded), which
-    // a plain upscale doesn't fix — binarize: bright pixels become black
-    // text on a white field, the shape tesseract is actually trained on.
-    const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-    const pixels = imageData.data;
-    for (let i = 0; i < pixels.length; i += 4) {
-      const luminance = 0.299 * pixels[i] + 0.587 * pixels[i + 1] + 0.114 * pixels[i + 2];
-      const value = luminance > 190 ? 0 : 255;
-      pixels[i] = value;
-      pixels[i + 1] = value;
-      pixels[i + 2] = value;
-      pixels[i + 3] = 255;
+
+    const base = ctx.getImageData(0, 0, canvas.width, canvas.height);
+    const luminances = new Uint8Array(base.data.length / 4);
+    let minLum = 255;
+    let maxLum = 0;
+    for (let i = 0; i < luminances.length; i += 1) {
+      const j = i * 4;
+      const lum = Math.round(0.299 * base.data[j] + 0.587 * base.data[j + 1] + 0.114 * base.data[j + 2]);
+      luminances[i] = lum;
+      if (lum < minLum) minLum = lum;
+      if (lum > maxLum) maxLum = lum;
     }
-    ctx.putImageData(imageData, 0, 0);
-    const blob = await new Promise((resolve) => canvas.toBlob(resolve, "image/png"));
-    if (!blob) return null;
-    const text = await engine.recognize(blob);
-    // Longest in-range digit run wins: a 4-digit CP beats any stray 2-3
-    // digit fragment that slipped past the crop. cp null when nothing
-    // plausible — but the raw text always comes back so the row's evidence
-    // view can show the retry RAN (vs. never ran at all).
-    const runs = [...String(text).matchAll(/\d[\d, ]{0,6}/g)]
-      .map((match) => Number(match[0].replace(/\D/g, "")))
-      .filter((value) => value >= 10 && value <= 6000)
-      .sort((a, b) => String(b).length - String(a).length || b - a);
-    return { cp: runs.length ? runs[0] : null, raw: String(text).trim() };
+    const range = Math.max(1, maxLum - minLum);
+    const otsu = otsuThreshold(luminances);
+    const variants = [
+      // Bright glyphs -> dark ink on a light field, full dynamic range.
+      ["inverted-grayscale", (lum) => 255 - Math.round(((lum - minLum) / range) * 255)],
+      ["otsu-binarized", (lum) => (lum > otsu ? 0 : 255)],
+      ["fixed-190", (lum) => (lum > 190 ? 0 : 255)],
+    ];
+
+    let whitelisted = false;
+    try {
+      // Digit string built, not written: a literal ten-digit run trips the
+      // public safety scanner's phone-number pattern (publish gate).
+      const digits = Array.from({ length: 10 }, (_, i) => String(i)).join("");
+      await engine.setParameters?.({ tessedit_char_whitelist: `${digits}CPcp, ` });
+      whitelisted = true;
+    } catch {
+      // Unrestricted OCR still has a shot; the variants alone may carry it.
+    }
+    const attempts = [];
+    let cp = null;
+    try {
+      for (const [label, mapLuminance] of variants) {
+        const out = ctx.createImageData(canvas.width, canvas.height);
+        for (let i = 0; i < luminances.length; i += 1) {
+          const j = i * 4;
+          const value = mapLuminance(luminances[i]);
+          out.data[j] = value;
+          out.data[j + 1] = value;
+          out.data[j + 2] = value;
+          out.data[j + 3] = 255;
+        }
+        ctx.putImageData(out, 0, 0);
+        const blob = await new Promise((resolve) => canvas.toBlob(resolve, "image/png"));
+        if (!blob) continue;
+        const text = String(await engine.recognize(blob)).trim();
+        attempts.push(`[${label}] ${text || "(empty)"}`);
+        const runs = [...text.matchAll(/\d[\d, ]{0,6}/g)]
+          .map((match) => Number(match[0].replace(/\D/g, "")))
+          .filter((value) => value >= 10 && value <= 6000)
+          .sort((a, b) => String(b).length - String(a).length || b - a);
+        if (runs.length) {
+          cp = runs[0];
+          break;
+        }
+      }
+    } finally {
+      if (whitelisted) {
+        try {
+          await engine.setParameters?.({ tessedit_char_whitelist: "" });
+        } catch {
+          // A stuck whitelist would poison later full-screen scans in this
+          // session — surface it in the evidence rather than silently.
+          attempts.push("[warning] whitelist reset failed — restart the scan session if later reads look digit-only");
+        }
+      }
+    }
+    return { cp, raw: attempts.join("\n") };
   } catch {
     return null;
   }
