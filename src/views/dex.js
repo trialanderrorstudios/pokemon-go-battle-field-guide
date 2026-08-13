@@ -103,6 +103,13 @@ function bandPlacements(form, gym) {
 }
 
 
+// Super Max line for eligible mega forms — mechanism from the pinned Game
+// Master (level 4 = +2 effective CPM levels, 5,000 Mega Energy unlock).
+function superMegaLine(form) {
+  if (!form?.super_mega_available) return "";
+  return `<p class="dex-super-mega">Super Max available — Mega Level 4 adds +2 effective levels (stacks with Best Buddy; 5,000 Mega Energy to unlock).</p>`;
+}
+
 function gymSection(form, gym) {
   if (!gym) return `<section class="dex-section" aria-labelledby="dex-gym-title"><h3 id="dex-gym-title">Gym defense</h3><p class="dex-loading">Loading…</p></section>`;
   const eligible = gym.defenderIndex || gym.shadowDefenderRanking;
@@ -995,6 +1002,7 @@ const MEGA_LEVELS = Object.freeze([
   { value: "base", label: "Base" },
   { value: "high", label: "High" },
   { value: "max", label: "Max" },
+  { value: "supermax", label: "Super Max (+2 levels)" },
 ]);
 
 
@@ -1492,6 +1500,7 @@ export function renderDex({
     <a class="safe-escape" href="./#more/collection" data-route="more" data-view="collection">Back to Collection</a>
     ${identitySection(form, forms)}
     ${statsSection(form)}
+    ${superMegaLine(form)}
     ${bossSection(form, raidTargetTool)}
     ${weaknessSection(form)}
     ${optimalSection(form, gym, raids, raidsLoaded, formInstancesFor(form, roster), pvp)}

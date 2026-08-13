@@ -1585,20 +1585,19 @@ export function createInteractionController({
       }
     }
     if (!parsed.formId) return;
-    // Mega screens: mega LEVEL boosts stats beyond the single stat block the
-    // frozen source carries (operator: level-4 Mega Y hundo ~7500), so a
-    // CP+HP solve against a mega form is unreliable — any "solution" may be
-    // coincidence. Advise the un-mega'd scan instead of pretending.
-    if (parsed.formId.includes("-mega") && Number.isInteger(parsed.cp) && Number.isInteger(parsed.hp)) {
-      const advisory = "Mega stats scale with mega level — IVs solved from a mega screen may be wrong. Scan the un-mega'd screen for exact IVs.";
-      if (!row.issues?.includes(advisory)) row.issues = [...(row.issues ?? []), advisory];
-    }
+    // Mega screens: Mega Level 4 ("Super Max") is a +2 effective-level
+    // offset — confirmed mechanism, not a stat change — so mega solves run
+    // with the extended level-53 ceiling (SUPER_MEGA_MAX_LEVEL) and stay
+    // exact. A solution above 51 is itself the tell that the screen was
+    // Super Max'd (and/or Best Buddy'd) — annotated, never hidden.
+    const isMegaForm = parsed.formId.includes("-mega");
+    const solveOptions = isMegaForm ? { maxLevel: 53 } : undefined;
     // A low-confidence (banner-retry / junk-prefix) CP gets one free
     // validation: a real CP+HP pair ALWAYS admits at least one IV spread,
     // so zero solutions means the read was noise ("629" off a cropped 5629,
     // real device 2026-08-13) — drop it rather than poison the row.
     if (parsed.confidence?.cp === "low" && Number.isInteger(parsed.cp) && Number.isInteger(parsed.hp)
-      && ivCandidatesFromCpHp(forms[parsed.formId], parsed.cp, parsed.hp).length === 0) {
+      && ivCandidatesFromCpHp(forms[parsed.formId], parsed.cp, parsed.hp, solveOptions).length === 0) {
       parsed.cp = null;
       delete parsed.confidence.cp;
       parsed.issues = [...(parsed.issues ?? []), "CP banner read rejected — it fits no IV spread for this Pokémon's HP."];
@@ -1610,11 +1609,15 @@ export function createInteractionController({
     const moves = extractMoves(row.rawText ?? "", forms[parsed.formId]);
     if (moves.fastMove) row.draft = { ...row.draft, fastMove: moves.fastMove };
     if (moves.chargedMoves.length) row.draft = { ...row.draft, chargedMoves: [moves.chargedMoves[0], moves.chargedMoves[1] ?? null] };
-    const combos = ivCandidatesFromCpHp(forms[parsed.formId], parsed.cp, parsed.hp);
+    const combos = ivCandidatesFromCpHp(forms[parsed.formId], parsed.cp, parsed.hp, solveOptions);
     if (combos.length === 1) {
       row.draft = { ...row.draft, ivs: { ...combos[0].ivs } };
       row.solvedIvs = combos[0];
       row.ivCandidates = null;
+      if (combos[0].level > 51) {
+        const note = `Solved at effective level ${combos[0].level} — includes the Super Max +2 (and Best Buddy +1) boost.`;
+        if (!row.issues?.includes(note)) row.issues = [...(row.issues ?? []), note];
+      }
     } else if (combos.length >= 2 && combos.length <= 8) {
       row.ivCandidates = combos;
     }

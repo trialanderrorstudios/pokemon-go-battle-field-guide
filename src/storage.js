@@ -96,7 +96,8 @@ const INSTANCE_FIELDS = new Set([
 // Mega Evolution level tiers (round 14): megaUnlocked's successor. "base" is
 // the honest floor for a legacy megaUnlocked:true backup that never recorded
 // how far the player got.
-const MEGA_LEVELS = new Set(["base", "high", "max"]);
+// "supermax" = Mega Level 4 (2026 Super Max mechanic, +2 effective levels).
+const MEGA_LEVELS = new Set(["base", "high", "max", "supermax"]);
 // Showcase/appraisal size class (round 15) — same optional-enum shape as
 // MEGA_LEVELS. Feeds the showcase-score estimate in instances.js; "avg" is
 // the non-extreme majority case, xxs/xs/xl/xxl are the appraisal-screen tiers.

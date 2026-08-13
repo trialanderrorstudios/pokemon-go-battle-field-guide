@@ -18,13 +18,23 @@ const INTEGER_CPM = {
   36: 0.76739717, 37: 0.7731865, 38: 0.77893275, 39: 0.784637, 40: 0.7903,
   41: 0.7953, 42: 0.8003, 43: 0.8053, 44: 0.8103, 45: 0.8153, 46: 0.8203,
   47: 0.8253, 48: 0.8303, 49: 0.8353, 50: 0.8403, 51: 0.8453,
+  // 52-53: the Super Max range. Mega Level 4's confirmed mechanism
+  // (game master megaEvoLevelSettings.effects.selfCpBoostAdditionalLevel: 2,
+  // pinned snapshot 2026-04-17) is a +2 CPM-level offset stacking with Best
+  // Buddy's +1 — values straight from the same snapshot's 80-entry
+  // PLAYER_LEVEL_SETTINGS cpMultiplier array, not extrapolated.
+  52: 0.8503, 53: 0.8553,
 };
 const MIN_LEVEL = 1;
 const MAX_LEVEL = 51;
+// Only a mega-evolved Pokémon at Mega Level 4 ("Super Max", +2) — optionally
+// also Best Buddy (+1) — can exceed 51. Normal-build call sites keep
+// MAX_LEVEL; the CP+HP solver opts into this ceiling for mega forms only.
+export const SUPER_MEGA_MAX_LEVEL = 53;
 
 export function cpMultiplier(level) {
   const doubled = Math.round(level * 2);
-  if (Math.abs(level * 2 - doubled) > 1e-9 || level < MIN_LEVEL || level > MAX_LEVEL) {
+  if (Math.abs(level * 2 - doubled) > 1e-9 || level < MIN_LEVEL || level > SUPER_MEGA_MAX_LEVEL) {
     throw new RangeError(`Unsupported Pokémon level: ${level}`);
   }
   if (doubled % 2 === 0) return INTEGER_CPM[doubled / 2];
@@ -43,6 +53,8 @@ export function calculateCp(form, ivs, level) {
 
 const ALL_LEVELS = [];
 for (let doubled = MIN_LEVEL * 2; doubled <= MAX_LEVEL * 2; doubled += 1) ALL_LEVELS.push(doubled / 2);
+const SUPER_MEGA_LEVELS = [];
+for (let doubled = MIN_LEVEL * 2; doubled <= SUPER_MEGA_MAX_LEVEL * 2; doubled += 1) SUPER_MEGA_LEVELS.push(doubled / 2);
 
 // CP is monotonic non-decreasing in level for fixed IVs, so the lowest level
 // that reproduces the observed CP is the one the in-game appraisal/power-up
@@ -68,11 +80,13 @@ export function maxHp(form, staIv, level) {
   return Math.max(10, Math.floor(cpMultiplier(level) * (form.base_stamina + staIv)));
 }
 
-export function ivCandidatesFromCpHp(form, cp, hp) {
+export function ivCandidatesFromCpHp(form, cp, hp, { maxLevel = MAX_LEVEL } = {}) {
   if (!form || !Number.isInteger(cp) || !Number.isInteger(hp)) return [];
+  const levels = maxLevel > MAX_LEVEL ? SUPER_MEGA_LEVELS : ALL_LEVELS;
   const out = [];
   const seen = new Set();
-  for (const level of ALL_LEVELS) {
+  for (const level of levels) {
+    if (level > maxLevel) break;
     for (let sta = 0; sta <= 15; sta += 1) {
       if (maxHp(form, sta, level) !== hp) continue;
       for (let atk = 0; atk <= 15; atk += 1) {
