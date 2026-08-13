@@ -4,6 +4,7 @@ import { moveLink } from "./move-sheet.js";
 import { stableRosterJson } from "../storage.js";
 import { renderCollectionView } from "./collection.js";
 import { SHOP_GUIDE } from "../shop-guide.js";
+import { CAPABILITY_GUIDE } from "../capability-guide.js";
 import { renderPurgeView } from "./purge.js";
 import { renderDupesView } from "./dupes.js";
 import { renderPowerupView } from "./powerup.js";
@@ -689,6 +690,7 @@ function renderMoreMenu() {
       kicker: "Where this data came from",
       title: "This build",
       links: [
+        ["./#more/capabilities", "What this app can do"],
         ["./#more/delta", "What changed"],
         ["./#more/about", "About this build"],
       ],
@@ -730,8 +732,26 @@ function shopGuideView() {
 }
 
 
+// Capability tour — hand-maintained feature list (capability-guide.js).
+function capabilitiesView() {
+  return `<div class="more-view">
+    ${BACK_TO_MORE}
+    <section class="more-section" aria-labelledby="capabilities-title">
+      <p class="status-kicker">The tour · updated ${escapeHtml(CAPABILITY_GUIDE.updated)}</p>
+      <h2 id="capabilities-title">What this app can do</h2>
+      <p>${escapeHtml(CAPABILITY_GUIDE.intro)}</p>
+      ${CAPABILITY_GUIDE.sections.map((section) => `<h3>${escapeHtml(section.title)}</h3>
+        <ul class="capability-list">
+          ${section.items.map((item) => `<li><strong>${escapeHtml(item.name)}</strong> <span class="capability-where">${escapeHtml(item.where)}</span><br>${escapeHtml(item.what)}</li>`).join("")}
+        </ul>`).join("")}
+    </section>
+  </div>`;
+}
+
+
 export function renderMore(data = {}) {
   const view = data.view ?? "";
+  if (view === "capabilities") return capabilitiesView();
   if (view === "shopguide") return shopGuideView();
   if (view === "purge") return `<div class="more-view">${BACK_TO_MORE}${renderPurgeView(data)}</div>`;
   if (view === "dupes") return `<div class="more-view">${BACK_TO_MORE}${renderDupesView(data)}</div>`;

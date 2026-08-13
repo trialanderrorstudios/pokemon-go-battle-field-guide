@@ -7487,3 +7487,9 @@ html:not([data-app-booted]) #app .fallback-section {
 .dupe-verdict-chip[data-keep="false"] { color: var(--danger); border-color: var(--danger); }
 .dupe-verdict-why { font-size: 0.7rem; color: var(--muted); margin: 0.15rem 0 0; }
 .dupe-moves-missing { font-style: italic; color: var(--muted); }
+
+
+/* Capability tour (More > What this app can do) */
+.capability-list { list-style: none; padding: 0; margin: 0.4rem 0 1rem; }
+.capability-list li { margin-bottom: 0.6rem; font-size: 0.8rem; }
+.capability-where { font-family: var(--dx-mono); font-size: 0.64rem; color: var(--cyan); text-transform: uppercase; margin-left: 0.3rem; }
