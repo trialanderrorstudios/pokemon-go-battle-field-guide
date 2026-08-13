@@ -333,3 +333,42 @@ export function draftFromParse(parsed) {
     nickname: "",
   };
 }
+
+
+// Move ingestion (operator ask 2026-08-13: "will that allow ingestion of
+// moves?"). Once the species is known its legal move list is a CLOSED
+// vocabulary — matching the scan against those exact display names is far
+// more reliable than free OCR. Word-boundary matches only (a two-letter
+// name inside another word never counts); order of appearance decides which
+// charged move sits in slot one, matching the screen's own layout. Absent
+// moves stay absent — never a guess.
+function moveNameFromId(moveId) {
+  // Same trivial transform as views/move-sheet.js displayMoveName — copied
+  // (4 lines) rather than importing a DOM-adjacent view module into this
+  // pure parser.
+  return String(moveId ?? "").toLowerCase().split("_")
+    .map((word) => (word ? `${word[0].toUpperCase()}${word.slice(1)}` : ""))
+    .join(" ");
+}
+
+function escapeRegExp(value) {
+  return String(value).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+export function extractMoves(rawText, form) {
+  if (!form) return { fastMove: null, chargedMoves: [] };
+  const text = String(rawText ?? "");
+  const findAll = (ids) => (ids ?? [])
+    .map((id) => {
+      const match = text.match(new RegExp(`\\b${escapeRegExp(moveNameFromId(id))}\\b`, "i"));
+      return match ? { id, index: match.index } : null;
+    })
+    .filter(Boolean)
+    .sort((a, b) => a.index - b.index);
+  const fast = findAll(form.fast_moves);
+  const charged = findAll(form.charged_moves);
+  return {
+    fastMove: fast[0]?.id ?? null,
+    chargedMoves: charged.slice(0, 2).map((hit) => hit.id),
+  };
+}

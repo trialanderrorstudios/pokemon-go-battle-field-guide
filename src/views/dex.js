@@ -1335,6 +1335,10 @@ function ocrIntakeRowHtml(row) {
   const solvedLine = row.solvedIvs
     ? `<p class="ocr-row-solved">IVs ${escapeHtml(row.solvedIvs.ivs.atk)}/${escapeHtml(row.solvedIvs.ivs.def)}/${escapeHtml(row.solvedIvs.ivs.sta)}${row.solvedIvs.level ? ` · Level ${escapeHtml(row.solvedIvs.level)}` : ""} — solved from CP + HP</p>`
     : "";
+  const readCharged = Array.isArray(row.draft?.chargedMoves) ? row.draft.chargedMoves.filter(Boolean) : [];
+  const movesReadLine = row.draft?.fastMove && readCharged.length
+    ? `<p class="ocr-row-solved">Moves read: ${escapeHtml(displayMoveName(row.draft.fastMove))} + ${readCharged.map((move) => escapeHtml(displayMoveName(move))).join(" / ")}</p>`
+    : "";
   const ivChips = !row.solvedIvs && row.ivCandidates?.length
     ? `<p class="ocr-row-next">CP + HP narrow to ${row.ivCandidates.length} possible IV spreads — pick one:</p>
       <div class="ocr-row-actions ocr-row-candidates">${row.ivCandidates.map((combo) => `<button type="button" class="ocr-row-pick-btn" data-ocr-row-set-ivs="${escapeHtml(row.id)}" data-ocr-ivs="${escapeHtml(`${combo.ivs.atk},${combo.ivs.def},${combo.ivs.sta}`)}">${escapeHtml(`${combo.ivs.atk}/${combo.ivs.def}/${combo.ivs.sta}`)}</button>`).join("")}</div>`
@@ -1361,6 +1365,7 @@ function ocrIntakeRowHtml(row) {
     ${row.accepted ? `<span class="ocr-row-status is-accepted">Added to roster</span>` : ""}
     ${unreadable ? `<p class="ocr-row-degrade">${escapeHtml(OCR_ROW_DEGRADE_COPY)}</p>` : ocrRowFieldsHtml(parsed)}
     ${solvedLine}
+    ${movesReadLine}
     ${ivChips}
     ${ocrRowIssuesHtml(row.issues)}
     ${actions}

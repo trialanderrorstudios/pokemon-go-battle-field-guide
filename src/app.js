@@ -52,7 +52,7 @@ import {
 } from "./instances.js";
 import { nextMarkState } from "./collection.js";
 import { parsePokeGenieCsv } from "./poke-genie-import.js";
-import { draftFromParse, parseMonScreenText } from "./ocr-intake.js";
+import { draftFromParse, extractMoves, parseMonScreenText } from "./ocr-intake.js";
 import { cpBannerRetry } from "./ocr-worker.js";
 import { createOcrEngine as createOcrEngineDefault, OcrEngineError } from "./ocr-worker.js";
 import {
@@ -1585,6 +1585,11 @@ export function createInteractionController({
       }
     }
     if (!parsed.formId) return;
+    // Moves read from the same scan, matched against the resolved form's
+    // legal move list (see extractMoves) — only ever set, never cleared.
+    const moves = extractMoves(row.rawText ?? "", forms[parsed.formId]);
+    if (moves.fastMove) row.draft = { ...row.draft, fastMove: moves.fastMove };
+    if (moves.chargedMoves.length) row.draft = { ...row.draft, chargedMoves: [moves.chargedMoves[0], moves.chargedMoves[1] ?? null] };
     const combos = ivCandidatesFromCpHp(forms[parsed.formId], parsed.cp, parsed.hp);
     if (combos.length === 1) {
       row.draft = { ...row.draft, ivs: { ...combos[0].ivs } };
@@ -2511,12 +2516,20 @@ export function createInteractionController({
             const weightNumber = Number(draft.weightKg);
             const weightValid = Number.isFinite(weightNumber) && weightNumber > 0;
             failureRoute = "dex";
-            const built = buildImportedInstance(form, {
+            // Moves read off the scan (extractMoves — legal-list matches
+            // only) upgrade the save to the full buildInstance path; a scan
+            // with no readable moves stays moveless exactly as before.
+            const chosenCharged = Array.isArray(draft.chargedMoves) ? draft.chargedMoves.filter(Boolean) : [];
+            const scanHasMoves = Boolean(draft.fastMove) && chosenCharged.length >= 1 && chosenCharged.length <= 2;
+            const shared = {
               cp: cpNumber,
               ivs,
               heightM: heightValid ? heightNumber : undefined,
               weightKg: weightValid ? weightNumber : undefined,
-            });
+            };
+            const built = scanHasMoves
+              ? buildInstance(form, { ...shared, fastMove: draft.fastMove, chargedMoves: chosenCharged })
+              : buildImportedInstance(form, shared);
             // Flip before the await: two fast taps both passing the
             // !row.accepted gate would save duplicate instances.
             row.accepted = true;
