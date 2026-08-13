@@ -88,6 +88,7 @@ const SHELL_CODE_FILES = Object.freeze([
   "./src/dupe-advisor.js",
   "./src/powerup-planner.js",
   "./src/purge-string.js",
+  "./src/shell-changelog.js",
   "./src/shop-guide.js",
   "./src/showcase.js",
   "./src/sprites.js",

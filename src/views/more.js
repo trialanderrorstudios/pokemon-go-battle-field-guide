@@ -5,6 +5,7 @@ import { stableRosterJson } from "../storage.js";
 import { renderCollectionView } from "./collection.js";
 import { SHOP_GUIDE } from "../shop-guide.js";
 import { CAPABILITY_GUIDE } from "../capability-guide.js";
+import { SHELL_CHANGELOG } from "../shell-changelog.js";
 import { renderPurgeView } from "./purge.js";
 import { renderDupesView } from "./dupes.js";
 import { renderPowerupView } from "./powerup.js";
@@ -691,6 +692,7 @@ function renderMoreMenu() {
       title: "This build",
       links: [
         ["./#more/capabilities", "What this app can do"],
+        ["./#more/changelog", "Version history — patch notes"],
         ["./#more/delta", "What changed"],
         ["./#more/about", "About this build"],
       ],
@@ -749,8 +751,31 @@ function capabilitiesView() {
 }
 
 
+// Patch notes per shell revision (shell-changelog.js — hand-maintained,
+// one entry per APP_SHELL_REVISION bump).
+function changelogView() {
+  const group = (label, items) => (items?.length
+    ? `<p class="changelog-kind">${label}</p><ul class="changelog-list">${items.map((item) => `<li>${escapeHtml(item)}</li>`).join("")}</ul>`
+    : "");
+  return `<div class="more-view">
+    ${BACK_TO_MORE}
+    <section class="more-section" aria-labelledby="changelog-title">
+      <p class="status-kicker">Patch notes, newest first</p>
+      <h2 id="changelog-title">Version history</h2>
+      ${SHELL_CHANGELOG.map((entry) => `<div class="changelog-entry">
+        <h3>${escapeHtml(entry.rev)} <span class="changelog-date">${escapeHtml(entry.date)}</span></h3>
+        ${group("Added", entry.added)}
+        ${group("Tweaked", entry.tweaked)}
+        ${group("Removed", entry.removed)}
+      </div>`).join("")}
+    </section>
+  </div>`;
+}
+
+
 export function renderMore(data = {}) {
   const view = data.view ?? "";
+  if (view === "changelog") return changelogView();
   if (view === "capabilities") return capabilitiesView();
   if (view === "shopguide") return shopGuideView();
   if (view === "purge") return `<div class="more-view">${BACK_TO_MORE}${renderPurgeView(data)}</div>`;

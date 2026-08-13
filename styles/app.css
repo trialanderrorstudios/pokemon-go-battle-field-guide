@@ -7493,3 +7493,12 @@ html:not([data-app-booted]) #app .fallback-section {
 .capability-list { list-style: none; padding: 0; margin: 0.4rem 0 1rem; }
 .capability-list li { margin-bottom: 0.6rem; font-size: 0.8rem; }
 .capability-where { font-family: var(--dx-mono); font-size: 0.64rem; color: var(--cyan); text-transform: uppercase; margin-left: 0.3rem; }
+
+
+/* Version history (More > patch notes) */
+.changelog-entry { margin-bottom: 1rem; border-top: 1px dashed var(--line); padding-top: 0.6rem; }
+.changelog-entry:first-of-type { border-top: none; }
+.changelog-date { font-family: var(--dx-mono); font-size: 0.64rem; color: var(--muted); font-weight: 400; }
+.changelog-kind { font-family: var(--dx-mono); font-size: 0.64rem; font-weight: 800; text-transform: uppercase; color: var(--cyan); margin: 0.35rem 0 0.1rem; }
+.changelog-list { margin: 0 0 0.4rem; padding-left: 1.1rem; font-size: 0.78rem; }
+.changelog-list li { margin-bottom: 0.25rem; }
