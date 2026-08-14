@@ -18,6 +18,26 @@ export function sectionHeading(kicker, title, id) {
   return `<p class="status-kicker">${escapeHtml(kicker)}</p><h2 id="${id}">${escapeHtml(title)}</h2>`;
 }
 
+// Raid attacker rows already carry investmentTier PLUS the recommendation
+// sentence it maps to ("S+" -> "Build ASAP") and render both together
+// everywhere (home.js, more.js, pvp.js, raids.js: `${tier} · ${recommendation}`).
+// The attack-team member and solo-counter rows below only ever got the bare
+// letter — mirrors investment.py's TIER_RULES second column (the source of
+// truth) so a reader gets the same recommendation word here, without the
+// pipeline having to attach one more string to every member/counter row.
+const INVESTMENT_RECOMMENDATION = Object.freeze({
+  "S+": "Build ASAP",
+  S: "Strong Investment",
+  A: "Build for Coverage",
+  B: "Budget/Situational",
+  C: "Avoid Heavy Investment",
+});
+
+function investmentTierLabel(tier) {
+  const recommendation = INVESTMENT_RECOMMENDATION[tier];
+  return recommendation ? `${tier} · ${recommendation}` : tier;
+}
+
 
 // form.elite_moves lumps Community Day classics in with genuinely restricted
 // moves — Blast Burn sits in the same list as Thunder Cage. Badging on raw
@@ -118,7 +138,7 @@ function attackTeamMemberCard(member, forms) {
   return `<li class="gym-card"><article>
     ${spriteHtml(member.formId, forms, member.pokemon, forms?.[member.formId]?.primary_type ?? member.attackingType)}
     <h4>${escapeHtml(member.pokemon)}</h4>
-    ${member.investmentTier ? `<p class="gym-rank">${escapeHtml(member.investmentTier)} investment</p>` : ""}
+    ${member.investmentTier ? `<p class="gym-rank">${escapeHtml(investmentTierLabel(member.investmentTier))} investment</p>` : ""}
     <p class="gym-moves">${attackTeamMemberMoves(member)}</p>
     <p>${escapeHtml(member.role)}</p>
     ${member.noObtainableAlternative ? `<p class="gym-warning-note">No obtainable ${escapeHtml(member.attackingType)} moveset exists for this Pokémon — this is its only option, Elite TM or not.</p>` : ""}
@@ -209,8 +229,8 @@ function eliteUpgradeLine(row) {
     <p><strong>${label}:</strong> ${moveLink(elite.move, { kind: "Charged", elite: !communityDay })} —
     ${without}</p>
     <dl class="gym-move-dps">
-      <div><dt>${communityDay ? "With it" : "With Elite TM"}</dt><dd>${elite.score}<span class="gym-dps-sub">rank #${elite.rank}, ${escapeHtml(elite.tier)} tier</span></dd></div>
-      <div><dt>Without</dt><dd>${elite.obtainableScore}<span class="gym-dps-sub">rank #${row.rank}, ${escapeHtml(row.tier)} tier — what you can build now</span></dd></div>
+      <div><dt>${communityDay ? "With it" : "With Elite TM"}</dt><dd>${elite.score}<span class="gym-dps-sub">cycle output · rank #${elite.rank}, ${escapeHtml(elite.tier)} tier</span></dd></div>
+      <div><dt>Without</dt><dd>${elite.obtainableScore}<span class="gym-dps-sub">cycle output · rank #${row.rank}, ${escapeHtml(row.tier)} tier — what you can build now</span></dd></div>
       ${Number.isFinite(gain) ? `<div><dt>Gain</dt><dd>+${gain}%</dd></div>` : ""}
     </dl>
     <p class="gym-elite-verdict">${verdict}${tierNote}</p>
@@ -238,8 +258,8 @@ function shadowUpgradeLine(row) {
     GO Rocket takeover event <span class="acq-flag">not computed</span>.</p>
     <p>With one, it could carry ${moveLink(shadow.move, { kind: "Charged" })} instead.</p>
     <dl class="gym-move-dps">
-      <div><dt>With Charged TM</dt><dd>${shadow.score}<span class="gym-dps-sub">rank #${shadow.rank}, ${escapeHtml(shadow.tier)} tier</span></dd></div>
-      <div><dt>Locked to Frustration</dt><dd>${shadow.obtainableScore}<span class="gym-dps-sub">rank #${row.rank}, ${escapeHtml(row.tier)} tier</span></dd></div>
+      <div><dt>With Charged TM</dt><dd>${shadow.score}<span class="gym-dps-sub">cycle output · rank #${shadow.rank}, ${escapeHtml(shadow.tier)} tier</span></dd></div>
+      <div><dt>Locked to Frustration</dt><dd>${shadow.obtainableScore}<span class="gym-dps-sub">cycle output · rank #${row.rank}, ${escapeHtml(row.tier)} tier</span></dd></div>
       ${Number.isFinite(gain) ? `<div><dt>Gain</dt><dd>+${gain}%</dd></div>` : ""}
     </dl>
     <p class="gym-shadow-verdict">${tierNote}</p>
@@ -350,7 +370,7 @@ function counterMoves(counter, forms) {
 function soloCountersLine(row, forms) {
   if (!row.soloCounters?.length) return "";
   const counters = row.soloCounters.map((counter) => {
-    const tier = counter.investmentTier ? `, ${escapeHtml(counter.investmentTier)} investment` : "";
+    const tier = counter.investmentTier ? `, ${escapeHtml(investmentTierLabel(counter.investmentTier))} investment` : "";
     return `${escapeHtml(counter.pokemon)} (${counterMoves(counter, forms)}${tier})`;
   }).join(", ");
   return `<p class="why-line"><strong>Best answers:</strong> ${counters} <span class="acq-flag">computed</span></p>`;
@@ -508,7 +528,10 @@ function lineupSection(
   </div>
   <p class="gym-note">${breaker
     ? "Two walls that share a weakness, with something between them that resists it — the attacker cannot walk straight through. Use these when you do not have three unrelated walls to hand."
-    : "Nothing here is super-effective against more than one member, so no single attacker gets a free run. Strongest when you can build it."}</p>`;
+    : "Nothing here is super-effective against more than one member, so no single attacker gets a free run. Strongest when you can build it."}</p>
+  <p class="gym-note">Each option's "score" below is its three members' own 0-100 Defender ranking
+    scores added together, plus a bonus for breaking a chain — a different number from any one
+    member's individual score in the ranking further down, so it runs roughly 0-300+, not 0-100.</p>`;
 
   // Lineups are grouped by lead (the first member each option opens with) rather
   // than shown as one flat numbered list: which Pokemon you invest toward first
@@ -669,7 +692,10 @@ function lineupSection(
     ${sectionHeading("Computed, not curated", "Defender ranking", "gym-ranking-title")}
     <p class="gym-note">Three related things sit on this page and they answer different questions:
       <strong>rank</strong> is where a defender places among all ${ranking.length} ranked (#1 is
-      best); <strong>tier</strong> groups those ranks at real breaks in the score; <strong>band</strong>,
+      best); <strong>score</strong> is that defender's rating on a 0-100 scale, scaled so #1 always
+      scores 100 and everyone else is relative to it — a different number from any "score" you see
+      elsewhere on this page (lineup options, Placement Coach) even where the digits look similar;
+      <strong>tier</strong> groups those ranks at real breaks in the score; <strong>band</strong>,
       further down, re-sorts this same pool by one narrower question — like which defender best answers
       a single attacking type — so a Pokémon's band rank can sit far from its overall rank.</p>
     <p class="gym-curated-note">Rank, score and the S/A/B/C/D/F tier below — the section headings, not a
@@ -737,13 +763,26 @@ function bandCopy(band) {
 }
 
 
+// The number this band sorts by is a different metric per band.kind — Cycle
+// (attack-agnostic cycle output — deliberately NOT the ranking card's Cycle DPS scale)
+// stat), raw effective HP (bulk / multiplier) for "anti" — never the 0-100
+// score shown in the line right below it. Label it so the two badges on one
+// row don't read as the same kind of number.
+const BAND_METRIC_UNIT = Object.freeze({
+  // "cycle output" NOT "Cycle DPS" (review catch): the damage band's metric
+  // is gym_ranking.py's attack-agnostic defenseOutput (base power per second,
+  // no attack stat, no effectiveness) — a DIFFERENT number from the ranking
+  // card's real defensive_cycle_dps. Same words would claim same scale.
+  damage: "cycle output", anti: "eHP" });
+
 function bandRow(row, index, forms, band) {
+  const unit = BAND_METRIC_UNIT[band.kind] ?? "";
   return `<li class="gym-band-row"><article class="gym-rank-card">
     <div class="gym-rank-head">
       ${spriteHtml(row.formId, forms, row.pokemon, forms?.[row.formId]?.primary_type)}
       <span class="gym-rank-n">#${index + 1}</span>
       <strong>${escapeHtml(row.pokemon)}</strong>
-      <span class="gym-rank-score">${row.metric}</span>
+      <span class="gym-rank-score">${row.metric}${unit ? ` <span class="gym-dps-sub">${unit}</span>` : ""}</span>
     </div>
     <p class="gym-note">Overall #${row.overallRank} · score ${row.overallScore} · ${escapeHtml(row.tier)} tier${
       band.kind === "anti" ? ` · takes x${row.multiplier} damage from ${bandThreatType(band)}` : ""
@@ -1232,7 +1271,7 @@ function deployedBadge(candidate) {
 function recommendationCard(candidate, label, lane, index, count) {
   const recommendation = candidate
     ? `<h3>${escapeHtml(candidate.pokemon)}</h3>
-      <p class="placement-score">Score ${escapeHtml(candidate.score)} · option ${index + 1} of ${count}</p>
+      <p class="placement-score">Placement fit ${escapeHtml(candidate.score)} · option ${index + 1} of ${count}</p>
       <p>${escapeHtml(candidate.rationale)}</p>
       <p><strong>Weak to:</strong> ${escapeHtml((candidate.weaknesses ?? []).join(", ") || "None listed")}</p>
       <p><strong>Resists repeated:</strong> ${escapeHtml((candidate.resistsCommon ?? []).join(", ") || "None")}</p>
@@ -1293,6 +1332,11 @@ export function renderPlacementCoach({
   return `<section class="gym-section placement-coach" aria-labelledby="placement-coach-title">
     ${sectionHeading("Two independent lanes", "Placement Coach", "placement-coach-title")}
     <p>Choose defenders already in the gym, then compare an owned option with the unrestricted best placement.</p>
+    <p class="gym-note">"Placement fit" below scores how well a candidate slots in NEXT to the
+      lineup already chosen — tier value plus bulk, minus a penalty for repeating a weakness
+      already in the lineup. It is not the same number as a defender's rank/score in the
+      Defender ranking further down this page; a higher placement fit means a better fit for
+      this specific slot, not a stronger defender overall.</p>
     ${warnings ? `<aside class="gym-warning"><strong>Weakness-chain warnings</strong><ul>${warnings}</ul></aside>` : ""}
     <div class="placement-lanes">
       ${recommendationCard(atIndex(ownedRows, safeOwnedIndex), "Best From Your Roster", "owned", safeOwnedIndex, ownedRows.length)}

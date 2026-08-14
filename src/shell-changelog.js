@@ -6,6 +6,28 @@
 
 export const SHELL_CHANGELOG = Object.freeze([
   Object.freeze({
+    rev: "r131", date: "2026-08-14",
+    added: Object.freeze([
+      "Two-panel dex on tablet width — the living-dex rail beside the entry, selection without losing your place.",
+      "Per-copy verdict line in Your roster — optimal sets, best league rank, showcase score in one glance.",
+      "Trade Planner (More → Library) — trade bait and per-friend offers, precious singles always protected.",
+    ]),
+    tweaked: Object.freeze([
+      "Every rendered score now states its scale; investment tiers carry their recommendation everywhere.",
+      "Move badges use exact per-form availability (the Cinderace Blast Burn generic-label bug).",
+      "Fixed a broken r130 script string that blocked the whole test suite.",
+    ]),
+  }),
+  Object.freeze({
+    rev: "r130", date: "2026-08-14",
+    added: Object.freeze([
+      "Sibling-form switcher on dex entries — hop Hero/Crowned/Shadow/Mega without the grid.",
+      "Section jump bar (Stats · Optimal · Gym · PvP · Evolution · Yours).",
+      "Prev/next species navigation in dex order.",
+      "\"View in dex\" link on saved scan rows.",
+    ]),
+  }),
+  Object.freeze({
     rev: "r129", date: "2026-08-13",
     added: Object.freeze([
       "Current Max Battle boss on the Max card — operator-reported (Dynamax Beldum seeded), expiry-honest, linked to its dex entry.",

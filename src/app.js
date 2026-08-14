@@ -1295,6 +1295,12 @@ export function createInteractionState({
     rosterQuery: "",
     collectionQuery: "",
     collectionFilter: "all",
+    // Two-panel dex index rail (docs/dex-two-panel-spec.md §3.2) — own
+    // query/filter state, separate from collectionQuery/collectionFilter:
+    // the rail and the Collection grid render on different routes and must
+    // not fight over one shared filter.
+    dexRailQuery: "",
+    dexRailFilter: "all",
     interactionMessage: "",
     moveSheet: null,
     instanceSheet: null,
@@ -1765,6 +1771,22 @@ export function createInteractionController({
         const ownerDocument = collectionSearch.ownerDocument;
         rerenderCurrent();
         const nextSearch = ownerDocument?.querySelector?.("[data-collection-search]");
+        nextSearch?.focus?.({ preventScroll: true });
+        nextSearch?.setSelectionRange?.(caret, caret);
+        return;
+      }
+      // Two-panel dex index rail search — same refocus/caret-restore shape as
+      // the Collection search field just above, own query (ui.dexRailQuery).
+      const dexRailSearch = event?.target?.closest?.("[data-dex-rail-search]");
+      if (dexRailSearch) {
+        ui.dexRailQuery = String(dexRailSearch.value ?? "").slice(0, 80);
+        const caret = Math.min(
+          Number.isInteger(dexRailSearch.selectionStart) ? dexRailSearch.selectionStart : ui.dexRailQuery.length,
+          ui.dexRailQuery.length,
+        );
+        const ownerDocument = dexRailSearch.ownerDocument;
+        rerenderCurrent();
+        const nextSearch = ownerDocument?.querySelector?.("[data-dex-rail-search]");
         nextSearch?.focus?.({ preventScroll: true });
         nextSearch?.setSelectionRange?.(caret, caret);
         return;
@@ -3089,6 +3111,14 @@ export function createInteractionController({
       const collectionFilterControl = target?.closest?.("[data-collection-filter]");
       if (collectionFilterControl) {
         ui.collectionFilter = collectionFilterControl.dataset.collectionFilter;
+        rerenderCurrent();
+        return;
+      }
+      // Two-panel dex index rail filter chip — same shape as the Collection
+      // filter chip above, own state (ui.dexRailFilter).
+      const dexRailFilterControl = target?.closest?.("[data-dex-rail-filter]");
+      if (dexRailFilterControl) {
+        ui.dexRailFilter = dexRailFilterControl.dataset.dexRailFilter;
         rerenderCurrent();
         return;
       }
@@ -4776,6 +4806,20 @@ export function bootstrap({
         ui.quickAddFormId = view;
         ui.quickAdd = blankQuickAddDraft();
       }
+      // Two-panel dex (docs/dex-two-panel-spec.md): a plain matchMedia read,
+      // same one-shot pattern this file already uses for prefers-reduced-
+      // motion — no resize listener, so rotating/resizing mid-view doesn't
+      // flip panels until the next dex render (same ceiling that pattern
+      // already accepts). ?? false covers matchMedia-less test harnesses.
+      const twoPanel = windowObject.matchMedia?.("(min-width: 48rem)")?.matches ?? false;
+      // The rail owns its own scroll region (spec §3.3: selecting an entry
+      // must not lose rail scroll), but app.innerHTML below destroys and
+      // rebuilds the whole subtree on every render — a plain re-render would
+      // silently reset it to the top. Capture/restore around the swap
+      // instead of a DOM diff. Optional chaining makes this a no-op in the
+      // string-based test harness (no real querySelector there).
+      const previousRail = app?.querySelector?.(".dex-rail");
+      const railScrollTop = previousRail ? previousRail.scrollTop : null;
       app.innerHTML = interactionNotice(ui) + renderDex({
         formId: view,
         forms: state.core.forms,
@@ -4789,7 +4833,14 @@ export function bootstrap({
         roster,
         quickAdd: ui.quickAdd,
         ocrIntake: ui.ocrIntake,
+        twoPanel,
+        dexRailQuery: ui.dexRailQuery,
+        dexRailFilter: ui.dexRailFilter,
       });
+      if (railScrollTop !== null) {
+        const rail = app?.querySelector?.(".dex-rail");
+        if (rail) rail.scrollTop = railScrollTop;
+      }
       searchRefresh = bindSearch(documentObject, index, state.core.forms, roster, storage, {
         raidTargetTool: state.raidTargetTool,
         raids: state.raids,

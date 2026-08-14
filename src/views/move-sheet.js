@@ -13,9 +13,25 @@ export function displayMoveName(moveId) {
 // to be reimplemented per view (app.js, pvp.js, gyms.js, more.js all had
 // their own copy). Wrapping the name in a button wires the move sheet up
 // everywhere at once via the existing app-root click delegation.
-export function moveLink(moveId, { elite = false, kind = "Fast" } = {}) {
+//
+// availabilityClass (standard/communityDayClassic/eliteOnly/eventOnly, from
+// a form's move_availability map — see assemble.py) is the exact-class path:
+// pass it and the right badge falls out, no caller-side elite/eventOnly
+// bookkeeping needed. communityDayClassic gets no badge (obtainable by any
+// player, same as standard) — it's a prose distinction (dex.js's
+// eliteMoveLabel), not a cost-badge one. The plain `elite` boolean stays for
+// callers that don't have a resolved class (e.g. a generic "this form has
+// SOME elite move" check) and never invents a class the data doesn't have.
+export function moveLink(moveId, { elite = false, kind = "Fast", availabilityClass } = {}) {
   if (!moveId) return "";
-  return `<button type="button" class="move-link" data-move-id="${escapeHtml(moveId)}">${escapeHtml(displayMoveName(moveId))}</button>${elite ? ` <small class="elite-tm">Elite ${escapeHtml(kind)} TM</small>` : ""}`;
+  const isElite = availabilityClass ? availabilityClass === "eliteOnly" : elite;
+  const isEventOnly = availabilityClass === "eventOnly";
+  const badge = isEventOnly
+    ? ` <small class="elite-tm">Event-only move</small>`
+    : isElite
+      ? ` <small class="elite-tm">Elite ${escapeHtml(kind)} TM</small>`
+      : "";
+  return `<button type="button" class="move-link" data-move-id="${escapeHtml(moveId)}">${escapeHtml(displayMoveName(moveId))}</button>${badge}`;
 }
 
 

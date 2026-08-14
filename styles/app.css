@@ -7502,3 +7502,168 @@ html:not([data-app-booted]) #app .fallback-section {
 .changelog-kind { font-family: var(--dx-mono); font-size: 0.64rem; font-weight: 800; text-transform: uppercase; color: var(--cyan); margin: 0.35rem 0 0.1rem; }
 .changelog-list { margin: 0 0 0.4rem; padding-left: 1.1rem; font-size: 0.78rem; }
 .changelog-list li { margin-bottom: 0.25rem; }
+
+
+/* Dex streamline trio (2026-08-14): sibling switcher, jump bar, prev/next */
+.dex-sibling-row, .dex-jump-bar { display: flex; flex-wrap: wrap; gap: 0.35rem; margin: 0.45rem 0; }
+.dex-sibling-chip, .dex-jump-chip {
+  min-height: 36px;
+  display: inline-flex;
+  align-items: center;
+  padding: 0.25rem 0.7rem;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: var(--screen-bg);
+  color: var(--cyan);
+  font-family: var(--dx-mono);
+  font-size: 0.68rem;
+  font-weight: 700;
+  text-decoration: none;
+}
+.dex-sibling-chip.is-current { color: var(--text); border-color: var(--cyan); }
+.dex-jump-chip { color: var(--muted); }
+.dex-adjacent-row { display: flex; justify-content: space-between; margin: 0.45rem 0 0.6rem; }
+.dex-adjacent { font-family: var(--dx-mono); font-size: 0.7rem; color: var(--cyan); text-decoration: none; min-height: 36px; display: inline-flex; align-items: center; }
+.ocr-row-view-link { font-size: 0.72rem; color: var(--cyan); margin-left: 0.4rem; }
+
+
+/* ══ Two-panel dex (docs/dex-two-panel-spec.md), appended 2026-08-14 ══
+   #dex/<formId> only (dex.js's renderDex gates the rail on twoPanel, itself
+   set from a matchMedia("(min-width: 48rem)") read in app.js — the CSS below
+   only needs to lay the rail out, not hide/show it; below 48rem the rail
+   markup never renders at all, so single-panel phone output is untouched
+   byte for byte). #app is this app's real scroll container (overflow-y:auto,
+   see the #app rule above) — the rail is `position: sticky` inside it, same
+   pattern .pvp-controls-sticky already established as "the app's first
+   position:sticky" (its own comment already named this as the second use).
+   Sticky + its own max-height/overflow-y gives the rail an independent
+   scroll region without touching #app or router.js's shared scroll-reset. */
+.dex-two-panel {
+  display: grid;
+  grid-template-columns: 18rem minmax(0, 1fr);
+  /* Without align-items:start the grid stretches both columns to the row's
+     (entry panel's) full height, leaving the sticky rail nothing to stick
+     within — it would just render at its natural height instead. */
+  align-items: start;
+  gap: 1rem;
+}
+
+.dex-rail {
+  position: sticky;
+  top: 0;
+  /* ponytail: approximate reservation for the chrome outside #app's own box
+     (dexhead + update banner + tab bar + margins, none of which are a fixed,
+     queryable constant) — under-fills rather than risking the rail's bottom
+     rows landing past #app's real edge. Exact fit needs on-device
+     measurement (spec Phase 3's iPad-simulator pass), not a CSS guess. */
+  max-height: calc(100dvh - 12rem);
+  overflow-y: auto;
+  min-width: 0;
+  padding: 0.6rem;
+  border: 1px solid var(--line);
+  border-radius: 11px;
+  background: var(--panel);
+}
+
+.dex-entry {
+  min-width: 0;
+}
+
+/* The rail is the way back once it's on screen (spec §3.3) — only hidden
+   nested inside .dex-two-panel; single-panel phone and unknownFormShell's
+   own Back link (no .dex-two-panel ancestor there) keep it. */
+.dex-two-panel .dex-back-link {
+  display: none;
+}
+
+.dex-rail-progress {
+  margin: 0 0 0.5rem;
+  color: var(--muted);
+  font-family: var(--dx-mono);
+  font-size: 0.72rem;
+}
+
+.dex-rail-search {
+  margin-bottom: 0.5rem;
+}
+
+.dex-rail-list {
+  margin: 0.5rem 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.dex-rail-link {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-height: 48px;
+  padding: 0.3rem 0.4rem;
+  border-radius: 0.6rem;
+  color: var(--text);
+  text-decoration: none;
+}
+
+.dex-rail-link .sprite {
+  width: 32px;
+  height: 32px;
+}
+
+.dex-rail-row.is-caught .dex-rail-link {
+  color: var(--text);
+}
+
+.dex-rail-row:not(.is-caught) .dex-rail-link {
+  color: var(--muted);
+}
+
+.dex-rail-row.is-current .dex-rail-link {
+  background: var(--panel-raised);
+  outline: 1px solid var(--cyan);
+}
+
+.dex-rail-dex {
+  flex: none;
+  color: var(--muted);
+  font-family: var(--dx-mono);
+  font-size: 0.66rem;
+}
+
+.dex-rail-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.78rem;
+}
+
+.dex-rail-owned {
+  flex: none;
+  color: color-mix(in srgb, var(--amber) 70%, var(--text));
+}
+
+/* ══ Your roster per-copy verdict (streamline item 5) — one compact,
+   already-computed summary line per instance (instanceCopyVerdictHtml in
+   dex.js), alongside (not replacing) the fuller Optimal/PvP "Yours" lines. */
+.instance-copy-verdict {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+  margin: 0.3rem 0;
+}
+
+.copy-verdict-tag {
+  padding: 0.15rem 0.5rem;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--screen-bg);
+  color: var(--muted);
+  font-family: var(--dx-mono);
+  font-size: 0.66rem;
+}
+
+.copy-verdict-tag.is-optimal {
+  color: var(--text);
+  border-color: color-mix(in srgb, var(--amber) 45%, var(--line));
+}

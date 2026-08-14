@@ -11,6 +11,11 @@ import { typeChip } from "./types.js";
 import { candidateIvsForTier, instanceLevel, legalMoves, solveLevel } from "../instances.js";
 import { instanceLeagueRank } from "../pvp-team.js";
 import { showcaseEstimate } from "../showcase.js";
+// Two-panel dex index rail (docs/dex-two-panel-spec.md §2.1): collectionProgress
+// and livingDexRows take only forms + roster, both already in scope here — no
+// new chunk, and no dependency on views/collection.js (that module owns the
+// full Collection grid route, a different surface from this dense rail).
+import { collectionProgress, livingDexRows } from "../collection.js";
 // Canonical type-effectiveness table (type-chart.js's own doc comment: "do
 // not hand-author a second copy of these tables anywhere else") — same
 // source gyms.js/raids.js already derive their own effectiveness math from.
@@ -45,6 +50,75 @@ function identitySection(form, forms) {
       ${form.released ? "" : `<p class="dex-unreleased-banner">Not yet released in Pokémon GO.</p>`}
     </div>
   </header>`;
+}
+
+
+// Sibling-form switcher (streamline item 1, 2026-08-14): every form sharing
+// this dex number as one chip row — hopping Hero <-> Crowned <-> Shadow <->
+// Mega used to mean back-to-grid-and-search. The current form renders as a
+// non-link chip; label is the parenthetical (or "Base" for the plain form).
+function siblingFormLabel(form) {
+  const match = String(form.name ?? "").match(/\(([^)]+)\)$/);
+  return match ? match[1] : "Base";
+}
+
+function siblingFormsRow(form, forms) {
+  const siblings = Object.values(forms ?? {})
+    .filter((candidate) => candidate.dex === form.dex)
+    .sort((left, right) => String(left.form_id).localeCompare(String(right.form_id)));
+  if (siblings.length < 2) return "";
+  return `<nav class="dex-sibling-row" aria-label="Other forms of this Pokémon">
+    ${siblings.map((sibling) => (sibling.form_id === form.form_id
+    ? `<span class="dex-sibling-chip is-current" aria-current="page">${escapeHtml(siblingFormLabel(sibling))}</span>`
+    : `<a class="dex-sibling-chip" data-route="dex" href="./#dex/${encodeURIComponent(sibling.form_id)}">${escapeHtml(siblingFormLabel(sibling))}</a>`)).join("")}
+  </nav>`;
+}
+
+
+// Prev/next species navigation (streamline item 4): walk distinct dex
+// numbers without returning to the grid, landing on the target species'
+// first form in form_id order (its base form by construction).
+function adjacentSpeciesLink(form, forms, direction) {
+  const byDex = new Map();
+  for (const candidate of Object.values(forms ?? {})) {
+    const existing = byDex.get(candidate.dex);
+    if (!existing || String(candidate.form_id) < String(existing.form_id)) byDex.set(candidate.dex, candidate);
+  }
+  const dexNumbers = [...byDex.keys()].sort((left, right) => left - right);
+  const index = dexNumbers.indexOf(form.dex);
+  if (index === -1) return "";
+  const target = byDex.get(dexNumbers[index + direction]);
+  if (!target) return "";
+  const arrow = direction < 0 ? "&larr;" : "&rarr;";
+  const label = `${direction < 0 ? `${arrow} ` : ""}#${escapeHtml(target.dex)} ${escapeHtml(target.name)}${direction > 0 ? ` ${arrow}` : ""}`;
+  return `<a class="dex-adjacent${direction < 0 ? " is-prev" : " is-next"}" data-route="dex" href="./#dex/${encodeURIComponent(target.form_id)}">${label}</a>`;
+}
+
+function adjacentSpeciesRow(form, forms) {
+  const prev = adjacentSpeciesLink(form, forms, -1);
+  const next = adjacentSpeciesLink(form, forms, 1);
+  if (!prev && !next) return "";
+  return `<nav class="dex-adjacent-row" aria-label="Previous and next Pokémon">${prev}${next}</nav>`;
+}
+
+
+// Section jump bar (streamline item 2): the entry runs ~10 sections deep;
+// these chips scroll-jump via app.js's existing data-action="scroll-to"
+// dispatch. Only sections that exist for every entry are listed — the
+// handler no-ops harmlessly if a target id is absent in an edge case.
+const DEX_JUMP_SECTIONS = Object.freeze([
+  ["dex-stats-title", "Stats"],
+  ["dex-optimal-title", "Optimal"],
+  ["dex-gym-title", "Gym"],
+  ["dex-pvp-title", "PvP"],
+  ["dex-evolution-title", "Evolution"],
+  ["dex-roster-title", "Yours"],
+]);
+
+function jumpBarHtml() {
+  return `<nav class="dex-jump-bar" aria-label="Jump to section">
+    ${DEX_JUMP_SECTIONS.map(([target, label]) => `<button type="button" class="dex-jump-chip" data-action="scroll-to" data-scroll-target="${target}">${label}</button>`).join("")}
+  </nav>`;
 }
 
 
@@ -568,6 +642,15 @@ function moveCostPhrase(kind, elite, eventOnly) {
 // working off one already-form-scoped row. Falls back to the generic "Elite
 // TM move" label when this form has no row researching the class.
 function eliteMoveLabel(moveId, form, raids) {
+  // The per-form move_availability map (assemble.py, availability-classes
+  // lane) is the authority — it covers every elite/event move on the form,
+  // not just whichever move headlines its raid row (the Cinderace
+  // Blast Burn generic-label bug). Raid-row scan stays as fallback for
+  // releases whose data predates the map.
+  const mapped = form.move_availability?.[moveId];
+  if (mapped === "communityDayClassic") return "a Community Day move";
+  if (mapped === "eliteOnly") return "an Elite TM move";
+  if (mapped === "eventOnly") return "an event-only move";
   const rows = [...(raids?.regular ?? []), ...(raids?.shadow ?? [])].filter((row) => row.formId === form.form_id);
   const hit = rows.find((row) => row.fastMove === moveId || row.chargedMove === moveId);
   const cls = hit && (hit.fastMove === moveId ? (hit.fastAvailabilityClass ?? hit.availabilityClass) : (hit.chargedAvailabilityClass ?? hit.availabilityClass));
@@ -1212,12 +1295,74 @@ function quickAddBodyHtml(form, draft, offensePairs, defensePair, forms) {
 }
 
 
+// Best-league summary for the per-copy verdict block below: across the three
+// leagues, the one THIS exact instance is actually eligible for (CP cap etc.
+// — instanceLeagueRank's own eligible flag), with the best (lowest) rank.
+// No new ranking math: row.rank/investmentTier are the same pvp[league]
+// fields pvpLeagueCardHtml already reads; instanceLeagueRank is the same
+// per-instance evaluator pvpInstanceRankHtml already calls.
+function bestLeagueRankFor(form, instance, pvp) {
+  let best = null;
+  for (const [league, label] of Object.entries(LEAGUE_NAMES)) {
+    const row = (pvp?.[league] ?? []).find((entry) => entry.formId === form.form_id);
+    if (!row) continue;
+    const result = instanceLeagueRank(form, instance, league, row);
+    if (!result?.eligible) continue;
+    if (!best || row.rank < best.rank) best = { label, rank: row.rank, tier: row.investmentTier };
+  }
+  return best;
+}
+
+
+// Consolidated per-copy verdict (streamline item 5): today "is this exact
+// copy any good" is scattered across three places — Optimal's Yours diff,
+// each PvP league card's Yours line, and (for size/weight only) the roster
+// row's showcase line. This is ONE compact line in Your roster composing
+// the same already-computed facts (instanceOffenseDiff/instanceDefenseDiff's
+// optimal flag, bestLeagueRankFor above, showcaseEstimate) — zero new
+// scoring math. The scattered full-sentence lines stay where they are; this
+// is a summary, not a replacement, so it collapses each diff to its
+// optimal/not-optimal flag rather than repeating the full "needs X move"
+// prose (still readable in full at its own section below).
+function instanceCopyVerdictHtml(form, instance, { roles, mentionRows, raids, defenseRow, pvp, raidsLoaded = true }) {
+  const parts = [];
+  if (!instance.fastMove || !instance.chargedMoves?.length) {
+    parts.push('<span class="copy-verdict-tag">Moves not set</span>');
+  } else {
+    // Honesty (review catch): "not optimal" asserts an optimal set exists to
+    // fall short of. A species with no ranked role gets a neutral tag, and a
+    // cold deep-link (raid chunks still loading) says loading, not a verdict.
+    if (!raidsLoaded) {
+      parts.push('<span class="copy-verdict-tag">Offense: loading…</span>');
+    } else if (!roles.length && !mentionRows.length) {
+      parts.push('<span class="copy-verdict-tag">Not a ranked attacker</span>');
+    } else {
+      const offenseDiff = instanceOffenseDiff(form, instance, roles, mentionRows, raids);
+      parts.push(`<span class="copy-verdict-tag${offenseDiff.optimal ? " is-optimal" : ""}">Offense ${offenseDiff.optimal ? "optimal" : "not optimal"}</span>`);
+    }
+    if (!defenseRow) {
+      parts.push('<span class="copy-verdict-tag">Not a ranked defender</span>');
+    } else {
+      const defenseDiff = instanceDefenseDiff(form, instance, defenseRow);
+      parts.push(`<span class="copy-verdict-tag${defenseDiff.optimal ? " is-optimal" : ""}">Defense ${defenseDiff.optimal ? "optimal" : "not optimal"}</span>`);
+    }
+  }
+  const bestLeague = bestLeagueRankFor(form, instance, pvp);
+  parts.push(bestLeague
+    ? `<span class="copy-verdict-tag">${escapeHtml(bestLeague.label)} rank ${escapeHtml(bestLeague.rank)} (${escapeHtml(bestLeague.tier)})</span>`
+    : '<span class="copy-verdict-tag">Not ranked in any league</span>');
+  const estimate = showcaseEstimate(form, instance);
+  if (estimate) parts.push(`<span class="copy-verdict-tag">Showcase ${escapeHtml(estimate.label)}</span>`);
+  return `<p class="instance-copy-verdict">${parts.join("")}</p>`;
+}
+
+
 // Row + Edit button share one edit trigger, but only when NOT already the
 // instance being edited — re-tapping the held row mid-edit would silently
 // discard in-progress form changes back to the saved values (mockup fix,
 // ported). Keyed by instance.id, never by stats — the REQUIRED twins case:
 // two identical-stat instances get two independent rows/ids here.
-function quickAddInstanceRowHtml(form, instance, editingId, stamp) {
+function quickAddInstanceRowHtml(form, instance, editingId, stamp, copyVerdictContext) {
   const level = instanceLevel(form, instance);
   const movesLine = instance.fastMove
     ? `${escapeHtml(displayMoveName(instance.fastMove))} + ${displayMoveList(instance.chargedMoves)}`
@@ -1243,6 +1388,7 @@ function quickAddInstanceRowHtml(form, instance, editingId, stamp) {
     <p>CP ${escapeHtml(instance.cp)} · ${escapeHtml(instance.ivs.atk)}/${escapeHtml(instance.ivs.def)}/${escapeHtml(instance.ivs.sta)} IV${level !== null ? ` · Level ${escapeHtml(level)}` : ""}</p>
     ${showcaseLine}
     <p>${movesLine}</p>
+    ${instanceCopyVerdictHtml(form, instance, copyVerdictContext)}
     <button type="button" class="instance-edit-btn"${editAttr}${isEditing ? " disabled" : ""}>${isEditing ? "Editing…" : "Edit"}</button>
     <button type="button" class="instance-remove-btn" data-delete-instance-id="${escapeHtml(instance.id)}">Remove</button>
   </li>`;
@@ -1370,7 +1516,7 @@ function ocrIntakeRowHtml(row) {
   }
   return `<li class="${classes}" data-ocr-row-id="${escapeHtml(row.id)}">
     <p class="ocr-row-label">${escapeHtml(row.imageLabel)}</p>
-    ${row.accepted ? `<span class="ocr-row-status is-accepted">Added to roster</span>` : ""}
+    ${row.accepted ? `<span class="ocr-row-status is-accepted">Added to roster</span>${row.parsed?.formId ? ` <a class="ocr-row-view-link" data-route="dex" href="./#dex/${encodeURIComponent(row.parsed.formId)}">View in dex</a>` : ""}` : ""}
     ${unreadable ? `<p class="ocr-row-degrade">${escapeHtml(OCR_ROW_DEGRADE_COPY)}</p>` : ocrRowFieldsHtml(parsed)}
     ${solvedLine}
     ${movesReadLine}
@@ -1457,12 +1603,17 @@ function yourRosterSection(form, roster, quickAdd, raids, raidsLoaded, gym, form
     charged2: qaSecondCharge && qaSecondCharge.move !== row.chargedMove ? qaSecondCharge.move : null,
   }));
   const defensePair = defenseRow ? { fastMove: defenseRow.bestFastMove, chargedMove: defenseRow.bestChargedMove } : null;
+  // Same honorable-mention rows offenseEliteLines/instanceOffenseDiff already
+  // read (raidHonorableMentions, defined above) — feeds the per-copy verdict
+  // block's offense diff, not a second lookup.
+  const mentionRows = raidsLoaded ? raidHonorableMentions(form, raids) : [];
+  const copyVerdictContext = { roles, mentionRows, raids, defenseRow, pvp };
 
   return `<section class="dex-section" aria-labelledby="dex-roster-title">
     <h3 id="dex-roster-title" class="section-title">Your roster</h3>
     <p>${ownedStarButton({ formId: form.form_id, name: form.name, owned: isOwned, route: "dex" })}</p>
     <p class="roster-summary"><span class="roster-star">★</span> ${escapeHtml(formInstances.length)} instance${formInstances.length === 1 ? "" : "s"} logged</p>
-    <ul class="instance-list">${formInstances.map((instance) => quickAddInstanceRowHtml(form, instance, draft.editingId, draft.stamp)).join("")}</ul>
+    <ul class="instance-list">${formInstances.map((instance) => quickAddInstanceRowHtml(form, instance, draft.editingId, draft.stamp, copyVerdictContext)).join("")}</ul>
     ${ocrIntakeSectionHtml(ocrIntake)}
     <div class="quickadd-card${draft.editingId !== null ? " is-editing-card" : ""}">
       ${quickAddTitleHtml(form, formInstances, draft.editingId)}
@@ -1496,6 +1647,53 @@ function unknownFormShell(formId) {
 }
 
 
+// ── Two-panel dex index rail (docs/dex-two-panel-spec.md) ────────────────
+// Dense rows (number, sprite, name, owned dot) — NOT the Collection grid's card (spec §3.2:
+// a 946-row rail sized for scanning, not a browse grid). Reuses the exact
+// all/missing/shiny/lucky filter vocabulary via livingDexRows itself; no
+// forked filter logic. Species-level, like livingDexRows/collectionProgress
+// both already are: one row per species, so "current" is matched by dex
+// NUMBER, not exact formId — a #dex/<formId> deep link can land on a
+// non-representative alt/costume form the rail has no separate row for.
+const DEX_RAIL_FILTERS = Object.freeze([
+  ["all", "All"], ["missing", "Missing"], ["shiny", "Shiny"], ["lucky", "Lucky"],
+]);
+
+function dexRailRowHtml(row, forms, currentDex) {
+  const isCurrent = row.dex === currentDex;
+  const classes = `dex-rail-row${row.caught ? " is-caught" : ""}${isCurrent ? " is-current" : ""}`;
+  return `<li class="${classes}">
+    <a class="dex-rail-link" data-route="dex" href="./#dex/${encodeURIComponent(row.formId)}"${isCurrent ? ' aria-current="page"' : ""}>
+      ${spriteHtml(row.formId, forms, row.name, row.primaryType)}
+      <span class="dex-rail-dex">#${escapeHtml(row.dex)}</span>
+      <span class="dex-rail-name">${escapeHtml(row.name)}</span>
+      ${row.caught ? '<span class="dex-rail-owned" aria-hidden="true">&#10003;</span>' : ""}
+    </a>
+  </li>`;
+}
+
+// query/filter are owned by app.js (ui.dexRailQuery/ui.dexRailFilter) — same
+// caller-owns-state shape as quickAdd/ocrIntake above.
+function dexIndexRailHtml(currentForm, forms, roster, { query = "", filter = "all" } = {}) {
+  const safeFilter = DEX_RAIL_FILTERS.some(([id]) => id === filter) ? filter : "all";
+  const progress = collectionProgress(forms, roster);
+  const rows = livingDexRows(forms, roster, { query, filter: safeFilter });
+  const rowsHtml = rows.length
+    ? rows.map((row) => dexRailRowHtml(row, forms, currentForm.dex)).join("")
+    : '<li class="gym-empty">Nothing matches this search/filter.</li>';
+  return `<nav class="dex-rail" aria-label="Pokédex index">
+    <p class="dex-rail-progress">${escapeHtml(progress.overall.caught)}/${escapeHtml(progress.overall.total)} caught</p>
+    <label class="roster-search dex-rail-search">Search index
+      <input type="search" data-dex-rail-search value="${escapeHtml(query)}" autocomplete="off" inputmode="search" enterkeyhint="search">
+    </label>
+    <div class="app-actions" role="group" aria-label="Filter index">
+      ${DEX_RAIL_FILTERS.map(([id, label]) => `<button type="button" data-dex-rail-filter="${id}" aria-pressed="${id === safeFilter}">${label}</button>`).join("")}
+    </div>
+    <ul class="dex-rail-list">${rowsHtml}</ul>
+  </nav>`;
+}
+
+
 export function renderDex({
   formId,
   forms = {},
@@ -1513,6 +1711,15 @@ export function renderDex({
   // I3 OCR bulk-intake state (see blankOcrIntakeState()) — owned and mutated
   // by the caller (app.js), null/omitted renders the idle entry point.
   ocrIntake = null,
+  // Two-panel dex (docs/dex-two-panel-spec.md): app.js decides this from its
+  // own matchMedia("(min-width: 48rem)") read (same read-once-per-render
+  // pattern it already uses for prefers-reduced-motion) and passes the
+  // result in — renderDex stays a pure function of its args ("props in, HTML
+  // out"), never reaching into window itself. false (default) reproduces
+  // today's single-panel output byte for byte.
+  twoPanel = false,
+  dexRailQuery = "",
+  dexRailFilter = "all",
 } = {}) {
   const form = forms[formId];
   if (!form) return unknownFormShell(formId);
@@ -1520,9 +1727,12 @@ export function renderDex({
   // CP block and the weakness row (both quick "what am I looking at" facts),
   // then the optimal/gym/raid/pvp performance sections, then the
   // reference/acquisition tail, roster last.
-  return `<div class="more-view dex-view">
-    <a class="safe-escape" href="./#more/collection" data-route="more" data-view="collection">Back to Collection</a>
+  const entryHtml = `<div class="more-view dex-view">
+    <a class="safe-escape dex-back-link" href="./#more/collection" data-route="more" data-view="collection">Back to Collection</a>
     ${identitySection(form, forms)}
+    ${siblingFormsRow(form, forms)}
+    ${jumpBarHtml()}
+    ${adjacentSpeciesRow(form, forms)}
     ${statsSection(form)}
     ${superMegaLine(form)}
     ${bossSection(form, raidTargetTool)}
@@ -1536,6 +1746,14 @@ export function renderDex({
     ${acquisitionSection(form, acquisitionGuide, forms)}
     ${availabilitySection(form, currentEggs)}
     ${yourRosterSection(form, roster, quickAdd, raids, raidsLoaded, gym, forms, ocrIntake, pvp)}
+  </div>`;
+  if (!twoPanel) return entryHtml;
+  // The Back-to-Collection link (dex-back-link, above) is hidden by CSS only
+  // inside .dex-two-panel (spec §3.3) — the rail is the way back once it's
+  // on screen, so the link stays for single-panel and unknownFormShell.
+  return `<div class="dex-two-panel">
+    ${dexIndexRailHtml(form, forms, roster, { query: dexRailQuery, filter: dexRailFilter })}
+    <div class="dex-entry">${entryHtml}</div>
   </div>`;
 }
 
