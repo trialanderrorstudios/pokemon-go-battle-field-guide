@@ -57,12 +57,12 @@ export const SPRITE_VARIANT_IDS = Object.freeze({
 });
 
 
-export function spritePath(formId, forms) {
+export function spritePath(formId, forms, { shiny = false } = {}) {
   const dex = forms?.[formId]?.dex;
   if (!Number.isInteger(dex) || dex <= 0) return null;
   const baseFormId = String(formId ?? "").replace(/-shadow$/, "");
   const spriteId = SPRITE_VARIANT_IDS[baseFormId] ?? dex;
-  return `./sprites/${spriteId}.png`;
+  return shiny ? `./sprites/shiny/${spriteId}.png` : `./sprites/${spriteId}.png`;
 }
 
 
@@ -87,13 +87,23 @@ function escapeHtml(value) {
 // style attributes). When no dex is known at all, renders only the
 // type-colored initial circle. The type color comes from a CSS attribute
 // selector (styles/app.css), not an inline style, for the same CSP reason.
-export function spriteHtml(formId, forms, name, primaryType) {
-  const path = spritePath(formId, forms);
+export function spriteHtml(formId, forms, name, primaryType, { shiny = false } = {}) {
+  const path = spritePath(formId, forms, { shiny });
   const type = TYPE_COLORS[primaryType] ? primaryType : "Normal";
   const alt = escapeHtml(name);
   const fallback = `<span class="sprite-fallback" data-type="${escapeHtml(type)}" role="img" aria-label="${alt}" title="${alt}">${escapeHtml(initial(name))}</span>`;
   if (!path) return `<span class="sprite sprite-broken">${fallback}</span>`;
   return `<span class="sprite"><img src="${path}" alt="${alt}" loading="lazy" width="48" height="48">${fallback}</span>`;
+}
+
+
+// Tap-to-toggle affordance for the dex identity header: a button that flips
+// the header sprite between normal and shiny art. Wiring its click (swapping
+// the adjacent .sprite img's src via spritePath(..., { shiny: true }), e.g.
+// in bindInteractions) is the dex.js + app.js consumption — this only ships
+// the render capability, not the toggle behavior.
+export function shinyToggleHtml() {
+  return `<button type="button" class="sprite-shiny-toggle" data-action="toggle-shiny-sprite" aria-pressed="false" aria-label="Toggle shiny sprite">✨</button>`;
 }
 
 

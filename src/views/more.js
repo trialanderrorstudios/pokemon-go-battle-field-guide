@@ -10,6 +10,7 @@ import { renderPurgeView } from "./purge.js";
 import { renderDupesView } from "./dupes.js";
 import { renderPowerupView } from "./powerup.js";
 import { renderTradePlannerView } from "./trade-planner.js";
+import { renderTrophyView } from "./trophy.js";
 import { luckyOwnedFormIdSet, shinyOwnedFormIdSet } from "../collection.js";
 import { formatFriendCode, friendCodeQrMatrix, isValidFriendCode } from "../friend-codes.js";
 
@@ -686,6 +687,7 @@ function renderMoreMenu() {
         ["./#more/dupes", "Duplicate Advisor"],
         ["./#more/powerup", "Power-Up Planner"],
         ["./#more/tradeplanner", "Trade Planner"],
+        ["./#more/trophy", "Hundo Wall — trophy case"],
       ],
     })}
     ${menuSection({
@@ -782,6 +784,9 @@ export function renderMore(data = {}) {
   if (view === "shopguide") return shopGuideView();
   if (view === "purge") return `<div class="more-view">${BACK_TO_MORE}${renderPurgeView(data)}</div>`;
   if (view === "dupes") return `<div class="more-view">${BACK_TO_MORE}${renderDupesView(data)}</div>`;
+  if (view === "trophy") return `<div class="more-view">${BACK_TO_MORE}${renderTrophyView({
+    roster: data.roster, forms: data.forms,
+  })}</div>`;
   if (view === "tradeplanner") return `<div class="more-view">${BACK_TO_MORE}${renderTradePlannerView({
     roster: data.roster, forms: data.forms, friends: data.friends ?? [],
   })}</div>`;

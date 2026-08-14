@@ -14,6 +14,8 @@ import { showcaseEstimate } from "../showcase.js";
 // a consolidation of routes and entrances, not of capability.
 import { renderToday } from "./today.js";
 import { renderCoachSections } from "./coach.js";
+import { collectionProgress as computeCollectionProgress } from "../collection.js";
+import { buildTodayTasks, todayDateISO, todayTaskKey } from "../today-tasks.js";
 
 
 export function escapeHtml(value) {
@@ -733,7 +735,9 @@ function maxLaneCardHtml({
 // /showcase/ as an absolute path (the 2026-08-11 slash-comment class).
 const isShowcaseName = (name) => String(name ?? "").toLowerCase().includes("showcase");
 
-function pickShowcaseEvent(events, now = new Date()) {
+// Exported so today-tasks.js's pure Today-strip builder can reuse the exact
+// same live-or-upcoming showcase pick instead of reparsing the feed.
+export function pickShowcaseEvent(events, now = new Date()) {
   const candidates = (events ?? [])
     .filter((event) => isShowcaseName(event?.name))
     .map((event) => ({ ...event, end: new Date(event.endsAt) }))
@@ -864,7 +868,8 @@ function featuredBossCard({
     ${bringSection({
     featured, plan, forms, roster, ownedCount,
   })}
-    ${shareCard ? `<button type="button" class="briefing-share-card" data-action="share-raid-plan-card">Share tonight's plan</button>` : ""}
+    ${shareCard ? `<button type="button" class="briefing-share-card" data-action="share-raid-plan-card">Share tonight's plan</button>
+    <button type="button" class="briefing-share-card" data-action="share-rotation-pack">Share the whole rotation</button>` : ""}
     ${shareMessage ? `<p class="briefing-share-status" role="status">${escapeHtml(shareMessage)}</p>` : ""}
   </div>`;
 }
@@ -1223,6 +1228,49 @@ function timelineBucket({
   return rows.join("");
 }
 
+// ── Today strip (fun item 5) — up to 5 compact, check-offable rows between
+// the briefing and the timeline rail below. buildTodayTasks (today-tasks.js)
+// is pure; this is only the render + per-day check-off read. Each row's
+// check-off persists via todayTaskKey(dateISO, taskId), a distinct
+// set/remove key from views/today.js's own per-day JSON array (that's a
+// different "Today" feature, folded into Home separately) and from
+// app.js's toggle-today-task action (same reason).
+function todayStripRow(task, done) {
+  const label = `${done ? "Mark not done" : "Mark done"}: ${task.text}`;
+  const body = task.href
+    ? `<a class="today-strip-text" href="${escapeHtml(task.href)}">${escapeHtml(task.text)}</a>`
+    : `<span class="today-strip-text">${escapeHtml(task.text)}</span>`;
+  return `<li class="today-strip-row${done ? " is-done" : ""}">
+    <button type="button" class="today-strip-check" data-action="today-task-done" data-today-task-id="${escapeHtml(task.id)}" aria-pressed="${done}" aria-label="${escapeHtml(label)}"><span aria-hidden="true">${done ? "☑" : "☐"}</span></button>
+    ${body}
+  </li>`;
+}
+
+export function renderTodayStrip({
+  currentBosses, currentMaxBattles, currentEvents, roster, forms, storage, now = new Date(),
+} = {}) {
+  const tasks = buildTodayTasks({
+    currentBosses,
+    currentMaxBattles,
+    currentEvents,
+    roster,
+    forms,
+    collectionProgress: computeCollectionProgress(forms, roster ?? {}),
+    now,
+  });
+  if (!tasks.length) return "";
+  const dateISO = todayDateISO(now);
+  const doneIds = new Set(tasks
+    .filter((task) => storage?.getItem?.(todayTaskKey(dateISO, task.id)) === "1")
+    .map((task) => task.id));
+  const allDone = doneIds.size === tasks.length;
+  return `<section class="today-strip" aria-labelledby="today-strip-title">
+    <p class="status-kicker" id="today-strip-title">Today</p>
+    <ul class="today-strip-list">${tasks.map((task) => todayStripRow(task, doneIds.has(task.id))).join("")}</ul>
+    ${allDone ? `<p class="today-strip-clear">Clear day.</p>` : ""}
+  </section>`;
+}
+
 // The whole NOW-anchored rail: the briefing as the fixed NOW node (when
 // there's a rotation to anchor it on), then ending-today (beyond the
 // rotation), starting-tonight, active-now, this-week - each sourced from
@@ -1287,8 +1335,12 @@ export function renderFieldTimeline({
   const showcaseLine = showcaseAdvisorLine({
     currentEvents, forms, roster, now,
   });
+  const todayStripHtml = renderTodayStrip({
+    currentBosses, currentMaxBattles: data?.currentMaxBattles, currentEvents, roster, forms, storage, now,
+  });
   return `<div class="tl-now"><span class="tl-now-chip"><span class="tl-now-dot" aria-hidden="true"></span>NOW · ${escapeHtml(nowLabel)}</span></div>
   ${showcaseLine}
+  ${todayStripHtml}
   <div class="tl">${items.join("")}</div>
   <p class="tl-honesty">Filed for this rotation — the briefing re-files when the rotation changes, not on every open. End times come straight from today's release data; nothing above is a live clock.</p>`;
 }

@@ -84,6 +84,18 @@ function speciesIsFlagged(entry, flaggedFormIdSet) {
 }
 
 
+// Fun item 3 (I1 "Surprise me"): one random not-yet-caught species' formId,
+// for the collection grid header link. random is injectable (defaults to
+// Math.random) so callers/tests can force a deterministic pick. null means
+// living dex complete — every species is already caught.
+export function randomUncaughtFormId(forms, roster, random = Math.random) {
+  const owned = new Set(roster?.ownedFormIds ?? []);
+  const uncaught = livingDexEntries(forms).filter((entry) => !speciesIsCaught(entry, owned));
+  if (!uncaught.length) return null;
+  return uncaught[Math.floor(random() * uncaught.length)].formId;
+}
+
+
 // Species-level caught/shiny/lucky for whichever formId identifies the
 // species (the grid's representative formId or any of its alt/costume
 // forms) — the same "any owned form counts" rule livingDexRows/

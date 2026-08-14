@@ -3,7 +3,7 @@
 // from the mockup contract — no DOM-screenshot library, just 2D canvas
 // drawing so this stays a dependency-free leaf module.
 //
-// Five card types, one per existing data source — never fabricates a stat,
+// Seven card types, one per existing data source — never fabricates a stat,
 // only draws what's already stored (or, for gymLineup's reference CP, what's
 // computed from real base stats via the app's own CP formula):
 //   gymDefense     — longest-defense leaderboard row (gym-defense-log.js)
@@ -15,6 +15,11 @@
 //                    that shape, it does not re-derive it)
 //   gymLineup      — "Gym defense": the 6 placed leads from gyms.json's
 //                    gym.lineupLeads (3 fixed anchors + 3 computed)
+//   trophyCard     — "My trophy case": shelf counts + the top (highest-CP)
+//                    pick per non-empty shelf (trophy.js's trophyCase())
+//   rotationPack   — "Raid rotation": every LIVE rotation boss's already-
+//                    ranked verdict (rank/investment tier), independent of
+//                    what the sender owns
 //
 // Each type has a `*CardData` guard that returns null when the underlying
 // data doesn't exist yet — the view layer uses that to decide whether to
@@ -31,6 +36,7 @@ import { bestInstanceForForm, calculateCp } from "./instances.js";
 import { spritePath, TYPE_COLORS } from "./sprites.js";
 import { TRIAGE_BUCKETS } from "./triage.js";
 import { formatDefenseDuration } from "./views/gyms.js";
+import { trophyCase } from "./trophy.js";
 
 const CARD_WIDTH = 1080;
 const CARD_HEIGHT = 1350;
@@ -40,6 +46,8 @@ export const CARD_SPECS = Object.freeze({
   instance: Object.freeze({ width: CARD_WIDTH, height: CARD_HEIGHT }),
   raidPlan: Object.freeze({ width: CARD_WIDTH, height: CARD_HEIGHT }),
   gymLineup: Object.freeze({ width: CARD_WIDTH, height: CARD_HEIGHT }),
+  trophyCard: Object.freeze({ width: CARD_WIDTH, height: CARD_HEIGHT }),
+  rotationPack: Object.freeze({ width: CARD_WIDTH, height: CARD_HEIGHT }),
 });
 
 // Literal copies of the --dx-* tokens in web/styles/app.css — canvas 2D
@@ -160,6 +168,86 @@ export function gymLineupCardData(lineupLeads, team, forms, gymName = null) {
       };
     }),
   };
+}
+
+// "My trophy case": counts + the top (highest-CP) pick per non-empty shelf,
+// straight from trophy.js's trophyCase() — no new membership/ordering rules
+// forked here. Null when the roster has nothing on any shelf (same "no data,
+// no button" contract as every other card type).
+const TROPHY_SHELVES = Object.freeze([
+  // plural spelled out (review catch: the template's naive +"s" rendered
+  // "2 Shinys" on the one surface people actually share).
+  { key: "hundos", label: "Hundo", plural: "Hundos" },
+  { key: "shinies", label: "Shiny", plural: "Shinies" },
+  { key: "luckies", label: "Lucky", plural: "Luckies" },
+  { key: "giants", label: "Giant", plural: "Giants" },
+  { key: "minis", label: "Mini", plural: "Minis" },
+]);
+
+export function trophyCardData({ roster, forms } = {}) {
+  const trophies = trophyCase({ roster, forms });
+  const picks = TROPHY_SHELVES
+    .filter((shelf) => trophies[shelf.key].length)
+    .map((shelf) => {
+      const top = trophies[shelf.key][0];
+      return {
+        shelf: shelf.key,
+        label: shelf.label,
+        pokemon: top.instance.nickname?.trim() || top.form.name,
+        cp: top.instance.cp,
+      };
+    });
+  if (!picks.length) return null;
+  return { counts: trophies.counts, picks };
+}
+
+// "Raid rotation": every LIVE rotation boss's own already-ranked verdict
+// (rank/investmentTier/attackingType), reassembled from the same
+// raids.regular/raids.shadow/megasPrimals rows Home's featured-boss picker
+// reads (views/home.js's attackerRankRows) — this deliberately has no roster
+// argument, so unlike raidPlanCardData it never gates a boss on owned
+// counters, only on whether the boss itself has a real ranked verdict.
+// endsAt expiry mirrors home.js's endOfDay: a boss's rotation runs THROUGH
+// its listed end date, not up to midnight at its start.
+function endOfDay(dateString) {
+  const parsed = new Date(dateString);
+  parsed.setHours(23, 59, 59, 999);
+  return parsed;
+}
+
+function liveRotationBosses(currentBosses, now) {
+  return (currentBosses?.bosses ?? []).filter((boss) => !(typeof boss?.endsAt === "string"
+    && !Number.isNaN(Date.parse(boss.endsAt))
+    && endOfDay(boss.endsAt) < now));
+}
+
+function bestRankedRow(formId, data) {
+  const rows = [...(data?.raids?.regular ?? []), ...(data?.raids?.shadow ?? []), ...(data?.megasPrimals ?? [])]
+    .filter((row) => row?.formId === formId && row.status === "ranked");
+  if (!rows.length) return null;
+  return rows.reduce((best, row) => (row.rank < best.rank ? row : best));
+}
+
+export function rotationPackCardData({
+  currentBosses, forms, data, now = new Date(),
+} = {}) {
+  const bosses = liveRotationBosses(currentBosses, now)
+    .map((boss) => {
+      const row = bestRankedRow(boss.formId, data);
+      if (!row) return null; // no ranked verdict yet — nothing worth headlining
+      return {
+        formId: boss.formId,
+        name: forms?.[boss.formId]?.name ?? boss.formId,
+        tier: boss.tier ?? null,
+        endsAt: typeof boss.endsAt === "string" ? boss.endsAt : null,
+        rank: row.rank,
+        attackingType: row.attackingType,
+        investmentTier: row.investmentTier,
+        recommendation: row.recommendation,
+      };
+    })
+    .filter(Boolean);
+  return bosses.length ? { bosses } : null;
 }
 
 // --- drawing -------------------------------------------------------------
@@ -378,6 +466,78 @@ function drawGymLineupCard(ctx, { width }, data) {
   }
 }
 
+function drawTrophyCard(ctx, { width }, data) {
+  drawChassis(ctx, width, CARD_HEIGHT, "My trophy case");
+  ctx.textBaseline = "alphabetic";
+  ctx.fillStyle = PALETTE.text;
+  ctx.font = `700 60px ${DISPLAY}`;
+  ctx.fillText("Hundo Wall", 120, 240);
+  ctx.fillStyle = PALETTE.muted;
+  ctx.font = `32px ${MONO}`;
+  const summary = TROPHY_SHELVES
+    .filter((shelf) => data.counts[shelf.key] > 0)
+    .map((shelf) => `${data.counts[shelf.key]} ${data.counts[shelf.key] === 1 ? shelf.label : shelf.plural}`)
+    .join(" · ");
+  ctx.fillText(summary, 120, 290);
+  let y = 380;
+  const rowWidth = width - 240;
+  for (const pick of data.picks) {
+    ctx.fillStyle = PALETTE.panel;
+    ctx.fillRect(120, y, rowWidth, 104);
+    ctx.textBaseline = "middle";
+    ctx.fillStyle = PALETTE.text;
+    ctx.font = `700 34px ${DISPLAY}`;
+    ctx.fillText(pick.pokemon, 150, y + 36);
+    ctx.fillStyle = PALETTE.muted;
+    ctx.font = `24px ${MONO}`;
+    ctx.fillText(`Top ${pick.label}`, 150, y + 76);
+    ctx.textAlign = "right";
+    ctx.fillStyle = PALETTE.lens;
+    ctx.font = `700 32px ${MONO}`;
+    ctx.fillText(`CP ${pick.cp}`, 120 + rowWidth - 20, y + 52);
+    ctx.textAlign = "left";
+    ctx.textBaseline = "alphabetic";
+    y += 120;
+  }
+}
+
+function drawRotationPackCard(ctx, { width }, data) {
+  drawChassis(ctx, width, CARD_HEIGHT, "Raid rotation");
+  ctx.textBaseline = "alphabetic";
+  ctx.fillStyle = PALETTE.text;
+  ctx.font = `700 56px ${DISPLAY}`;
+  ctx.fillText("Today's rotation", 120, 220);
+  ctx.fillStyle = PALETTE.muted;
+  ctx.font = `28px ${MONO}`;
+  ctx.fillText(`${data.bosses.length} ranked boss${data.bosses.length === 1 ? "" : "es"}`, 120, 260);
+  let y = 320;
+  const rowWidth = width - 240;
+  for (const boss of data.bosses) {
+    ctx.fillStyle = PALETTE.panel;
+    ctx.fillRect(120, y, rowWidth, 114);
+    ctx.textBaseline = "middle";
+    ctx.fillStyle = PALETTE.text;
+    ctx.font = `700 34px ${DISPLAY}`;
+    ctx.fillText(boss.name, 150, y + 34);
+    ctx.fillStyle = PALETTE.muted;
+    ctx.font = `22px ${MONO}`;
+    ctx.fillText(`${boss.tier ?? "Boss"} · rank #${boss.rank} ${boss.attackingType}`, 150, y + 74);
+    ctx.fillStyle = PALETTE.lens;
+    ctx.font = `700 26px ${MONO}`;
+    ctx.fillText(boss.investmentTier, 150, y + 100);
+    if (boss.endsAt) {
+      ctx.textAlign = "right";
+      ctx.fillStyle = PALETTE.warn;
+      ctx.font = `24px ${MONO}`;
+      ctx.fillText(`through ${boss.endsAt}`, 120 + rowWidth - 20, y + 34);
+      ctx.textAlign = "left";
+    }
+    ctx.textBaseline = "alphabetic";
+    y += 130;
+    if (y > CARD_HEIGHT - 150) break; // fixed card height — cap rows, never overflow the chassis
+  }
+}
+
 function loadImage(documentObject, src) {
   return new Promise((resolve) => {
     const img = documentObject.createElement("img");
@@ -400,6 +560,8 @@ function cardFilename(type, data) {
   if (type === "gymDefense") return `field-guide-gym-defense-${safeSlug(data.playerName)}.png`;
   if (type === "raidPlan") return `field-guide-tonights-plan-${safeSlug(data.name)}.png`;
   if (type === "gymLineup") return `field-guide-gym-lineup-${safeSlug(data.gymName ?? "leads")}.png`;
+  if (type === "trophyCard") return "field-guide-trophy-case.png";
+  if (type === "rotationPack") return "field-guide-raid-rotation.png";
   return "field-guide-triage.png";
 }
 
@@ -420,6 +582,8 @@ export async function renderShareCard(type, data, { documentObject = globalThis.
   else if (type === "instance") await drawInstanceCard(ctx, spec, data, documentObject);
   else if (type === "raidPlan") drawRaidPlanCard(ctx, spec, data);
   else if (type === "gymLineup") drawGymLineupCard(ctx, spec, data);
+  else if (type === "trophyCard") drawTrophyCard(ctx, spec, data);
+  else if (type === "rotationPack") drawRotationPackCard(ctx, spec, data);
   else return null;
   const blob = await canvasToBlob(canvas);
   if (!blob || !blob.size) return null;

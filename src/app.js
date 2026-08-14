@@ -69,6 +69,7 @@ import {
   startDefense,
 } from "./gym-defense-log.js";
 import {
+  rotationPackCardData, trophyCardData,
   gymDefenseCardData, gymLineupCardData, instanceCardData, shareOrDownloadCard, triageSummaryCardData,
 } from "./share-card.js";
 import {
@@ -143,6 +144,7 @@ import {
 } from "./swap.js";
 import { renderSwap } from "./views/swap.js";
 import { toggleTodayTask } from "./views/today.js";
+import { todayDateISO, todayTaskKey } from "./today-tasks.js";
 import { renderEggs } from "./views/eggs.js";
 import { renderRocket } from "./views/rocket.js";
 import { renderHundo } from "./views/hundo.js";
@@ -1332,6 +1334,7 @@ export function createInteractionState({
     ocrIntake: blankOcrIntakeState(),
     rosterShareOpen: false,
     bulkRemove: { pattern: "", error: "", matches: null },
+    dexShinySprite: false,
     diagnostics: { copyStatus: "", copyPayload: "", storageEstimate: undefined },
     textSize: loadTextSize(storage),
     theme: loadTheme(storage),
@@ -3473,6 +3476,22 @@ export function createInteractionController({
           : outcome === "cancelled" ? ""
           : "Could not share or download the card on this device.";
         rerender("home");
+      } else if (action === "share-trophy-card") {
+        const cardData = trophyCardData({ roster, forms }) ?? null;
+        const outcome = cardData ? await (api.onShareCard ?? onShareCard)?.("trophyCard", cardData) : "no-data";
+        ui.trophyShareMessage = outcome === "shared" ? "Shared your trophy case."
+          : outcome === "downloaded" ? "Downloaded your trophy case."
+          : outcome === "cancelled" ? ""
+          : "Could not share or download the card on this device.";
+        rerenderCurrent();
+      } else if (action === "share-rotation-pack") {
+        const cardData = rotationPackCardData({ currentBosses: state.currentBosses, forms, data: state }) ?? null;
+        const outcome = cardData ? await (api.onShareCard ?? onShareCard)?.("rotationPack", cardData) : "no-data";
+        ui.briefingShareMessage = outcome === "shared" ? "Shared the rotation pack."
+          : outcome === "downloaded" ? "Downloaded the rotation pack."
+          : outcome === "cancelled" ? ""
+          : "Could not share or download the card on this device.";
+        rerender("home");
       } else if (action === "share-gym-lineup-card") {
         const cardData = (api.getGymLineupCardData ?? getGymLineupCardData)?.() ?? null;
         const outcome = cardData ? await (api.onShareCard ?? onShareCard)?.("gymLineup", cardData) : "no-data";
@@ -3496,6 +3515,19 @@ export function createInteractionController({
         const taskId = actionEl.dataset.todayTaskId;
         if (taskId) toggleTodayTask(taskId, storage);
         rerenderCurrent();
+      } else if (action === "today-task-done") {
+        // Today strip check-off (views/home.js renderTodayStrip) — a
+        // different feature from toggle-today-task above (views/today.js's
+        // own Today section): same set/remove flip as toggle-briefing-card,
+        // keyed per (day, task id) so a day rollover doesn't inherit
+        // yesterday's checks.
+        const taskId = actionEl.dataset.todayTaskId;
+        if (taskId) {
+          const storageKey = todayTaskKey(todayDateISO(new Date()), taskId);
+          if (storage?.getItem?.(storageKey) === "1") storage?.removeItem?.(storageKey);
+          else storage?.setItem?.(storageKey, "1");
+        }
+        rerenderCurrent();
       } else if (action === "toggle-field-briefing") {
         // views/home.js reads storage.getItem(briefingCollapsedKey(fingerprint))
         // === "1" for collapsed; both the collapsed-line reopen button and the
@@ -3515,6 +3547,9 @@ export function createInteractionController({
         // Review pass complete — back to idle so the Scan entry returns
         // (reviewer catch: idle-only entry point never reappeared).
         ui.ocrIntake = blankOcrIntakeState();
+        rerenderCurrent();
+      } else if (action === "toggle-shiny-sprite") {
+        ui.dexShinySprite = !ui.dexShinySprite;
         rerenderCurrent();
       } else if (action === "toggle-briefing-card") {
         // Per-lane briefing card collapse — same set/remove flip as
@@ -4836,6 +4871,7 @@ export function bootstrap({
         twoPanel,
         dexRailQuery: ui.dexRailQuery,
         dexRailFilter: ui.dexRailFilter,
+        shinySprite: ui.dexShinySprite,
       });
       if (railScrollTop !== null) {
         const rail = app?.querySelector?.(".dex-rail");

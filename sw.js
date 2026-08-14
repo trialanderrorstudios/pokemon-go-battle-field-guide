@@ -90,7 +90,9 @@ const SHELL_CODE_FILES = Object.freeze([
   "./src/purge-string.js",
   "./src/shell-changelog.js",
   "./src/shop-guide.js",
+  "./src/today-tasks.js",
   "./src/trade-planner.js",
+  "./src/trophy.js",
   "./src/showcase.js",
   "./src/sprites.js",
   "./src/swap.js",
@@ -125,6 +127,7 @@ const SHELL_CODE_FILES = Object.freeze([
   "./src/views/powerup.js",
   "./src/views/purge.js",
   "./src/views/trade-planner.js",
+  "./src/views/trophy.js",
   "./src/views/pvp.js",
   "./src/views/raids.js",
   "./src/views/rocket.js",
@@ -147,7 +150,13 @@ const SHELL_CODE_FILES = Object.freeze([
 // five shell bumps in one day).
 const SPRITE_FILES = Object.freeze([
   ...Array.from({ length: SPRITE_DEX_COUNT }, (_, index) => `./sprites/${index + 1}.png`),
-  ...Object.values(SPRITE_VARIANT_IDS).map((id) => `./sprites/${id}.png`)
+  ...Object.values(SPRITE_VARIANT_IDS).map((id) => `./sprites/${id}.png`),
+  // Shiny variants (2026-08-14): same id set under sprites/shiny/. The
+  // sprites/ prefix match in fetchWithinWorker already covers them
+  // (cache-first, no install cost); no SPRITE_CACHE_VERSION bump — existing
+  // artwork is unchanged, these are additive paths that populate on demand.
+  ...Array.from({ length: SPRITE_DEX_COUNT }, (_, index) => `./sprites/shiny/${index + 1}.png`),
+  ...Object.values(SPRITE_VARIANT_IDS).map((id) => `./sprites/shiny/${id}.png`),
 ]);
 
 // Vendored Tesseract OCR engine (scripts/fetch-ocr-engine.mjs), same

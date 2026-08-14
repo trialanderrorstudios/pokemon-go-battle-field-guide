@@ -7,7 +7,7 @@
 // estimates, manual steps called manual).
 
 export const CAPABILITY_GUIDE = Object.freeze({
-  updated: "2026-08-13",
+  updated: "2026-08-14",
   intro: "Offline-first battle reference for a raid group: rankings and math are frozen to a verified data packet (see About for the exact cutoff), your roster lives on this device only, and anything estimated says so.",
   sections: Object.freeze([
     Object.freeze({
@@ -19,7 +19,8 @@ export const CAPABILITY_GUIDE = Object.freeze({
         Object.freeze({ name: "Timeline", where: "Home", what: "Now / tonight / this-week events from the rotation and events feeds, with the briefing as the NOW node." }),
         Object.freeze({ name: "Max events", where: "Home Max card", what: "Live or next Max Monday with the featured Dynamax Pokémon, Max Battle Days, and how many Max-flagged Pokémon you have. The Max boss rotation itself isn't in any data feed — the card says so." }),
         Object.freeze({ name: "Showcase advisor", where: "Home timeline", what: "During a showcase event, your best-scoring Pokémon with recorded size — the score is a community-derived estimate and labeled as one." }),
-        Object.freeze({ name: "Share tonight's plan", where: "Home briefing", what: "One-tap share card of the featured raid plan." }),
+        Object.freeze({ name: "Share tonight's plan", where: "Home briefing", what: "One-tap share cards — the featured plan, or the whole rotation in one card." }),
+        Object.freeze({ name: "Today strip", where: "Home", what: "Up to five checkable tasks generated from live data — Max events tonight, bosses leaving, gens near completion." }),
       ]),
     }),
     Object.freeze({
@@ -43,6 +44,8 @@ export const CAPABILITY_GUIDE = Object.freeze({
         Object.freeze({ name: "Duplicate Advisor", where: "More → Library", what: "Keep/transfer verdicts across duplicate copies; the best of each group is always a keep." }),
         Object.freeze({ name: "Power-Up Planner", where: "More → Library", what: "Which owned attacker gives the most damage per 1,000 dust against the current rotation — costs from the real tables, gains labeled estimates." }),
         Object.freeze({ name: "Remove and clear", where: "dex rows / More → About", what: "Per-copy Remove behind a confirm; regex bulk-remove with preview-first; full clear behind a double confirm." }),
+        Object.freeze({ name: "Trade Planner", where: "More → Library", what: "Trade bait and per-friend offers — precious singles always protected; friendship level and lucky odds live in-game, not here." }),
+        Object.freeze({ name: "Hundo Wall", where: "More → Library", what: "Your hundos, shinies, luckies, giants and minis as a trophy room, with a shareable brag card." }),
         Object.freeze({ name: "Backup and restore", where: "More → About", what: "Everything as one JSON file — export, AirDrop, merge or replace on another device." }),
       ]),
     }),
@@ -52,7 +55,8 @@ export const CAPABILITY_GUIDE = Object.freeze({
         Object.freeze({ name: "Raid target tool", where: "Raids", what: "Counters per boss with weather, encounter bands, DPS-vs-practical movesets, and honest availability badges (Elite TM, event-only, legacy)." }),
         Object.freeze({ name: "Gym defense", where: "Gyms", what: "Defender rankings, \"Beats X attackers\" bands (defense, not offense), an 18-type coverage grid against your collection, and a lineup builder with per-lead caps." }),
         Object.freeze({ name: "PvP", where: "PvP", what: "Great/Ultra/Master rankings, recommended movesets and rank-1 IVs, Anti-Meta board, My Team slots, and your own instances ranked against the 4,096 IV space — level 51 assumed only when Best Buddy is recorded." }),
-        Object.freeze({ name: "Pokédex", where: "Dex", what: "Per-form stats, hundo and boss values up top, weaknesses, multi-role optimal offense with a second-charge suggestion, gym verdicts, league cards, Super Max availability, evolution chains, acquisition notes." }),
+        Object.freeze({ name: "Pokédex", where: "Dex", what: "Real flavor text and species categories, per-form stats, hundo and boss values, weaknesses, multi-role optimal offense with a second-charge suggestion, gym verdicts, league cards, Super Max availability, evolution chains, shiny artwork toggle, sibling-form switcher, two-panel layout on tablets." }),
+        Object.freeze({ name: "Surprise me", where: "Dex grid", what: "A random un-caught entry to hunt; gen-completion stamps celebrate a true 100% — never sooner." }),
       ]),
     }),
     Object.freeze({

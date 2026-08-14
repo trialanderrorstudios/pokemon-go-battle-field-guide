@@ -40,16 +40,18 @@ function tagsLine(form) {
 // while the entry scrolls" (spec §5 accents; overlaps docs/dex-two-panel-spec.md
 // Phase-4, meant to be implemented once and shared with that surface). The
 // actual position:sticky rule lives in app.css (css lane), not here.
-function identitySection(form, forms) {
+function identitySection(form, forms, shinySprite = false) {
   return `<header class="dex-identity dex-identity-sticky">
-    ${spriteHtml(form.form_id, forms, form.name, form.primary_type)}
+    ${spriteHtml(form.form_id, forms, form.name, form.primary_type, { shiny: shinySprite })}
+    <button type="button" class="sprite-shiny-toggle" data-action="toggle-shiny-sprite" aria-pressed="${shinySprite}" title="Toggle shiny artwork">✨</button>
     <div>
       <h2>${escapeHtml(form.name)}</h2>
-      <p class="dex-identity-meta">#${escapeHtml(form.dex)} · ${typeChips(form)}</p>
+      <p class="dex-identity-meta">#${escapeHtml(form.dex)}${form.category ? ` · ${escapeHtml(form.category)}` : ""} · ${typeChips(form)}</p>
       ${tagsLine(form)}
       ${form.released ? "" : `<p class="dex-unreleased-banner">Not yet released in Pokémon GO.</p>`}
     </div>
-  </header>`;
+  </header>
+  ${form.flavor_text ? `<p class="dex-flavor">${escapeHtml(form.flavor_text)}</p>` : ""}`;
 }
 
 
@@ -1696,6 +1698,7 @@ function dexIndexRailHtml(currentForm, forms, roster, { query = "", filter = "al
 
 export function renderDex({
   formId,
+  shinySprite = false,
   forms = {},
   gym = null,
   pvp = null,
@@ -1729,7 +1732,7 @@ export function renderDex({
   // reference/acquisition tail, roster last.
   const entryHtml = `<div class="more-view dex-view">
     <a class="safe-escape dex-back-link" href="./#more/collection" data-route="more" data-view="collection">Back to Collection</a>
-    ${identitySection(form, forms)}
+    ${identitySection(form, forms, shinySprite)}
     ${siblingFormsRow(form, forms)}
     ${jumpBarHtml()}
     ${adjacentSpeciesRow(form, forms)}

@@ -2,7 +2,7 @@ import { escapeHtml, shinyLuckyBadges } from "./home.js";
 import { ocrIntakeSectionHtml } from "./dex.js";
 import { spriteHtml } from "../sprites.js";
 import {
-  collectionProgress, collectionSuggestions, livingDexRows, speciesMarkState,
+  collectionProgress, collectionSuggestions, livingDexRows, randomUncaughtFormId, speciesMarkState,
 } from "../collection.js";
 
 const FILTERS = Object.freeze([
@@ -44,11 +44,28 @@ function completionRing(caught, total) {
 }
 
 
+// Fun item 6: a COMPLETE stamp chip once a generation's caught count hits its
+// total — total > 0 keeps an empty/unplaced bucket from reading as "complete".
+// Never renders below 100% (celebrations don't lie).
 function progressLine(bucket) {
+  const complete = bucket.total > 0 && bucket.caught === bucket.total;
   return `<li class="collection-progress-row">
-    <span>${escapeHtml(bucket.region ? `Gen ${bucket.gen} · ${bucket.region}` : "Unplaced")}</span>
+    <span>${escapeHtml(bucket.region ? `Gen ${bucket.gen} · ${bucket.region}` : "Unplaced")}${complete ? ' <span class="i1-milestone-stamp">COMPLETE</span>' : ""}</span>
     <span>${bucket.caught}/${bucket.total} caught · ${bucket.shiny} shiny · ${bucket.lucky} lucky</span>
   </li>`;
+}
+
+// Fun item 3: "Surprise me" link to a random not-yet-caught species, target
+// computed at render time (no dispatch needed — it's just an <a href>).
+// random is injectable so tests get a deterministic pick; defaults to
+// Math.random. Living dex complete (no uncaught species left) swaps the link
+// for a non-link congratulatory line rather than a button to nowhere.
+function surpriseBlock(forms, roster, random) {
+  const formId = randomUncaughtFormId(forms, roster, random);
+  if (!formId) {
+    return `<p class="i1-surprise-btn is-complete">Living dex complete — nothing left to surprise you with</p>`;
+  }
+  return `<a class="i1-surprise-btn" href="./#dex/${encodeURIComponent(formId)}" data-route="dex">🎲 Surprise me</a>`;
 }
 
 
@@ -198,7 +215,7 @@ function collectionSheet(formId, forms, roster) {
 // long-press sheet), and a filterable, missing-first living-dex grid. Tracks
 // only what the user has marked — no shiny-availability claims (see
 // collection.js honesty note).
-export function renderCollectionView(data = {}) {
+export function renderCollectionView(data = {}, random = Math.random) {
   const forms = data.forms ?? {};
   const roster = data.roster ?? {};
   const query = String(data.collectionQuery ?? "");
@@ -214,11 +231,12 @@ export function renderCollectionView(data = {}) {
     <p class="status-kicker">Collection guide</p>
     <h2 id="collection-title">Living Dex Collection</h2>
     <p>Tracks only what you've marked owned, shiny, or lucky on this device — there's no shiny-odds or availability data here.</p>
+    ${surpriseBlock(forms, roster, random)}
     ${modeBar(markMode, tally, markType)}
     ${ocrIntakeSectionHtml(data.ocrIntake)}
     <div class="i1-overall-head">
       ${completionRing(progress.overall.caught, progress.overall.total)}
-      <p class="collection-overall"><strong>${progress.overall.caught}/${progress.overall.total} caught</strong> · ${progress.overall.shiny} shiny · ${progress.overall.lucky} lucky</p>
+      <p class="collection-overall"><strong>${progress.overall.caught}/${progress.overall.total} caught</strong> · ${progress.overall.shiny} shiny · ${progress.overall.lucky} lucky${progress.overall.total > 0 && progress.overall.caught === progress.overall.total ? ' <span class="i1-milestone-stamp">COMPLETE</span>' : ""}</p>
     </div>
     <ul class="collection-progress-list">${progress.byGeneration.map(progressLine).join("")}</ul>
     ${searchBlock(query, forms, data.collectionSuggestOpen)}

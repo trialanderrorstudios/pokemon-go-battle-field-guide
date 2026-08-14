@@ -6,6 +6,18 @@
 
 export const SHELL_CHANGELOG = Object.freeze([
   Object.freeze({
+    rev: "r132", date: "2026-08-14",
+    added: Object.freeze([
+      "Real Pokédex flavor text and species categories on every entry — straight from the game's own text.",
+      "Hundo Wall trophy case (More → Library) with a shareable brag card.",
+      "Shiny artwork toggle on dex entries (~1,100 shiny sprites, cached like the rest).",
+      "Surprise me — a random un-caught dex entry to hunt, from the collection grid.",
+      "Gen-completion stamps on the living dex — celebrations only at a true 100%.",
+      "Today strip on Home — up to five honest, checkable tasks from live data.",
+      "Share the whole rotation — one card covering every live boss's plan.",
+    ]),
+  }),
+  Object.freeze({
     rev: "r131", date: "2026-08-14",
     added: Object.freeze([
       "Two-panel dex on tablet width — the living-dex rail beside the entry, selection without losing your place.",

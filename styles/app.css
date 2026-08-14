@@ -7667,3 +7667,248 @@ html:not([data-app-booted]) #app .fallback-section {
   color: var(--text);
   border-color: color-mix(in srgb, var(--amber) 45%, var(--line));
 }
+
+/* ══ Today strip (fun item 5) — home.js's renderTodayStrip, between the
+   field briefing and the timeline rail. Compact single-line checklist rows,
+   distinct from .today-task-* (views/today.js's own two-line title+detail
+   Today section, a different feature). */
+.today-strip {
+  display: grid;
+  gap: 0.4rem;
+  width: 100%;
+}
+
+.today-strip-list {
+  display: grid;
+  gap: 0.4rem;
+  width: 100%;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.today-strip-row {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  padding: 0.5rem 0.65rem;
+  border: 1px solid var(--line);
+  border-radius: 0.6rem;
+  background: var(--panel);
+}
+
+.today-strip-row.is-done {
+  opacity: 0.6;
+}
+
+.today-strip-row.is-done .today-strip-text {
+  text-decoration: line-through;
+}
+
+.today-strip-check {
+  flex: none;
+  min-width: 44px;
+  min-height: 44px;
+  border: 1px solid var(--line);
+  border-radius: 0.5rem;
+  background: var(--panel-raised);
+  color: var(--muted);
+  font-size: 1.05rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.today-strip-check[aria-pressed="true"] {
+  border-color: var(--cyan);
+  color: var(--cyan);
+}
+
+.today-strip-check:focus-visible,
+.today-strip-text:focus-visible {
+  outline: 3px solid var(--focus);
+  box-shadow: 0 0 0 5px rgba(24, 32, 56, 0.85);
+  outline-offset: 2px;
+}
+
+.today-strip-text {
+  min-width: 0;
+  color: var(--text);
+  font-size: 0.85rem;
+  text-decoration: none;
+  overflow-wrap: anywhere;
+}
+
+.today-strip-clear {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+
+/* ══ Dex flavor item — in-game Pokédex description (dex.js identitySection),
+   directly under the identity header. Same border-left-quote treatment as
+   .gym-steps li above; italic gives it a touch of in-universe warmth without
+   introducing a new type token. */
+.dex-flavor {
+  margin: 0 0 0.75rem;
+  padding: 0.5rem 0.75rem;
+  border-left: 2px solid var(--cyan);
+  border-radius: 0 8px 8px 0;
+  background: var(--panel-raised);
+  color: var(--muted);
+  font-style: italic;
+  font-size: 0.8rem;
+  line-height: 1.4;
+}
+
+/* ══ Collection fun items 3 & 6 (collection-fun lane, 2026-08-14): the
+   "Surprise me" random-encounter link in the Collection grid header, and the
+   COMPLETE milestone stamp on a per-generation row / the overall line once
+   that bucket hits 100% caught. The stamp reuses the existing @keyframes
+   stamp-in (see .saved-stamp above) rather than redefining a celebration
+   animation. */
+.i1-surprise-btn {
+  display: inline-block;
+  margin: 0.4rem 0;
+  padding: 0.35rem 0.75rem;
+  border: 1px solid var(--cyan);
+  border-radius: 999px;
+  color: var(--cyan);
+  font-family: var(--dx-mono);
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  text-decoration: none;
+}
+
+.i1-surprise-btn.is-complete {
+  border-color: var(--dx-good);
+  color: var(--dx-good);
+}
+
+.i1-milestone-stamp {
+  display: inline-block;
+  margin-left: 0.35rem;
+  padding: 0.1rem 0.4rem;
+  border: 2px solid var(--dx-good);
+  border-radius: 6px;
+  background: rgba(69, 224, 124, 0.08);
+  color: var(--dx-good);
+  font-family: var(--dx-mono);
+  font-size: 0.56rem;
+  font-weight: 900;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  transform: rotate(-6deg);
+  animation: stamp-in 520ms cubic-bezier(.2, 1.4, .4, 1) both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .i1-milestone-stamp { animation: none; transform: rotate(-6deg); opacity: 1; }
+}
+
+/* ══ Trophy case (fun item 2/8) — web/src/views/trophy.js ══
+   Shelves reuse .fallback-section (card box) and .collection-badge (base
+   pill, amber by default) — these three rules only add the giant/hundo/mini
+   color modifiers .collection-badge-lucky doesn't already cover, plus the
+   trophy-specific summary/grid/count-chip layout. */
+.trophy-summary {
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+.trophy-shelf {
+  margin-top: 1rem;
+}
+
+.trophy-shelf-heading {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin: 0 0 0.5rem;
+}
+
+.trophy-shelf-heading h3 {
+  margin: 0;
+  font-size: 1rem;
+  color: var(--text);
+}
+
+.trophy-count-chip {
+  display: inline-block;
+  padding: 0.05rem 0.5rem;
+  border-radius: 999px;
+  background: var(--panel-raised);
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 700;
+}
+
+.trophy-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(9rem, 1fr));
+  gap: 0.6rem;
+}
+
+.trophy-card {
+  max-width: none;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.25rem;
+  text-align: center;
+}
+
+.trophy-card-name {
+  margin: 0;
+  font-size: 0.82rem;
+  color: var(--text);
+}
+
+.trophy-card-cp {
+  margin: 0;
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: var(--cyan);
+}
+
+.trophy-card-estimate {
+  margin: 0;
+  font-size: 0.68rem;
+  color: var(--muted);
+}
+
+.trophy-empty {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+.collection-badge-hundo {
+  border-color: var(--green);
+  color: var(--green);
+}
+
+.collection-badge-giant {
+  border-color: var(--danger);
+  color: var(--danger);
+}
+
+.collection-badge-mini {
+  border-color: var(--muted);
+  color: var(--muted);
+}
+
+
+/* Shiny sprite toggle on the dex identity header */
+.sprite-shiny-toggle {
+  min-height: 36px;
+  min-width: 36px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: var(--screen-bg);
+  font-size: 0.9rem;
+  cursor: pointer;
+}
+.sprite-shiny-toggle[aria-pressed="true"] { border-color: var(--amber); background: var(--panel-raised); }
