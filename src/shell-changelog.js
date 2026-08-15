@@ -6,6 +6,12 @@
 
 export const SHELL_CHANGELOG = Object.freeze([
   Object.freeze({
+    rev: "r137", date: "2026-08-15",
+    tweaked: Object.freeze([
+      "Fixed: \"Share the whole rotation\" crashed on device (\"Can't find variable: state\") since r132 and then dumped you on the Raids tab — the share action now gets its rotation data the same way every other share card does.",
+    ]),
+  }),
+  Object.freeze({
     rev: "r136", date: "2026-08-15",
     added: Object.freeze([
       "Battle simulation \u2014 the raid party panel now runs a deterministic fight sim (real damage formula, energy, faints, relobbies) over your best six, with every simplification listed under \"Simulation assumptions\".",

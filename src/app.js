@@ -1420,6 +1420,7 @@ export function createInteractionController({
   onShareCard = null,
   getTriageResult = () => ({ entries: [] }),
   getRaidPlanCardData = () => null,
+  getRotationPackCardData = () => null,
   getGymLineupCardData = () => null,
   onRosterChanged = () => {},
   searchRefresh = () => {},
@@ -1732,6 +1733,7 @@ export function createInteractionController({
     onShareCard,
     getTriageResult,
     getRaidPlanCardData,
+    getRotationPackCardData,
     getGymLineupCardData,
     handleFailure(error) {
       ui.interactionMessage = `Could not save changes: ${error?.message ?? error}`;
@@ -3578,7 +3580,7 @@ export function createInteractionController({
           : "Could not share or download the card on this device.";
         rerenderCurrent();
       } else if (action === "share-rotation-pack") {
-        const cardData = rotationPackCardData({ currentBosses: state.currentBosses, forms, data: state }) ?? null;
+        const cardData = (api.getRotationPackCardData ?? getRotationPackCardData)?.() ?? null;
         const outcome = cardData ? await (api.onShareCard ?? onShareCard)?.("rotationPack", cardData) : "no-data";
         ui.briefingShareMessage = outcome === "shared" ? "Shared the rotation pack."
           : outcome === "downloaded" ? "Downloaded the rotation pack."
@@ -4025,7 +4027,7 @@ export function createInteractionController({
       } else if (action === "trade-copy-export") {
         let payload = "";
         try {
-          payload = exportDexSummary(ui.trade.name, state.core.forms, roster);
+          payload = exportDexSummary(ui.trade.name, forms, roster);
         } catch (error) {
           ui.trade = { ...ui.trade, message: error?.message ?? String(error) };
           rerender("more");
@@ -4779,6 +4781,9 @@ export function bootstrap({
     currentBosses: state.currentBosses, forms: state.core.forms, roster, data: state, trainerLevel: ui.trainerProfile.level,
   });
   const getGymLineupCardData = () => gymLineupCardData(state.gym?.lineupLeads, ui.trainerProfile.team, state.core.forms);
+  const getRotationPackCardData = () => rotationPackCardData({
+    currentBosses: state.currentBosses, forms: state.core.forms, data: state,
+  });
   // Roster gap coverage (round 15, gap-analyzer.js) needs raids.json's
   // ranked rows — gap-analyzer.js iterates both raids.regular and
   // raids.shadow, so this is gated on BOTH split files actually being loaded
@@ -5470,6 +5475,7 @@ export function bootstrap({
     },
     getTriageResult,
     getRaidPlanCardData,
+    getRotationPackCardData,
     getGymLineupCardData,
     onRosterChanged() { triageResult = null; },
     searchRefresh: () => searchRefresh(),
