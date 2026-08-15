@@ -46,6 +46,9 @@ import { moveLink, renderMoveSheet } from "./views/move-sheet.js";
 import { renderInstanceSheet } from "./views/instance-sheet.js";
 import { STANDARD_TARGET_DEFENSE, instanceBreakpointReports } from "./breakpoints.js";
 import { buildParty } from "./party-optimizer.js";
+import { buildGroupPack, parseGroupPack } from "./group-pack.js";
+import { loadGroupMembers, removeGroupMember, saveGroupMember } from "./group-store.js";
+import { renderGroupView } from "./views/group.js";
 import { renderPartyPanel } from "./views/party.js";
 import { clearBuddyPlan, loadBuddyPlan, saveBuddyPlan } from "./buddy.js";
 import {
@@ -1340,6 +1343,8 @@ export function createInteractionState({
     rosterShareOpen: false,
     bulkRemove: { pattern: "", error: "", matches: null },
     dexShinySprite: false,
+    groupMemberName: "",
+    groupMessage: "",
     diagnostics: { copyStatus: "", copyPayload: "", storageEstimate: undefined },
     textSize: loadTextSize(storage),
     theme: loadTheme(storage),
@@ -1743,6 +1748,11 @@ export function createInteractionController({
       markLongPressCardEl = null;
     },
     handleInput(event) {
+      const groupName = event?.target?.closest?.("[data-group-member-name]");
+      if (groupName) {
+        ui.groupMemberName = String(groupName.value ?? "").slice(0, 40);
+        return;
+      }
       const bulkPattern = event?.target?.closest?.("[data-bulk-remove-pattern]");
       if (bulkPattern) {
         ui.bulkRemove.pattern = String(bulkPattern.value ?? "").slice(0, 120);
@@ -2344,6 +2354,20 @@ export function createInteractionController({
         }
         rerender("more");
       }
+      const groupPackInput = target?.closest?.("[data-group-pack-input]")
+        ?? (target?.dataset && Object.hasOwn(target.dataset, "groupPackInput") ? target : null);
+      if (groupPackInput?.files?.[0]) {
+        try {
+          const text = await groupPackInput.files[0].text();
+          const member = parseGroupPack(text);
+          saveGroupMember(storage, member);
+          ui.groupMessage = `Imported ${member.memberName}'s pack (${member.roster.instances.length} Pokémon).`;
+        } catch (error) {
+          ui.groupMessage = `Group pack could not be read: ${error?.message ?? error}`;
+        }
+        rerenderCurrent();
+        return;
+      }
       const backupImport = target?.closest?.('[data-action="backup-import"]')
         ?? (target?.dataset?.action === "backup-import" ? target : null);
       if (backupImport?.files?.[0]) {
@@ -2600,6 +2624,15 @@ export function createInteractionController({
       // incomplete row (ivs are never OCR-derivable — see ocr-intake.js)
       // silently doesn't save rather than throwing. Never auto-saved: this
       // only runs on an explicit tap.
+      const groupRemove = target?.closest?.("[data-group-member-remove]");
+      if (groupRemove) {
+        if (api.onConfirm?.(`Remove ${groupRemove.dataset.groupMemberRemove} from your group?`)) {
+          removeGroupMember(storage, groupRemove.dataset.groupMemberRemove);
+          ui.groupMessage = "";
+        }
+        rerenderCurrent();
+        return;
+      }
       const ocrRowPick = target?.closest?.("[data-ocr-row-pick]");
       if (ocrRowPick) {
         const row = ui.ocrIntake?.rows?.find((candidate) => candidate.id === ocrRowPick.dataset.ocrRowPick);
@@ -3703,6 +3736,19 @@ export function createInteractionController({
           if (ui.instanceSheet) ui.instanceSheet = null;
           rerender("more");
         }
+      } else if (action === "group-pack-export") {
+        try {
+          const pack = buildGroupPack({
+            roster: structuredClone(roster),
+            forms,
+            memberName: ui.groupMemberName || ui.trainerProfile?.name || "",
+          });
+          (api.onBackupExport ?? onBackupExport)?.(JSON.stringify(pack, null, 2));
+          ui.groupMessage = "Group pack downloaded — AirDrop it to the group.";
+        } catch (error) {
+          ui.groupMessage = `Could not export: ${error?.message ?? error}`;
+        }
+        rerenderCurrent();
       } else if (action === "backup-export") {
         const envelope = buildBackupEnvelope({
           roster: structuredClone(roster),

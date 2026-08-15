@@ -8001,3 +8001,37 @@ html:not([data-app-booted]) #app .fallback-section {
   cursor: pointer;
 }
 .party-swap-btn:hover { border-color: var(--cyan); }
+
+/* ============================================================
+   LANE group-ui — Raid Group view (web/src/views/group.js).
+   New selectors only; existing .more-view/.more-section/.instance-list/
+   .instance-row/.file-action/.party-slot*/.party-estimate*/.party-gaps/
+   .party-gap-chip/.briefing-* classes above are reused as-is, unedited.
+   ============================================================ */
+
+.group-answers {
+  display: grid;
+  gap: 0.8rem;
+}
+
+/* Member attribution stamped inside a group "best 6" card — sits inside the
+   existing .party-slot-id, so it inherits that card's layout. */
+.group-best-card-member {
+  font-size: 0.6rem;
+  font-weight: 700;
+  color: var(--cyan);
+}
+
+.group-import-warnings,
+.group-advice-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 0.3rem;
+}
+
+.group-advice-list li {
+  font-size: 0.8rem;
+  color: var(--muted);
+}

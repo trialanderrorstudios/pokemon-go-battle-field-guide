@@ -6,6 +6,12 @@
 
 export const SHELL_CHANGELOG = Object.freeze([
   Object.freeze({
+    rev: "r134", date: "2026-08-14",
+    added: Object.freeze([
+      "Raid Group (More → Your stuff): export your roster as a small no-secrets pack, AirDrop it, import the group's packs — then get group answers per boss: the best six across everyone with names attached, who fields what, and power-up overlap notes.",
+    ]),
+  }),
+  Object.freeze({
     rev: "r133", date: "2026-08-14",
     added: Object.freeze([
       "Your battle party — the Raid Target page builds the best six from YOUR roster vs the selected boss, with honest role/why lines, a qualitative readiness band (never a fabricated battle sim), and gap chips naming what you're missing.",

@@ -11,6 +11,8 @@ import { renderDupesView } from "./dupes.js";
 import { renderPowerupView } from "./powerup.js";
 import { renderTradePlannerView } from "./trade-planner.js";
 import { renderTrophyView } from "./trophy.js";
+import { renderGroupView } from "./group.js";
+import { loadGroupMembers } from "../group-store.js";
 import { luckyOwnedFormIdSet, shinyOwnedFormIdSet } from "../collection.js";
 import { formatFriendCode, friendCodeQrMatrix, isValidFriendCode } from "../friend-codes.js";
 
@@ -655,6 +657,7 @@ function renderMoreMenu() {
       title: "Your stuff",
       links: [
         ["./#more/roster", "My Roster"],
+        ["./#more/group", "Raid Group"],
         ["./#more/settings", "Settings"],
         ["./#triage", "My Box"],
         ["./#triage/candy", "Candy Planner"],
@@ -784,6 +787,15 @@ export function renderMore(data = {}) {
   if (view === "shopguide") return shopGuideView();
   if (view === "purge") return `<div class="more-view">${BACK_TO_MORE}${renderPurgeView(data)}</div>`;
   if (view === "dupes") return `<div class="more-view">${BACK_TO_MORE}${renderDupesView(data)}</div>`;
+  if (view === "group") {
+    const loaded = loadGroupMembers(data.storageObject ?? null);
+    return `<div class="more-view">${BACK_TO_MORE}${renderGroupView({
+      roster: data.roster, forms: data.forms, raids: data.raids, data,
+      currentBosses: data.currentBosses, members: loaded.members,
+      warnings: [...(loaded.warnings ?? []), ...(data.groupMessage ? [data.groupMessage] : [])],
+      memberName: data.groupMemberName ?? "",
+    })}</div>`;
+  }
   if (view === "trophy") return `<div class="more-view">${BACK_TO_MORE}${renderTrophyView({
     roster: data.roster, forms: data.forms,
   })}</div>`;
