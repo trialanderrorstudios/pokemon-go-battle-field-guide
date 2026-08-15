@@ -53,6 +53,7 @@ export const CAPABILITY_GUIDE = Object.freeze({
       title: "Battle answers",
       items: Object.freeze([
         Object.freeze({ name: "Raid target tool", where: "Raids", what: "Counters per boss with weather, encounter bands, DPS-vs-practical movesets, and honest availability badges (Elite TM, event-only, legacy)." }),
+        Object.freeze({ name: "Your battle party", where: "Raids → target", what: "The best six from your actual roster vs the selected boss — role, why, a readiness band (a rough guide, not a simulation), and gap chips for what you're missing." }),
         Object.freeze({ name: "Gym defense", where: "Gyms", what: "Defender rankings, \"Beats X attackers\" bands (defense, not offense), an 18-type coverage grid against your collection, and a lineup builder with per-lead caps." }),
         Object.freeze({ name: "PvP", where: "PvP", what: "Great/Ultra/Master rankings, recommended movesets and rank-1 IVs, Anti-Meta board, My Team slots, and your own instances ranked against the 4,096 IV space — level 51 assumed only when Best Buddy is recorded." }),
         Object.freeze({ name: "Pokédex", where: "Dex", what: "Real flavor text and species categories, per-form stats, hundo and boss values, weaknesses, multi-role optimal offense with a second-charge suggestion, gym verdicts, league cards, Super Max availability, evolution chains, shiny artwork toggle, sibling-form switcher, two-panel layout on tablets." }),

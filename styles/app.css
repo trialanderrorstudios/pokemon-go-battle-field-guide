@@ -7912,3 +7912,92 @@ html:not([data-app-booted]) #app .fallback-section {
   cursor: pointer;
 }
 .sprite-shiny-toggle[aria-pressed="true"] { border-color: var(--amber); background: var(--panel-raised); }
+
+/* ══ Battle Party panel (party.js) — marquee surface, warmer than a list ══ */
+.party-panel { display: flex; flex-direction: column; gap: 0.6rem; }
+
+.party-empty {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding: 1rem;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--panel);
+}
+.party-empty-cta { align-self: flex-start; }
+
+.party-estimate {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+  padding: 0.6rem 0.8rem;
+  border: 1px solid var(--cyan);
+  border-radius: 10px;
+  background: var(--panel-raised);
+}
+.party-estimate-label { margin: 0; font-weight: 700; color: var(--text); }
+.party-estimate-confidence {
+  font-family: var(--dx-mono);
+  font-size: 0.66rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: var(--cyan);
+}
+
+.party-gaps { display: flex; flex-wrap: wrap; gap: 0.35rem; }
+.party-gap-chip {
+  padding: 0.15rem 0.5rem;
+  border: 1px solid var(--danger);
+  border-radius: 999px;
+  font-size: 0.68rem;
+  font-weight: 600;
+  color: var(--danger);
+}
+
+.party-slot-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 0.6rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.party-slot {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--panel);
+  padding: 0.65rem;
+}
+.party-slot-open { display: flex; align-items: center; justify-content: center; text-align: center; color: var(--muted); min-height: 6rem; }
+
+.party-slot-heading { display: flex; align-items: center; gap: 0.5rem; }
+.party-slot-id h4 { margin: 0; font-size: 0.85rem; color: var(--text); }
+.party-role-chip {
+  margin: 0 0 0.1rem;
+  display: inline-block;
+  padding: 0.05rem 0.4rem;
+  border-radius: 999px;
+  background: var(--screen-bg);
+  font-size: 0.62rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: var(--cyan);
+}
+.party-slot-stats { margin: 0.35rem 0 0; font-size: 0.75rem; color: var(--muted); }
+
+.party-swap-btn {
+  margin-top: 0.5rem;
+  min-height: 32px;
+  padding: 0 0.6rem;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  background: var(--screen-bg);
+  color: var(--text);
+  font-size: 0.72rem;
+  cursor: pointer;
+}
+.party-swap-btn:hover { border-color: var(--cyan); }

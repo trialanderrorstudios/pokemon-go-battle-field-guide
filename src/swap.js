@@ -132,7 +132,9 @@ export function resolveSwapTeam({ league, pvp = {}, pvpTeams = [], roster = {}, 
 // Name/dex substring search over all known forms, for the opponent picker.
 export function searchOpponentForms(query, forms = {}) {
   const needle = String(query ?? "").trim().toLowerCase();
-  const all = Object.values(forms);
+  // Masterfile gap-fill forms carry no move data — matchup math over them
+  // would fabricate; exclude them from the opponent pool.
+  const all = Object.values(forms).filter((form) => form.source !== "masterfile-gap");
   const matches = needle ? all.filter((form) => form.name?.toLowerCase().includes(needle)) : all;
   return matches.sort((left, right) => left.name.localeCompare(right.name));
 }

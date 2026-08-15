@@ -45,6 +45,8 @@ import { buildMoveIndex } from "./moves.js";
 import { moveLink, renderMoveSheet } from "./views/move-sheet.js";
 import { renderInstanceSheet } from "./views/instance-sheet.js";
 import { STANDARD_TARGET_DEFENSE, instanceBreakpointReports } from "./breakpoints.js";
+import { buildParty } from "./party-optimizer.js";
+import { renderPartyPanel } from "./views/party.js";
 import { clearBuddyPlan, loadBuddyPlan, saveBuddyPlan } from "./buddy.js";
 import {
   bestInstanceForForm, buildImportedInstance, buildInstance, instanceLevel, ivCandidatesFromCpHp,
@@ -942,6 +944,9 @@ export function gymEligibleDefenderForms(forms = {}) {
     const tags = new Set(form?.tags ?? []);
     const formName = String(form?.form ?? "").toUpperCase();
     const mythicalGymException = form?.dex === 808 || form?.dex === 809;
+    // Masterfile gap-fill forms exist so the dex can NAME new species — they
+    // carry no ranking/move data and must never enter battle computations.
+    if (form?.source === "masterfile-gap") return false;
     return form?.released === true
       && Number(form?.base_defense) > 0
       && Number(form?.base_stamina) > 0
@@ -4254,6 +4259,24 @@ function raidTargetSurface(state, ui, roster) {
     weather: ui.weather,
     targetDefense: raidDpsMethodology.assumptions?.targetDefense,
   };
+  // Your battle party (big-swings wave 1): best six from the actual roster
+  // vs THIS boss — composed estimates only, computed here where all inputs
+  // already live.
+  const partyResult = buildParty({
+    targetFormId: ui.raid.targetFormId,
+    roster,
+    forms: state.core?.forms ?? {},
+    raids: state.raids,
+    data: state,
+    trainerLevel: ui.trainerProfile.level,
+    weather: ui.weather,
+  });
+  const partyPanelHtml = renderPartyPanel({
+    targetFormId: ui.raid.targetFormId,
+    roster,
+    forms: state.core?.forms ?? {},
+    partyResult,
+  });
   return `<section class="raid-target-view" aria-labelledby="raid-target-title">
     <h2 id="raid-target-title">Raid Target</h2>
     ${targetSwapNotice}
@@ -4272,6 +4295,7 @@ function raidTargetSurface(state, ui, roster) {
     `<span class="type-weak-badge${row.effectiveness >= 2.56 ? " is-double" : ""}">${typeChip(row.attackingType)}${row.effectiveness >= 2.56 ? "4x" : "2x"}</span>`
   )).join("") : "None documented"}</p>
     </div>
+    ${partyPanelHtml}
     <div class="raid-cp-lines">
       <div class="raid-cp-set">
         <p><strong>Level 20 encounter:</strong></p>

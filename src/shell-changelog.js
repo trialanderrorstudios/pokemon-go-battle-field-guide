@@ -6,6 +6,13 @@
 
 export const SHELL_CHANGELOG = Object.freeze([
   Object.freeze({
+    rev: "r133", date: "2026-08-14",
+    added: Object.freeze([
+      "Your battle party — the Raid Target page builds the best six from YOUR roster vs the selected boss, with honest role/why lines, a qualitative readiness band (never a fabricated battle sim), and gap chips naming what you're missing.",
+      "Live-data layer: new species gap-fill from the current masterfile (named honestly, excluded from all battle math) and an automatic, fail-safe masterfile refresh in the pipeline with a weekly what-moved diff report.",
+    ]),
+  }),
+  Object.freeze({
     rev: "r132", date: "2026-08-14",
     added: Object.freeze([
       "Real Pokédex flavor text and species categories on every entry — straight from the game's own text.",
