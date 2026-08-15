@@ -6,6 +6,17 @@
 
 export const SHELL_CHANGELOG = Object.freeze([
   Object.freeze({
+    rev: "r135", date: "2026-08-14",
+    added: Object.freeze([
+      "Field Journal (More \u2192 Library) \u2014 an automatic diary of your play: every catch you save (scans, quick-adds, imports), gen completions, raid results you tap in, and a day-streak that survives even when old entries age out.",
+      "Weekly recap card \u2014 saves, scans, hundos, shinies, raids won this week, in one line of chips.",
+      "Raid quick-log \u2014 Won/Lost buttons for today's live bosses, right on the journal page.",
+    ]),
+    tweaked: Object.freeze([
+      "Fixed a day-boundary bug west of UTC \u2014 \"today\" in the briefing, share cards, and journal now ends at YOUR midnight, not London's.",
+    ]),
+  }),
+  Object.freeze({
     rev: "r134", date: "2026-08-14",
     added: Object.freeze([
       "Raid Group (More → Your stuff): export your roster as a small no-secrets pack, AirDrop it, import the group's packs — then get group answers per boss: the best six across everyone with names attached, who fields what, and power-up overlap notes.",

@@ -893,9 +893,12 @@ function briefingVerdictLine(featured, fallbackHeadline) {
 // bare date against `now` would expire a boss at midnight at the START of its
 // last day, so expiry is end-of-day.
 function endOfDay(dateString) {
-  const parsed = new Date(dateString);
-  parsed.setHours(23, 59, 59, 999);
-  return parsed;
+  // Local-calendar parse (tz fix, 2026-08-14 review catch): new Date("YYYY-MM-DD")
+  // parses as UTC midnight, which west of UTC lands on the PREVIOUS local
+  // day — a boss "through Aug 17" expired at Aug 16 23:59 local. Building
+  // from parts pins the intended local calendar day.
+  const [year, month, day] = String(dateString).split("-").map(Number);
+  return new Date(year, month - 1, day, 23, 59, 59, 999);
 }
 
 // The same featured/plan/boss triple featuredBossCard derives its share card

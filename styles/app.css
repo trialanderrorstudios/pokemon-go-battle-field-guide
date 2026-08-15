@@ -8035,3 +8035,134 @@ html:not([data-app-booted]) #app .fallback-section {
   font-size: 0.8rem;
   color: var(--muted);
 }
+
+/* ============================================================
+   LANE journal-ui — Field Journal view (web/src/views/journal.js).
+   New selectors only; .status-kicker/.status-chip above are reused as-is.
+   ============================================================ */
+
+.journal-view {
+  display: grid;
+  gap: 0.9rem;
+  max-width: 34rem;
+  margin-inline: auto;
+}
+
+.journal-warnings {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 0.2rem;
+}
+.journal-warnings li {
+  padding: 0.4rem 0.6rem;
+  border: 1px solid var(--amber);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--amber) 12%, var(--panel));
+  color: var(--text);
+  font-size: 0.75rem;
+}
+
+.journal-streak,
+.journal-recap,
+.journal-raid-quicklog,
+.journal-timeline {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--panel);
+  padding: 0.7rem 0.8rem;
+  display: grid;
+  gap: 0.3rem;
+}
+
+.journal-streak-current {
+  margin: 0;
+  font-size: 1.1rem;
+  font-weight: 800;
+  color: var(--text);
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+.journal-streak-current.journal-streak-zero {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--muted);
+}
+.journal-flame { filter: drop-shadow(0 0 4px var(--amber)); }
+.journal-streak-best {
+  margin: 0;
+  font-size: 0.75rem;
+  color: var(--muted);
+}
+
+.journal-recap-lead {
+  margin: 0;
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: var(--text);
+}
+.journal-recap-chips {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+.journal-recap-empty { margin: 0; font-size: 0.85rem; color: var(--muted); }
+
+.journal-raid-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+.journal-raid-row .sprite,
+.journal-raid-row .sprite-fallback { width: 36px; height: 36px; }
+.journal-raid-name {
+  flex: 1;
+  min-width: 0;
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: var(--text);
+}
+.journal-raid-btn {
+  min-height: 36px;
+  padding: 0 0.6rem;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  background: var(--screen-bg);
+  color: var(--text);
+  font-size: 0.75rem;
+  cursor: pointer;
+}
+.journal-raid-btn:hover { border-color: var(--cyan); }
+.journal-raid-btn[data-journal-outcome="won"]:hover { border-color: var(--green); }
+.journal-raid-btn[data-journal-outcome="lost"]:hover { border-color: var(--danger); }
+
+.journal-day-group { display: grid; gap: 0.25rem; }
+.journal-day-header {
+  margin: 0.3rem 0 0;
+  font-size: 0.7rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+}
+.journal-day-entries {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 0.3rem;
+}
+.journal-entry {
+  display: flex;
+  align-items: baseline;
+  gap: 0.45rem;
+  font-size: 0.85rem;
+  color: var(--text);
+}
+.journal-entry-glyph { flex: none; }
+.journal-timeline-empty { margin: 0; font-size: 0.85rem; color: var(--muted); }

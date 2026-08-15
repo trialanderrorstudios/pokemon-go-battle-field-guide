@@ -46,6 +46,7 @@ export const CAPABILITY_GUIDE = Object.freeze({
         Object.freeze({ name: "Remove and clear", where: "dex rows / More → About", what: "Per-copy Remove behind a confirm; regex bulk-remove with preview-first; full clear behind a double confirm." }),
         Object.freeze({ name: "Trade Planner", where: "More → Library", what: "Trade bait and per-friend offers — precious singles always protected; friendship level and lucky odds live in-game, not here." }),
         Object.freeze({ name: "Hundo Wall", where: "More → Library", what: "Your hundos, shinies, luckies, giants and minis as a trophy room, with a shareable brag card." }),
+        Object.freeze({ name: "Field Journal", where: "More → Library", what: "An automatic play diary — saved catches, gen completions, raid results you log, and a visit streak — with a weekly recap card. Lives on this device like everything else." }),
         Object.freeze({ name: "Backup and restore", where: "More → About", what: "Everything as one JSON file — export, AirDrop, merge or replace on another device." }),
       ]),
     }),

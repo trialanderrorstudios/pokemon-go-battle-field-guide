@@ -11,6 +11,7 @@ import { renderDupesView } from "./dupes.js";
 import { renderPowerupView } from "./powerup.js";
 import { renderTradePlannerView } from "./trade-planner.js";
 import { renderTrophyView } from "./trophy.js";
+import { renderJournalView } from "./journal.js";
 import { renderGroupView } from "./group.js";
 import { loadGroupMembers } from "../group-store.js";
 import { luckyOwnedFormIdSet, shinyOwnedFormIdSet } from "../collection.js";
@@ -691,6 +692,7 @@ function renderMoreMenu() {
         ["./#more/powerup", "Power-Up Planner"],
         ["./#more/tradeplanner", "Trade Planner"],
         ["./#more/trophy", "Hundo Wall — trophy case"],
+        ["./#more/journal", "Field Journal — streak, recap, log"],
       ],
     })}
     ${menuSection({
@@ -796,6 +798,11 @@ export function renderMore(data = {}) {
       memberName: data.groupMemberName ?? "",
     })}</div>`;
   }
+  if (view === "journal") return `<div class="more-view">${BACK_TO_MORE}${renderJournalView({
+    ...(data.journal ?? {}),
+    currentBosses: data.currentBosses,
+    forms: data.forms,
+  })}</div>`;
   if (view === "trophy") return `<div class="more-view">${BACK_TO_MORE}${renderTrophyView({
     roster: data.roster, forms: data.forms,
   })}</div>`;

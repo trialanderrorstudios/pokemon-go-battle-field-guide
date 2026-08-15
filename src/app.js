@@ -49,6 +49,8 @@ import { buildParty } from "./party-optimizer.js";
 import { buildGroupPack, parseGroupPack } from "./group-pack.js";
 import { loadGroupMembers, removeGroupMember, saveGroupMember } from "./group-store.js";
 import { renderGroupView } from "./views/group.js";
+import { loadJournal, logJournalEntry, streakInfo, weeklyRecap } from "./journal.js";
+import { genJustCompleted } from "./journal-hooks.js";
 import { renderPartyPanel } from "./views/party.js";
 import { clearBuddyPlan, loadBuddyPlan, saveBuddyPlan } from "./buddy.js";
 import {
@@ -1496,6 +1498,7 @@ export function createInteractionController({
   // after the animation's real duration (immediately under reduced motion,
   // where the CSS animation is itself disabled).
   const applyMarkState = async (formId, mark, value) => {
+    const ownedBefore = [...(roster.ownedFormIds ?? [])];
     if (!validFormIds.has(formId)) return null;
     const before = {
       caught: (roster.ownedFormIds ?? []).includes(formId),
@@ -1529,6 +1532,9 @@ export function createInteractionController({
         luckyOwnedFormIds: [...lucky].sort(),
       };
     });
+    for (const gen of genJustCompleted(ownedBefore, roster.ownedFormIds ?? [], forms)) {
+      logJournalEntry(storage, { kind: "gen-completed", at: new Date().toISOString(), detail: { gen } });
+    }
     if (ui.collectionMarkMode) {
       // Tally tracks net adds of the mark this tap actually applied (caught/
       // shiny/lucky), not always caught — so a shiny-type tap that flips an
@@ -1681,6 +1687,17 @@ export function createInteractionController({
   // species caught (ownedFormIds/counts), or the collection grid keeps
   // showing it missing after a save (operator hit this scanning from the
   // grid, 2026-08-13). Never decrements; edits/deletes are untouched.
+  // Journal logging is a bystander: outside every save's try block, its own
+  // persist never throws, and a failure here can never unwind a save.
+  const journalInstanceAdded = (built, form, via) => {
+    const ivSum = (built.ivs?.atk ?? 0) + (built.ivs?.def ?? 0) + (built.ivs?.sta ?? 0);
+    logJournalEntry(storage, {
+      kind: "instance-added",
+      at: new Date().toISOString(),
+      detail: { formId: built.formId, name: form?.name ?? built.formId, isHundo: ivSum === 45, isShiny: Boolean(built.isShiny), via },
+    });
+  };
+
   const withInstanceAdded = (current, built) => {
     const owned = new Set(current.ownedFormIds ?? []);
     const counts = { ...(current.ownedFormCounts ?? {}) };
@@ -2342,6 +2359,20 @@ export function createInteractionController({
                 },
               };
             });
+            const importedAt = new Date().toISOString();
+            for (const instance of parsed) {
+              logJournalEntry(storage, {
+                kind: "instance-added",
+                at: importedAt,
+                detail: {
+                  via: "poke-genie-import",
+                  formId: instance.formId,
+                  name: forms[instance.formId]?.name ?? instance.formId,
+                  isHundo: instance.ivs.atk + instance.ivs.def + instance.ivs.sta === 45,
+                  isShiny: Boolean(instance.isShiny),
+                },
+              });
+            }
           }
           const skipped = errors.length
             ? ` ${errors.length} row${errors.length === 1 ? "" : "s"} skipped: ${errors.slice(0, 3).join(" ")}${errors.length > 3 ? ".." : ""}`
@@ -2705,6 +2736,7 @@ export function createInteractionController({
               row.accepted = false;
               throw error;
             }
+            journalInstanceAdded(built, form, "scan");
           }
         }
         rerenderCurrent();
@@ -2911,6 +2943,7 @@ export function createInteractionController({
               });
             savedId = built.id;
             await mutateRoster((current) => withInstanceAdded(current, built));
+            journalInstanceAdded(built, form, "quick-add");
           }
           ui.quickAdd = {
             ...blankQuickAddDraft(),
@@ -3581,6 +3614,17 @@ export function createInteractionController({
       } else if (action === "ocr-copy-raw") {
         const row = ui.ocrIntake?.rows?.find((candidate) => candidate.id === actionEl.dataset.ocrRawRowId);
         if (row?.rawText) await api.onClipboardCopy?.(row.rawText);
+      } else if (action === "journal-raid-log") {
+        const bossFormId = actionEl.dataset.journalBoss;
+        const outcome = actionEl.dataset.journalOutcome;
+        if (bossFormId && (outcome === "won" || outcome === "lost")) {
+          logJournalEntry(storage, {
+            kind: "raid-logged",
+            at: new Date().toISOString(),
+            detail: { bossFormId, bossName: forms[bossFormId]?.name ?? bossFormId, outcome },
+          });
+        }
+        rerenderCurrent();
       } else if (action === "ocr-scan-done") {
         // Review pass complete — back to idle so the Scan entry returns
         // (reviewer catch: idle-only entry point never reappeared).
@@ -3842,6 +3886,7 @@ export function createInteractionController({
                 instances: [...(current.instances ?? []).filter((row) => row.id !== editingId), saved],
               }
               : withInstanceAdded(current, saved)));
+            if (!original) journalInstanceAdded(saved, form, "instance-sheet");
             if (returnRoute === "triage") ui.instanceSheet = null;
             else {
               ui.instanceSheet.draft = blankInstanceDraft();
@@ -4805,6 +4850,15 @@ export function bootstrap({
         }),
         release: releaseView(releaseState),
         update: { ...releaseState, label: releaseLabel(releaseState) },
+        journal: (() => {
+          const { entries, warnings, bestStreak } = loadJournal(storage);
+          return {
+            entries,
+            warnings,
+            streak: streakInfo(entries, new Date(), bestStreak),
+            recap: weeklyRecap(entries, roster),
+          };
+        })(),
         diagnostics: {
           entries: loadDiagnostics(storage),
           copyStatus: ui.diagnostics.copyStatus,
@@ -5406,6 +5460,13 @@ export async function startFieldGuide({
 } = {}) {
   const root = documentObject?.documentElement;
   root?.setAttribute?.("data-offline-ready", "false");
+  // Streak tracks "opened the app today" — logJournalEntry's own visit
+  // dedup makes this one-per-local-day, and persist never throws.
+  logJournalEntry(windowObject?.localStorage ?? null, {
+    kind: "visit",
+    at: new Date().toISOString(),
+    detail: {},
+  });
   installDiagnosticsCapture({
     windowObject,
     getRoute: () => windowObject?.location?.hash?.slice(1) || "home",
