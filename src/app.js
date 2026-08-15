@@ -51,6 +51,9 @@ import { loadGroupMembers, removeGroupMember, saveGroupMember } from "./group-st
 import { renderGroupView } from "./views/group.js";
 import { loadJournal, logJournalEntry, streakInfo, weeklyRecap } from "./journal.js";
 import { genJustCompleted } from "./journal-hooks.js";
+import { generateQuests, loadQuestState, toggleQuest, renderDailyQuestsCard } from "./daily-quests.js";
+import { bossCountdowns, renderCountdownChips } from "./boss-countdown.js";
+import { simulateParty } from "./battle-sim.js";
 import { renderPartyPanel } from "./views/party.js";
 import { clearBuddyPlan, loadBuddyPlan, saveBuddyPlan } from "./buddy.js";
 import {
@@ -282,7 +285,7 @@ const CHUNK_FIELDS = Object.freeze({
   "raid-targets.json": ["raidTargetTool"],
   "gyms.json": ["gym", "placement"],
   "pvp.json": ["pvp", "pvpTeams", "pvpAlternatives"],
-  "extras.json": ["budgets", "megasPrimals", "futureProof", "coveragePlanner"],
+  "extras.json": ["budgets", "megasPrimals", "futureProof", "coveragePlanner", "moveSettings"],
   "acquisition.json": ["acquisitionGuide", "shinyOdds"],
   "current-bosses.json": ["currentBosses", "currentMaxBattles"],
   "current-events.json": ["currentEvents"],
@@ -1344,6 +1347,7 @@ export function createInteractionState({
     ocrIntake: blankOcrIntakeState(),
     rosterShareOpen: false,
     bulkRemove: { pattern: "", error: "", matches: null },
+    compare: { formIdA: null, formIdB: null, queryA: "", queryB: "" },
     dexShinySprite: false,
     groupMemberName: "",
     groupMessage: "",
@@ -1765,6 +1769,24 @@ export function createInteractionController({
       markLongPressCardEl = null;
     },
     handleInput(event) {
+      const compareQuery = event?.target?.closest?.("[data-compare-query]");
+      if (compareQuery) {
+        const side = compareQuery.dataset.compareQuery === "b" ? "B" : "A";
+        ui.compare[`query${side}`] = String(compareQuery.value ?? "").slice(0, 60);
+        // Same caret-preserving rerender the swap opponent search uses —
+        // innerHTML replacement would otherwise blur the input every keystroke.
+        const caret = Math.min(
+          Number.isInteger(compareQuery.selectionStart) ? compareQuery.selectionStart : ui.compare[`query${side}`].length,
+          ui.compare[`query${side}`].length,
+        );
+        const sideAttr = compareQuery.dataset.compareQuery;
+        const ownerDocument = compareQuery.ownerDocument;
+        rerenderCurrent();
+        const nextInput = ownerDocument?.querySelector?.(`[data-compare-query="${sideAttr}"]`);
+        nextInput?.focus?.({ preventScroll: true });
+        nextInput?.setSelectionRange?.(caret, caret);
+        return;
+      }
       const groupName = event?.target?.closest?.("[data-group-member-name]");
       if (groupName) {
         ui.groupMemberName = String(groupName.value ?? "").slice(0, 40);
@@ -3582,6 +3604,21 @@ export function createInteractionController({
         const route = actionEl.dataset.guideRoute;
         if (route) showGuide(route, storage);
         rerenderCurrent();
+      } else if (action === "quest-toggle") {
+        const questId = actionEl.dataset.questId;
+        if (questId) toggleQuest(storage, todayDateISO(new Date()), questId);
+        rerenderCurrent();
+      } else if (action === "compare-from-dex") {
+        // Dex entry point: prefill side A with this entry, then open Compare.
+        ui.compare.formIdA = actionEl.dataset.compareFormId || null;
+        ui.compare.queryA = "";
+        windowObject.location.hash = "#more/compare";
+      } else if (action === "compare-pick") {
+        const side = actionEl.dataset.compareSide === "b" ? "B" : "A";
+        const formId = actionEl.dataset.compareFormId ?? "";
+        ui.compare[`formId${side}`] = formId || null;
+        if (!formId) ui.compare[`query${side}`] = "";
+        rerenderCurrent();
       } else if (action === "toggle-today-task") {
         const taskId = actionEl.dataset.todayTaskId;
         if (taskId) toggleTodayTask(taskId, storage);
@@ -4362,11 +4399,28 @@ function raidTargetSurface(state, ui, roster) {
     trainerLevel: ui.trainerProfile.level,
     weather: ui.weather,
   });
+  // Deterministic sim layer over the same six — only when the moveSettings
+  // chunk has landed; failures degrade to the qualitative estimate, never
+  // block the panel.
+  let partySimResult = null;
+  if (state.moveSettings && partyResult?.party?.length && state.core?.forms?.[ui.raid.targetFormId]) {
+    const bossTier = (state.currentBosses?.bosses ?? []).find((boss) => boss.formId === ui.raid.targetFormId)?.tier ?? null;
+    try {
+      partySimResult = simulateParty(
+        partyResult.party.map(({ instance, form }) => ({ ...instance, form })),
+        { form: state.core.forms[ui.raid.targetFormId], tier: bossTier ?? "Tier 5", moveset: null },
+        { moveSettings: state.moveSettings, weather: ui.weather },
+      );
+    } catch {
+      partySimResult = null;
+    }
+  }
   const partyPanelHtml = renderPartyPanel({
     targetFormId: ui.raid.targetFormId,
     roster,
     forms: state.core?.forms ?? {},
     partyResult,
+    simResult: partySimResult,
   });
   return `<section class="raid-target-view" aria-labelledby="raid-target-title">
     <h2 id="raid-target-title">Raid Target</h2>
@@ -4831,6 +4885,9 @@ export function bootstrap({
         rosterShareOpen: ui.rosterShareOpen,
         bulkRemove: ui.bulkRemove,
         raids: state.raids,
+        pvp: state.pvp,
+        gym: state.gym,
+        compareSelection: ui.compare,
         currentBosses: state.currentBosses ?? state.core?.currentBosses,
         textSize: ui.textSize,
         theme: ui.theme,
@@ -4883,7 +4940,30 @@ export function bootstrap({
       // cold-boot landing route, and every section here renders its own empty
       // state from whatever has actually landed, then re-renders when the
       // rest of the chunks do.
+      // Daily quests + boss countdowns — both never-throw, both render ""
+      // when their data hasn't landed; Home stays a cold-boot-safe route.
+      const questDateKey = todayDateISO(new Date());
+      const questJournal = (() => {
+        const { entries, bestStreak } = loadJournal(storage);
+        return { entries, streak: streakInfo(entries, new Date(), bestStreak) };
+      })();
+      const questsCardHtml = renderDailyQuestsCard({
+        quests: generateQuests({
+          dateKey: questDateKey, roster, forms: state.core.forms,
+          currentBosses: state.currentBosses, journal: questJournal,
+        }),
+        state: loadQuestState(storage, questDateKey),
+      });
+      const countdownChipsHtml = renderCountdownChips({
+        rows: bossCountdowns({
+          currentBosses: state.currentBosses, roster, forms: state.core.forms,
+          raidRows: state.raids, now: new Date(),
+        }),
+        forms: state.core.forms,
+      });
       app.innerHTML = interactionNotice(ui) + renderHome({
+        questsCardHtml,
+        countdownChipsHtml,
         cutoff: state.core.meta?.asOf,
         offlineStatus: state.offlineStatus ?? offlineLabel(releaseState),
         updateStatus: state.updateStatus ?? releaseLabel(releaseState),

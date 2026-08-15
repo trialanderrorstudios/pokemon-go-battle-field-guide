@@ -12,6 +12,11 @@ import { renderPowerupView } from "./powerup.js";
 import { renderTradePlannerView } from "./trade-planner.js";
 import { renderTrophyView } from "./trophy.js";
 import { renderJournalView } from "./journal.js";
+import { renderMasteryView } from "./mastery.js";
+import { computeTypeMastery } from "../type-mastery.js";
+import { renderCompareView } from "./compare.js";
+import { compareForms } from "../compare.js";
+import { renderBuddyView } from "./buddy.js";
 import { renderGroupView } from "./group.js";
 import { loadGroupMembers } from "../group-store.js";
 import { luckyOwnedFormIdSet, shinyOwnedFormIdSet } from "../collection.js";
@@ -693,6 +698,9 @@ function renderMoreMenu() {
         ["./#more/tradeplanner", "Trade Planner"],
         ["./#more/trophy", "Hundo Wall — trophy case"],
         ["./#more/journal", "Field Journal — streak, recap, log"],
+        ["./#more/mastery", "Type Mastery — attacker bench strength"],
+        ["./#more/compare", "Compare — two Pokémon head-to-head"],
+        ["./#more/buddyplanner", "Best Buddy Planner"],
       ],
     })}
     ${menuSection({
@@ -798,6 +806,23 @@ export function renderMore(data = {}) {
       memberName: data.groupMemberName ?? "",
     })}</div>`;
   }
+  if (view === "mastery") return `<div class="more-view">${BACK_TO_MORE}${renderMasteryView({
+    mastery: computeTypeMastery({ roster: data.roster, forms: data.forms, raidRows: data.raids }),
+    forms: data.forms,
+  })}</div>`;
+  if (view === "buddyplanner") return `<div class="more-view">${BACK_TO_MORE}${renderBuddyView({
+    roster: data.roster, forms: data.forms, raidRows: data.raids, pvpRows: data.pvp,
+    currentBosses: data.currentBosses,
+  })}</div>`;
+  if (view === "compare") {
+    const sel = data.compareSelection ?? {};
+    const comparison = sel.formIdA && sel.formIdB
+      ? compareForms(sel.formIdA, sel.formIdB, {
+        forms: data.forms, raidRows: data.raids, pvpRows: data.pvp, gymRows: data.gym, roster: data.roster,
+      })
+      : null;
+    return `<div class="more-view">${BACK_TO_MORE}${renderCompareView({ comparison, forms: data.forms, selection: sel })}</div>`;
+  }
   if (view === "journal") return `<div class="more-view">${BACK_TO_MORE}${renderJournalView({
     ...(data.journal ?? {}),
     currentBosses: data.currentBosses,
@@ -805,6 +830,7 @@ export function renderMore(data = {}) {
   })}</div>`;
   if (view === "trophy") return `<div class="more-view">${BACK_TO_MORE}${renderTrophyView({
     roster: data.roster, forms: data.forms,
+    journal: data.journal, bestStreak: data.journal?.streak?.best ?? 0,
   })}</div>`;
   if (view === "tradeplanner") return `<div class="more-view">${BACK_TO_MORE}${renderTradePlannerView({
     roster: data.roster, forms: data.forms, friends: data.friends ?? [],

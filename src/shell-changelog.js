@@ -6,6 +6,18 @@
 
 export const SHELL_CHANGELOG = Object.freeze([
   Object.freeze({
+    rev: "r136", date: "2026-08-15",
+    added: Object.freeze([
+      "Battle simulation \u2014 the raid party panel now runs a deterministic fight sim (real damage formula, energy, faints, relobbies) over your best six, with every simplification listed under \"Simulation assumptions\".",
+      "Type Mastery (More \u2192 Library) \u2014 18-type bench meters: honest bands, your best owned attacker per type, and the best next build for the thin lanes.",
+      "Daily quests on Home \u2014 up to three checkable tasks generated from your real state (catch targets, raid logging, streak keeping, gen closing).",
+      "Milestone badges on the Hundo Wall \u2014 streaks, save counts, hundos, shinies, raid wins, gen completions; unearned ones show honest progress.",
+      "Boss countdown chips on Home \u2014 \"leaves in N days\" with an honest ready/not-ready check against your roster.",
+      "Compare (More \u2192 Library, or the Compare chip on any dex entry) \u2014 two Pok\u00e9mon head-to-head: stats with winners marked, rankings presence, gym verdicts, your owned copies.",
+      "Best Buddy Planner (More \u2192 Library) \u2014 which owned Pok\u00e9mon gains the most from the +1 buddy level, with computed damage-ratio estimates.",
+    ]),
+  }),
+  Object.freeze({
     rev: "r135", date: "2026-08-14",
     added: Object.freeze([
       "Field Journal (More \u2192 Library) \u2014 an automatic diary of your play: every catch you save (scans, quick-adds, imports), gen completions, raid results you tap in, and a day-streak that survives even when old entries age out.",

@@ -23,6 +23,19 @@ function emptyRosterHtml() {
   </div>`;
 }
 
+function simHtml(sim) {
+  if (!sim || !Number.isFinite(sim.timeToWinMs)) return "";
+  const totalSeconds = Math.round(sim.timeToWinMs / 1000);
+  const clock = `${Math.floor(totalSeconds / 60)}:${String(totalSeconds % 60).padStart(2, "0")}`;
+  const verdict = sim.won === false
+    ? `Simulated: this party doesn't clear in time (~${escapeHtml(clock)} needed)`
+    : `Simulated clear ~${escapeHtml(clock)} · ${sim.faints} faint${sim.faints === 1 ? "" : "s"}${sim.relobbies ? ` · ${sim.relobbies} relobby${sim.relobbies === 1 ? "" : "s"}` : ""}`;
+  const assumptions = (sim.assumptions ?? []).length
+    ? `<details class="party-sim-assumptions"><summary>Simulation assumptions</summary><ul>${sim.assumptions.map((line) => `<li>${escapeHtml(line)}</li>`).join("")}</ul></details>`
+    : "";
+  return `<div class="party-sim"><p class="party-sim-label">${verdict}</p>${assumptions}</div>`;
+}
+
 function estimateHtml(estimate) {
   if (!estimate?.label) return "";
   const confidence = estimate.confidence
@@ -72,6 +85,7 @@ function slotHtml(entry, index, forms) {
 
 export function renderPartyPanel({
   targetFormId, roster = {}, forms = {}, raids = {}, data = {}, trainerLevel = null, weather = null, partyResult = null,
+  simResult = null,
 } = {}) {
   // eslint/no-unused-vars has no gate here, but the mount signature is the
   // coordinator's contract — targetFormId/raids/data/trainerLevel/weather
@@ -90,6 +104,7 @@ export function renderPartyPanel({
   return `<section class="party-panel" aria-labelledby="party-panel-title">
     <p class="status-kicker">Battle party</p>
     <h2 id="party-panel-title">Your battle party</h2>
+    ${simHtml(simResult)}
     ${estimateHtml(partyResult?.estimate)}
     ${gapsHtml(partyResult?.gaps)}
     <ol class="party-slot-list">${slots.map((entry, index) => slotHtml(entry, index, forms)).join("")}</ol>

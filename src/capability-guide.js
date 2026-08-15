@@ -21,6 +21,8 @@ export const CAPABILITY_GUIDE = Object.freeze({
         Object.freeze({ name: "Showcase advisor", where: "Home timeline", what: "During a showcase event, your best-scoring Pokémon with recorded size — the score is a community-derived estimate and labeled as one." }),
         Object.freeze({ name: "Share tonight's plan", where: "Home briefing", what: "One-tap share cards — the featured plan, or the whole rotation in one card." }),
         Object.freeze({ name: "Today strip", where: "Home", what: "Up to five checkable tasks generated from live data — Max events tonight, bosses leaving, gens near completion." }),
+        Object.freeze({ name: "Daily quests", where: "Home", what: "Up to three checkable quests from your real state — catch targets, raid logging, streak keeping." }),
+        Object.freeze({ name: "Boss countdowns", where: "Home", what: "Chips for bosses leaving within a week, with an honest ready/not-ready roster check." }),
       ]),
     }),
     Object.freeze({
@@ -47,6 +49,10 @@ export const CAPABILITY_GUIDE = Object.freeze({
         Object.freeze({ name: "Trade Planner", where: "More → Library", what: "Trade bait and per-friend offers — precious singles always protected; friendship level and lucky odds live in-game, not here." }),
         Object.freeze({ name: "Hundo Wall", where: "More → Library", what: "Your hundos, shinies, luckies, giants and minis as a trophy room, with a shareable brag card." }),
         Object.freeze({ name: "Field Journal", where: "More → Library", what: "An automatic play diary — saved catches, gen completions, raid results you log, and a visit streak — with a weekly recap card. Lives on this device like everything else." }),
+        Object.freeze({ name: "Type Mastery", where: "More → Library", what: "18-type attacker bench meters with honest bands and the best next build for weak lanes." }),
+        Object.freeze({ name: "Compare", where: "More → Library / any dex entry", what: "Two Pokémon head-to-head — stats, rankings presence, gym verdicts, your copies." }),
+        Object.freeze({ name: "Best Buddy Planner", where: "More → Library", what: "Who gains most from the Best Buddy level, with computed estimates." }),
+        Object.freeze({ name: "Milestone badges", where: "Hundo Wall", what: "Streaks, saves, hundos, shinies, raid wins, gens — derived from your journal and roster, honest progress when unearned." }),
         Object.freeze({ name: "Backup and restore", where: "More → About", what: "Everything as one JSON file — export, AirDrop, merge or replace on another device." }),
       ]),
     }),
@@ -55,7 +61,7 @@ export const CAPABILITY_GUIDE = Object.freeze({
       items: Object.freeze([
         Object.freeze({ name: "Raid target tool", where: "Raids", what: "Counters per boss with weather, encounter bands, DPS-vs-practical movesets, and honest availability badges (Elite TM, event-only, legacy)." }),
         Object.freeze({ name: "Raid Group", where: "More → Raid Group", what: "Share no-secrets roster packs by AirDrop; the app answers group questions — best six across everyone, assignments per boss, power-up overlap." }),
-        Object.freeze({ name: "Your battle party", where: "Raids → target", what: "The best six from your actual roster vs the selected boss — role, why, a readiness band (a rough guide, not a simulation), and gap chips for what you're missing." }),
+        Object.freeze({ name: "Your battle party", where: "Raids → target", what: "The best six from your actual roster vs the selected boss — role, why, gap chips, and a deterministic battle sim (clear time, faints, relobbies) with its assumptions listed." }),
         Object.freeze({ name: "Gym defense", where: "Gyms", what: "Defender rankings, \"Beats X attackers\" bands (defense, not offense), an 18-type coverage grid against your collection, and a lineup builder with per-lead caps." }),
         Object.freeze({ name: "PvP", where: "PvP", what: "Great/Ultra/Master rankings, recommended movesets and rank-1 IVs, Anti-Meta board, My Team slots, and your own instances ranked against the 4,096 IV space — level 51 assumed only when Best Buddy is recorded." }),
         Object.freeze({ name: "Pokédex", where: "Dex", what: "Real flavor text and species categories, per-form stats, hundo and boss values, weaknesses, multi-role optimal offense with a second-charge suggestion, gym verdicts, league cards, Super Max availability, evolution chains, shiny artwork toggle, sibling-form switcher, two-panel layout on tablets." }),

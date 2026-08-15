@@ -117,9 +117,13 @@ const DEX_JUMP_SECTIONS = Object.freeze([
   ["dex-roster-title", "Yours"],
 ]);
 
-function jumpBarHtml() {
+function jumpBarHtml(formId = "") {
+  const compareChip = formId
+    ? `<button type="button" class="dex-jump-chip" data-action="compare-from-dex" data-compare-form-id="${escapeHtml(formId)}">Compare</button>`
+    : "";
   return `<nav class="dex-jump-bar" aria-label="Jump to section">
     ${DEX_JUMP_SECTIONS.map(([target, label]) => `<button type="button" class="dex-jump-chip" data-action="scroll-to" data-scroll-target="${target}">${label}</button>`).join("")}
+    ${compareChip}
   </nav>`;
 }
 
@@ -1734,7 +1738,7 @@ export function renderDex({
     <a class="safe-escape dex-back-link" href="./#more/collection" data-route="more" data-view="collection">Back to Collection</a>
     ${identitySection(form, forms, shinySprite)}
     ${siblingFormsRow(form, forms)}
-    ${jumpBarHtml()}
+    ${jumpBarHtml(form.form_id)}
     ${adjacentSpeciesRow(form, forms)}
     ${statsSection(form)}
     ${superMegaLine(form)}

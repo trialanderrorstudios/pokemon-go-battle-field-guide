@@ -4,6 +4,7 @@
 import { escapeHtml } from "./home.js";
 import { spriteHtml } from "../sprites.js";
 import { trophyCase } from "../trophy.js";
+import { badgesFrom } from "../badges.js";
 
 const SHELVES = Object.freeze([
   {
@@ -32,6 +33,26 @@ const SHELVES = Object.freeze([
     empty: "No minis recorded yet — scan or add one and it lands here.",
   },
 ]);
+
+function badgeTileHtml(badge) {
+  const detail = badge.earned ? badge.earnedDetail : badge.progressDetail;
+  return `<div class="badge-tile ${badge.earned ? "is-earned" : "is-locked"}">
+    <p class="badge-tile-label">${escapeHtml(badge.label)}</p>
+    <p class="badge-tile-detail">${escapeHtml(detail)}</p>
+  </div>`;
+}
+
+function badgeShelfHtml(badges) {
+  if (!badges.length) return "";
+  const earnedCount = badges.filter((badge) => badge.earned).length;
+  return `<section class="badge-shelf" aria-labelledby="badge-shelf-title">
+    <div class="trophy-shelf-heading">
+      <h3 id="badge-shelf-title">Badges</h3>
+      <span class="trophy-count-chip">${earnedCount}/${badges.length}</span>
+    </div>
+    <div class="badge-shelf-grid">${badges.map(badgeTileHtml).join("")}</div>
+  </section>`;
+}
 
 function summaryHeader(counts) {
   const parts = SHELVES
@@ -64,12 +85,14 @@ function shelfHtml(shelf, entries) {
   </section>`;
 }
 
-export function renderTrophyView({ roster, forms } = {}) {
+export function renderTrophyView({ roster, forms, journal, bestStreak } = {}) {
   const trophies = trophyCase({ roster, forms });
   const hasAny = Object.values(trophies.counts).some((count) => count > 0);
+  const badges = badgesFrom({ journal, bestStreak, roster, forms });
   return `<section class="trophy-view" aria-labelledby="trophy-view-title">
     <p class="status-kicker">Trophy case</p>
     <h2 id="trophy-view-title">Hundo Wall</h2>
+    ${badgeShelfHtml(badges)}
     <p class="trophy-summary">${escapeHtml(summaryHeader(trophies.counts))}</p>
     ${hasAny ? `<button type="button" class="briefing-share-card" data-action="share-trophy-card">Share my trophy case</button>` : ""}
     ${SHELVES.map((shelf) => shelfHtml(shelf, trophies[shelf.key])).join("")}

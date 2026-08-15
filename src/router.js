@@ -24,7 +24,7 @@ const ROUTE_VIEWS = Object.freeze({
   // working, which silently eats real ones too.
   more: [
     "roster", "settings", "about", "trades", "delta", "budget", "future", "megas", "coverage", "collection",
-    "shopguide", "purge", "dupes", "powerup", "capabilities", "changelog", "tradeplanner", "trophy", "group", "journal",
+    "shopguide", "purge", "dupes", "powerup", "capabilities", "changelog", "tradeplanner", "trophy", "group", "journal", "mastery", "compare", "buddyplanner",
   ],
 });
 
