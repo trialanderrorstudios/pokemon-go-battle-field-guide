@@ -6,6 +6,12 @@
 
 export const SHELL_CHANGELOG = Object.freeze([
   Object.freeze({
+    rev: "r138", date: "2026-08-16",
+    added: Object.freeze([
+      "Hold off on evolving \u2014 a Home advisory and a banner on affected dex entries when a Community Day is coming for a species' line: evolve during the window (not before) for the usually-granted exclusive move. Flips to \"evolve now\" while the event is live.",
+    ]),
+  }),
+  Object.freeze({
     rev: "r137", date: "2026-08-15",
     tweaked: Object.freeze([
       "Fixed: \"Share the whole rotation\" crashed on device (\"Can't find variable: state\") since r132 and then dumped you on the Raids tab — the share action now gets its rotation data the same way every other share card does.",

@@ -1375,6 +1375,7 @@ export function renderHome({
   briefingShareMessage = "",
   questsCardHtml = "",
   countdownChipsHtml = "",
+  evolutionHoldsCardHtml = "",
 } = {}) {
   const continueRoute = CONTINUE_ROUTES.has(continueTask?.route)
     ? continueTask.route
@@ -1398,6 +1399,7 @@ export function renderHome({
     currentBosses, currentEvents, raidTargetTool, forms, roster, data, storage, trainerLevel, gapByFormId, now, briefingShareMessage,
   })}
     ${questsCardHtml}
+    ${evolutionHoldsCardHtml}
     ${renderToday({
     data, roster, defenseLog, storage, gapByFormId, investRows, futureProof, now, profile: { trainerLevel },
   })}

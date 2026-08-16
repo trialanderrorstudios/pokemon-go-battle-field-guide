@@ -8166,3 +8166,8 @@ html:not([data-app-booted]) #app .fallback-section {
 }
 .journal-entry-glyph { flex: none; }
 .journal-timeline-empty { margin: 0; font-size: 0.85rem; color: var(--muted); }
+
+/* Evolution hold advisory (Community Day exclusive-move windows) */
+.dex-evolution-hold { margin: 0 0 0.5rem; font-size: 0.85rem; border: 1px solid var(--dx-lens-blue); border-radius: 8px; padding: 0.45rem 0.65rem; }
+.evolution-holds-row h2 { margin: 0 0 0.15rem; font-size: 1rem; }
+.evolution-holds-row + .evolution-holds-row { margin-top: 0.5rem; }

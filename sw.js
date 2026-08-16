@@ -67,6 +67,7 @@ const SHELL_CODE_FILES = Object.freeze([
   "./src/buddy-planner.js",
   "./src/compare.js",
   "./src/daily-quests.js",
+  "./src/evolution-holds.js",
   "./src/type-mastery.js",
   "./src/group-store.js",
   "./src/guide.js",

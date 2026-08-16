@@ -53,6 +53,7 @@ import { loadJournal, logJournalEntry, streakInfo, weeklyRecap } from "./journal
 import { genJustCompleted } from "./journal-hooks.js";
 import { generateQuests, loadQuestState, toggleQuest, renderDailyQuestsCard } from "./daily-quests.js";
 import { bossCountdowns, renderCountdownChips } from "./boss-countdown.js";
+import { evolutionHolds, holdForFormId, renderEvolutionHoldsCard } from "./evolution-holds.js";
 import { simulateParty } from "./battle-sim.js";
 import { renderPartyPanel } from "./views/party.js";
 import { clearBuddyPlan, loadBuddyPlan, saveBuddyPlan } from "./buddy.js";
@@ -4966,9 +4967,16 @@ export function bootstrap({
         }),
         forms: state.core.forms,
       });
+      const evolutionHoldsCardHtml = renderEvolutionHoldsCard({
+        holds: evolutionHolds({
+          currentEvents: state.currentEvents, forms: state.core.forms, roster, now: new Date(),
+        }),
+        forms: state.core.forms,
+      });
       app.innerHTML = interactionNotice(ui) + renderHome({
         questsCardHtml,
         countdownChipsHtml,
+        evolutionHoldsCardHtml,
         cutoff: state.core.meta?.asOf,
         offlineStatus: state.offlineStatus ?? offlineLabel(releaseState),
         updateStatus: state.updateStatus ?? releaseLabel(releaseState),
@@ -5066,6 +5074,9 @@ export function bootstrap({
       const railScrollTop = previousRail ? previousRail.scrollTop : null;
       app.innerHTML = interactionNotice(ui) + renderDex({
         formId: view,
+        evolutionHold: holdForFormId(evolutionHolds({
+          currentEvents: state.currentEvents, forms: state.core.forms, roster, now: new Date(),
+        }), view),
         forms: state.core.forms,
         gym: state.gym,
         pvp: state.pvp,

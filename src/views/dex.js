@@ -503,13 +503,19 @@ function evolutionChainHtml(node, currentFormId) {
 }
 
 
-function evolutionSection(form, forms) {
+function evolutionSection(form, forms, evolutionHold = null) {
   const { root } = evolutionAcquisition(form, forms);
   const isStandalone = root.form_id === form.form_id && !(form.evolves_to ?? []).length;
   if (isStandalone) return "";
   const tree = evolutionTree(root, forms);
+  // Community Day hold advisory (evolution-holds.js) — the one moment where
+  // "don't evolve yet" beats every other line on this page.
+  const holdBanner = evolutionHold
+    ? `<p class="dex-evolution-hold" data-status="${escapeHtml(evolutionHold.status)}">${escapeHtml(evolutionHold.line)}</p>`
+    : "";
   return `<section class="dex-section" aria-labelledby="dex-evolution-title">
     <h3 id="dex-evolution-title">Evolution</h3>
+    ${holdBanner}
     <p class="dex-evolution-chain">${evolutionChainHtml(tree, form.form_id)}</p>
   </section>`;
 }
@@ -1703,6 +1709,7 @@ function dexIndexRailHtml(currentForm, forms, roster, { query = "", filter = "al
 export function renderDex({
   formId,
   shinySprite = false,
+  evolutionHold = null,
   forms = {},
   gym = null,
   pvp = null,
@@ -1749,7 +1756,7 @@ export function renderDex({
     ${raidAttackerSection(form, raids, raidsLoaded)}
     ${pvpSection(form, pvp, roster, raids)}
     ${movesSection(form)}
-    ${evolutionSection(form, forms)}
+    ${evolutionSection(form, forms, evolutionHold)}
     ${acquisitionSection(form, acquisitionGuide, forms)}
     ${availabilitySection(form, currentEggs)}
     ${yourRosterSection(form, roster, quickAdd, raids, raidsLoaded, gym, forms, ocrIntake, pvp)}

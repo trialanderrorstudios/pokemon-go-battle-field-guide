@@ -23,6 +23,7 @@ export const CAPABILITY_GUIDE = Object.freeze({
         Object.freeze({ name: "Today strip", where: "Home", what: "Up to five checkable tasks generated from live data — Max events tonight, bosses leaving, gens near completion." }),
         Object.freeze({ name: "Daily quests", where: "Home", what: "Up to three checkable quests from your real state — catch targets, raid logging, streak keeping." }),
         Object.freeze({ name: "Boss countdowns", where: "Home", what: "Chips for bosses leaving within a week, with an honest ready/not-ready roster check." }),
+        Object.freeze({ name: "Evolution holds", where: "Home + dex entries", what: "Warns before you evolve into a Community Day — the exclusive move usually requires evolving during the event window." }),
       ]),
     }),
     Object.freeze({
