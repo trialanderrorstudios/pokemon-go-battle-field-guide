@@ -694,7 +694,7 @@ function liveMaxBosses(currentMaxBattles, now) {
 }
 
 function maxLaneCardHtml({
-  event, forms, roster, storage, now, currentMaxBattles,
+  event, forms, roster, storage, now, currentMaxBattles, raidTargetTool,
 }) {
   const subject = maxEventSubject(event.name);
   const displayName = subject ? `${subject.modifier} ${subject.species}` : event.name;
@@ -717,10 +717,19 @@ function maxLaneCardHtml({
       </div>
     </div>
     <p class="briefing-note">${escapeHtml(formatEventWhen(event.startsAt, event.endsAt, now))}</p>
-    ${liveMaxBosses(currentMaxBattles, now).map((boss) => `<p class="briefing-note">Now in Max Battle spots: <a href="./#dex/${encodeURIComponent(boss.formId)}" data-route="dex">${escapeHtml(`${boss.kind} ${forms?.[boss.formId]?.name ?? boss.formId}`)}</a> (through ${escapeHtml(boss.endsAt)})</p>`).join("")}
+    ${liveMaxBosses(currentMaxBattles, now).map((boss) => {
+    // Catch values from the raid target tool's fixed-level bands — Max
+    // Battle encounters catch at the same level-20 band raids use. Only
+    // rendered when the tool actually has this species; never a guess.
+    const target = (raidTargetTool?.targets ?? []).find((row) => row.bossFormId === boss.formId);
+    const catchLine = target?.normal
+      ? ` — hundo ${escapeHtml(target.normal.hundoCP)} CP at the level-${escapeHtml(Math.round(target.normal.level))} catch (IV floor ${escapeHtml(target.normal.minimumRaidIVCP)})`
+      : "";
+    return `<p class="briefing-note">Now in Max Battle spots: <a href="./#dex/${encodeURIComponent(boss.formId)}" data-route="dex">${escapeHtml(`${boss.kind} ${forms?.[boss.formId]?.name ?? boss.formId}`)}</a> (through ${escapeHtml(boss.endsAt)})${catchLine}</p>`;
+  }).join("")}
     <p class="briefing-note">${escapeHtml(maxReadyLine(roster?.instances))}</p>
     <p class="briefing-note">${liveMaxBosses(currentMaxBattles, now).length
-      ? "Current boss reported by the operator from in-game — no public feed carries it."
+      ? "Max bosses come from the operator's in-game reports and the Max Monday events feed."
       : "Boss rotation isn't in the data feed — this card tracks scheduled Max events."}</p>
   </div>`;
   return `<div class="briefing-lane-card${collapsed ? " is-collapsed" : ""}">
@@ -1056,7 +1065,7 @@ export function renderFieldBriefing({
   // rotation up doesn't get a briefing shell of its own today.
   const maxEvent = pickMaxEvent(currentEvents?.events, now);
   const maxCardHtml = maxEvent ? maxLaneCardHtml({
-    event: maxEvent, forms, roster, storage, now, currentMaxBattles: data?.currentMaxBattles,
+    event: maxEvent, forms, roster, storage, now, currentMaxBattles: data?.currentMaxBattles, raidTargetTool,
   }) : "";
   const body = `${cardsHtml || maxCardHtml
     ? `${cardsHtml}${maxCardHtml}`
