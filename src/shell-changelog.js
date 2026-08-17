@@ -6,6 +6,12 @@
 
 export const SHELL_CHANGELOG = Object.freeze([
   Object.freeze({
+    rev: "r140", date: "2026-08-17",
+    tweaked: Object.freeze([
+      "Fixed: the briefing disagreed with itself on Max Monday (the event line said Magikarp while the current-boss row still said Beldum). Max Monday bosses now derive straight from the events feed \u2014 no more waiting on a manual Monday report \u2014 and future Mondays stay out of the \"live now\" lines until their day arrives.",
+    ]),
+  }),
+  Object.freeze({
     rev: "r139", date: "2026-08-16",
     added: Object.freeze([
       "Sim everywhere \u2014 the Raid Target page now shows a solo/duo/group verdict simulated from your actual best six, and each counter you own (in the detailed view) carries its simulated solo pace and faint count.",

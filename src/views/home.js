@@ -678,10 +678,19 @@ function maxReadyLine(instances) {
 // (data/curated/max-battles.json, operator-as-sensor like the raid hotfix).
 // Expiry is end-of-day fail-closed, same endOfDay semantics as the raid
 // briefing: an expired row disappears rather than lying.
+function startOfDayString(dateString) {
+  const [year, month, day] = String(dateString).split("-").map(Number);
+  return new Date(year, month - 1, day);
+}
+
 function liveMaxBosses(currentMaxBattles, now) {
   return (currentMaxBattles?.bosses ?? []).filter((boss) => !(typeof boss.endsAt === "string"
     && !Number.isNaN(Date.parse(boss.endsAt))
-    && endOfDay(boss.endsAt) < now));
+    && endOfDay(boss.endsAt) < now)
+    // Feed-derived future Max Monday rows carry startsAt — not live yet.
+    && !(typeof boss.startsAt === "string"
+      && !Number.isNaN(Date.parse(boss.startsAt))
+      && startOfDayString(boss.startsAt) > now));
 }
 
 function maxLaneCardHtml({

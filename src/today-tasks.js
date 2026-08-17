@@ -92,6 +92,11 @@ function rotationEndingRow({ currentBosses, forms, now }) {
 // Battle spots" note reads.
 function maxBossEndingRow({ currentMaxBattles, forms, now }) {
   const candidates = (currentMaxBattles?.bosses ?? [])
+    // Feed-derived future Max Monday rows carry startsAt — not a today task.
+    .filter((boss) => !(typeof boss.startsAt === "string" && (() => {
+      const [year, month, day] = boss.startsAt.split("-").map(Number);
+      return new Date(year, month - 1, day) > now;
+    })()))
     .map((boss) => ({ boss, label: relativeDayLabel(boss.endsAt, now) }))
     .filter((row) => row.label)
     .sort((left, right) => daysUntil(left.boss.endsAt, now) - daysUntil(right.boss.endsAt, now)
