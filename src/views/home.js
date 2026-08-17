@@ -1376,6 +1376,7 @@ export function renderHome({
   questsCardHtml = "",
   countdownChipsHtml = "",
   evolutionHoldsCardHtml = "",
+  streakChipHtml = "",
 } = {}) {
   const continueRoute = CONTINUE_ROUTES.has(continueTask?.route)
     ? continueTask.route
@@ -1394,6 +1395,7 @@ export function renderHome({
       <div class="search-recents" data-search-recents></div>
       <div data-search-results></div>
     </form>
+    ${streakChipHtml}
     ${countdownChipsHtml}
     ${renderFieldTimeline({
     currentBosses, currentEvents, raidTargetTool, forms, roster, data, storage, trainerLevel, gapByFormId, now, briefingShareMessage,

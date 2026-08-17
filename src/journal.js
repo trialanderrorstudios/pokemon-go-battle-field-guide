@@ -9,7 +9,7 @@ import { todayDateISO } from "./today-tasks.js";
 
 const JOURNAL_STORAGE_KEY = "pogo-field-journal";
 const MAX_ENTRIES = 500;
-const KINDS = new Set(["instance-added", "gen-completed", "raid-logged", "visit"]);
+const KINDS = new Set(["instance-added", "gen-completed", "raid-logged", "visit", "quest-completed"]);
 
 function isPlainObject(value) {
   if (value === null || typeof value !== "object") return false;
@@ -167,5 +167,6 @@ export function weeklyRecap(entries, roster, now = new Date()) {
     raidsWon: raids.filter((e) => e.detail?.outcome === "won").length,
     raidsLost: raids.filter((e) => e.detail?.outcome === "lost").length,
     gensCompleted: windowEntries.filter((e) => e.kind === "gen-completed").length,
+    quests: windowEntries.filter((e) => e.kind === "quest-completed").length,
   };
 }

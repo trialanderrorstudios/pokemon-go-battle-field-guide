@@ -12,6 +12,7 @@ const KIND_GLYPH = Object.freeze({
   "instance-added": "➕",
   "gen-completed": "✅",
   visit: "📍",
+  "quest-completed": "🎯",
 });
 const DEFAULT_GLYPH = "•";
 
@@ -45,6 +46,7 @@ function entryLine(entry, forms) {
     return `Raid: ${boss}`;
   }
   if (kind === "visit") return "Checked in";
+  if (kind === "quest-completed") return `Quest done: ${detail?.label ?? "a quest"}`;
   return "Journal entry";
 }
 
@@ -63,6 +65,18 @@ function streakHeaderHtml(streak) {
   </section>`;
 }
 
+// Home-header chip form of the same streak fact — a 0-1 day streak is noise
+// (everyone's on day 1 after their first visit), so it renders "" below 2,
+// same honesty rule as streakHeaderHtml's zero state. Reuses .tl-now-chip
+// (Home's own pill class, home.js "The timeline" divider) and the
+// already-shipped .journal-flame glow rather than a new chip class.
+export function streakChipHtml(streak) {
+  const current = Math.max(0, Math.floor(Number(streak?.current) || 0));
+  if (current < 2) return "";
+  const best = Math.max(0, Math.floor(Number(streak?.best) || 0));
+  return `<span class="tl-now-chip" title="Best streak: ${best} day${best === 1 ? "" : "s"}"><span class="journal-flame" aria-hidden="true">🔥</span> ${current}-day streak</span>`;
+}
+
 // Order here is also render order for the chip row.
 const RECAP_CHIPS = Object.freeze([
   // saves first (review catch: manual catches counted for nothing, so a
@@ -74,6 +88,7 @@ const RECAP_CHIPS = Object.freeze([
   { key: "raidsWon", label: (n) => `${n} raid${n === 1 ? "" : "s"} won` },
   { key: "raidsLost", label: (n) => `${n} raid${n === 1 ? "" : "s"} lost` },
   { key: "gensCompleted", label: (n) => `${n} gen${n === 1 ? "" : "s"} completed` },
+  { key: "quests", label: (n) => `${n} quest${n === 1 ? "" : "s"} done` },
 ]);
 
 function recapCardHtml(recap) {

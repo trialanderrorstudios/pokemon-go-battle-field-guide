@@ -5,6 +5,7 @@
 // core.forms for identity. Absence renders as a stated fact ("not ranked"),
 // never a blank — see §7 of the spec.
 import { escapeHtml, ownedStarButton } from "./home.js";
+import { renderEvolveChecklistCard } from "../evolve-checklist.js";
 import { moveLink, displayMoveName } from "./move-sheet.js";
 import { spriteHtml } from "../sprites.js";
 import { typeChip } from "./types.js";
@@ -503,7 +504,7 @@ function evolutionChainHtml(node, currentFormId) {
 }
 
 
-function evolutionSection(form, forms, evolutionHold = null) {
+function evolutionSection(form, forms, evolutionHold = null, evolveChecklistData = null) {
   const { root } = evolutionAcquisition(form, forms);
   const isStandalone = root.form_id === form.form_id && !(form.evolves_to ?? []).length;
   if (isStandalone) return "";
@@ -517,6 +518,7 @@ function evolutionSection(form, forms, evolutionHold = null) {
     <h3 id="dex-evolution-title">Evolution</h3>
     ${holdBanner}
     <p class="dex-evolution-chain">${evolutionChainHtml(tree, form.form_id)}</p>
+    ${renderEvolveChecklistCard({ checklist: evolveChecklistData })}
   </section>`;
 }
 
@@ -1710,6 +1712,7 @@ export function renderDex({
   formId,
   shinySprite = false,
   evolutionHold = null,
+  evolveChecklistData = null,
   forms = {},
   gym = null,
   pvp = null,
@@ -1756,7 +1759,7 @@ export function renderDex({
     ${raidAttackerSection(form, raids, raidsLoaded)}
     ${pvpSection(form, pvp, roster, raids)}
     ${movesSection(form)}
-    ${evolutionSection(form, forms, evolutionHold)}
+    ${evolutionSection(form, forms, evolutionHold, evolveChecklistData)}
     ${acquisitionSection(form, acquisitionGuide, forms)}
     ${availabilitySection(form, currentEggs)}
     ${yourRosterSection(form, roster, quickAdd, raids, raidsLoaded, gym, forms, ocrIntake, pvp)}

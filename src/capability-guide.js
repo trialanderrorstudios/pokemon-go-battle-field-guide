@@ -24,6 +24,9 @@ export const CAPABILITY_GUIDE = Object.freeze({
         Object.freeze({ name: "Daily quests", where: "Home", what: "Up to three checkable quests from your real state — catch targets, raid logging, streak keeping." }),
         Object.freeze({ name: "Boss countdowns", where: "Home", what: "Chips for bosses leaving within a week, with an honest ready/not-ready roster check." }),
         Object.freeze({ name: "Evolution holds", where: "Home + dex entries", what: "Warns before you evolve into a Community Day — the exclusive move usually requires evolving during the event window." }),
+        Object.freeze({ name: "Solo/duo verdicts", where: "Raids → target", what: "Simulated call on whether your best six can solo, duo, or need a group — with per-counter solo pace on owned attackers." }),
+        Object.freeze({ name: "XL Advisor", where: "More → Library", what: "Which owned Pokémon justify the level-50 XL push, with computed gains and standard costs." }),
+        Object.freeze({ name: "Before you evolve", where: "dex entries", what: "Best copy to evolve, candy cost, ranked-or-not, and the Community Day hold in one card." }),
       ]),
     }),
     Object.freeze({

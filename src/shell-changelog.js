@@ -6,6 +6,16 @@
 
 export const SHELL_CHANGELOG = Object.freeze([
   Object.freeze({
+    rev: "r139", date: "2026-08-16",
+    added: Object.freeze([
+      "Sim everywhere \u2014 the Raid Target page now shows a solo/duo/group verdict simulated from your actual best six, and each counter you own (in the detailed view) carries its simulated solo pace and faint count.",
+      "XL Advisor (More \u2192 Library) \u2014 which owned Pok\u00e9mon are worth pushing past level 40, with real CPM gains and the standard XL cost table.",
+      "Before-you-evolve checklist on dex entries \u2014 which copy to evolve (shiny/lucky flagged), candy cost, whether the evolved form is ranked, and the Community Day hold in one card.",
+      "Day-streak flame on Home and quest completions now land in the Field Journal's weekly recap.",
+      "App-icon shortcuts: Field Journal and My Roster join the long-press menu.",
+    ]),
+  }),
+  Object.freeze({
     rev: "r138", date: "2026-08-16",
     added: Object.freeze([
       "Hold off on evolving \u2014 a Home advisory and a banner on affected dex entries when a Community Day is coming for a species' line: evolve during the window (not before) for the usually-granted exclusive move. Flips to \"evolve now\" while the event is live.",

@@ -54,7 +54,10 @@ import { genJustCompleted } from "./journal-hooks.js";
 import { generateQuests, loadQuestState, toggleQuest, renderDailyQuestsCard } from "./daily-quests.js";
 import { bossCountdowns, renderCountdownChips } from "./boss-countdown.js";
 import { evolutionHolds, holdForFormId, renderEvolutionHoldsCard } from "./evolution-holds.js";
+import { evolveChecklist } from "./evolve-checklist.js";
+import { streakChipHtml } from "./views/journal.js";
 import { simulateParty } from "./battle-sim.js";
+import { counterSimTimes, soloVerdict } from "./sim-verdicts.js";
 import { renderPartyPanel } from "./views/party.js";
 import { clearBuddyPlan, loadBuddyPlan, saveBuddyPlan } from "./buddy.js";
 import {
@@ -1422,6 +1425,7 @@ export function createInteractionController({
   getTriageResult = () => ({ entries: [] }),
   getRaidPlanCardData = () => null,
   getRotationPackCardData = () => null,
+  getCurrentBosses = () => null,
   getGymLineupCardData = () => null,
   onRosterChanged = () => {},
   searchRefresh = () => {},
@@ -1735,6 +1739,7 @@ export function createInteractionController({
     getTriageResult,
     getRaidPlanCardData,
     getRotationPackCardData,
+    getCurrentBosses,
     getGymLineupCardData,
     handleFailure(error) {
       ui.interactionMessage = `Could not save changes: ${error?.message ?? error}`;
@@ -3609,7 +3614,27 @@ export function createInteractionController({
         rerenderCurrent();
       } else if (action === "quest-toggle") {
         const questId = actionEl.dataset.questId;
-        if (questId) toggleQuest(storage, todayDateISO(new Date()), questId);
+        if (questId) {
+          const dateKey = todayDateISO(new Date());
+          const nextState = toggleQuest(storage, dateKey, questId);
+          // Log only a completion (unchecked -> checked), never an un-check;
+          // label from the same deterministic quest list the user tapped.
+          if (nextState[questId]) {
+            const { entries, bestStreak } = loadJournal(storage);
+            const quest = generateQuests({
+              dateKey, roster, forms,
+              currentBosses: (api.getCurrentBosses ?? getCurrentBosses)?.() ?? null,
+              journal: { entries, streak: streakInfo(entries, new Date(), bestStreak) },
+            }).find((row) => row.id === questId);
+            if (quest) {
+              logJournalEntry(storage, {
+                kind: "quest-completed",
+                at: new Date().toISOString(),
+                detail: { questId: quest.id, label: quest.label },
+              });
+            }
+          }
+        }
         rerenderCurrent();
       } else if (action === "compare-from-dex") {
         // Dex entry point: prefill side A with this entry, then open Compare.
@@ -4255,7 +4280,7 @@ function breakpointsSection(form, bestInstance, bossTypes, { moveCatalog, weathe
 
 function raidCounterCard(row, roster, forms, {
   fromLevel, budgetPickIds, deploymentMap, stardust, candyInventory, moveCatalog, weather, targetDefense,
-} = {}, bossTypes = []) {
+} = {}, bossTypes = [], simTime = null) {
   const owned = (roster.ownedFormIds ?? []).includes(row.formId);
   const ownedCount = owned
     ? (Number.isInteger(roster.ownedFormCounts?.[row.formId]) ? roster.ownedFormCounts[row.formId] : 1)
@@ -4283,6 +4308,7 @@ function raidCounterCard(row, roster, forms, {
     <p><strong>Optimal DPS moves:</strong> ${optimalMoves}</p>
     ${movesDisagree ? `<p><strong>Practical moves:</strong> ${practicalMoves}</p>` : ""}
     <p>${Number.isFinite(Number(dps)) ? `${Number(dps).toFixed(2)} standardized DPS` : "DPS unavailable"} · ${escapeHtml(row.investmentTier)}${row.weatherBoosted ? ` · <span class="weather-boosted-badge">Boosted today</span>` : ""}</p>
+    ${simTime ? `<p class="raid-sim-line">${escapeHtml(simTime.label)}</p>` : ""}
     <p><strong>Availability:</strong> ${escapeHtml(row.availability ?? "Availability not documented")}</p>
     ${isBudgetPick ? `<p class="budget-verdict">Community pick: strong value</p>` : ""}
     ${deployment ? `<p class="budget-verdict">Defending a gym right now</p>` : ""}
@@ -4406,17 +4432,27 @@ function raidTargetSurface(state, ui, roster) {
   // chunk has landed; failures degrade to the qualitative estimate, never
   // block the panel.
   let partySimResult = null;
-  if (state.moveSettings && partyResult?.party?.length && state.core?.forms?.[ui.raid.targetFormId]) {
+  let counterTimes = null;
+  let raidSoloVerdict = null;
+  if (state.moveSettings && state.core?.forms?.[ui.raid.targetFormId]) {
     const bossTier = (state.currentBosses?.bosses ?? []).find((boss) => boss.formId === ui.raid.targetFormId)?.tier ?? null;
-    try {
-      partySimResult = simulateParty(
-        partyResult.party.map(({ instance, form }) => ({ ...instance, form })),
-        { form: state.core.forms[ui.raid.targetFormId], tier: bossTier ?? "Tier 5", moveset: null },
-        { moveSettings: state.moveSettings, weather: ui.weather },
-      );
-    } catch {
-      partySimResult = null;
+    const simBoss = { form: state.core.forms[ui.raid.targetFormId], tier: bossTier ?? "Tier 5", moveset: null };
+    const simSettings = { moveSettings: state.moveSettings, weather: ui.weather };
+    if (partyResult?.party?.length) {
+      try {
+        partySimResult = simulateParty(
+          partyResult.party.map(({ instance, form }) => ({ ...instance, form })),
+          simBoss,
+          simSettings,
+        );
+      } catch {
+        partySimResult = null;
+      }
     }
+    counterTimes = counterSimTimes({
+      counters: rows, boss: simBoss, roster, forms: state.core.forms, settings: simSettings,
+    });
+    raidSoloVerdict = soloVerdict({ boss: simBoss, settings: simSettings, partyResult });
   }
   const partyPanelHtml = renderPartyPanel({
     targetFormId: ui.raid.targetFormId,
@@ -4442,6 +4478,7 @@ function raidTargetSurface(state, ui, roster) {
       <p class="type-chip-list" aria-label="Boss weaknesses">Weak to: ${plan.weaknesses.length ? plan.weaknesses.map((row) => (
     `<span class="type-weak-badge${row.effectiveness >= 2.56 ? " is-double" : ""}">${typeChip(row.attackingType)}${row.effectiveness >= 2.56 ? "4x" : "2x"}</span>`
   )).join("") : "None documented"}</p>
+      ${raidSoloVerdict ? `<p class="raid-solo-verdict" data-solo-verdict="${escapeHtml(raidSoloVerdict.verdict)}">${escapeHtml(raidSoloVerdict.line)}</p>` : ""}
     </div>
     ${partyPanelHtml}
     <div class="raid-cp-lines">
@@ -4481,7 +4518,7 @@ function raidTargetSurface(state, ui, roster) {
     </div>
     <h3>${escapeHtml(laneLabel)}</h3>
     ${rows.length ? (ui.raid.showAll
-      ? `<ol class="raid-card-list">${rows.map((row) => raidCounterCard(row, roster, forms, cardOptions, bossTypes)).join("")}</ol>`
+      ? `<ol class="raid-card-list">${rows.map((row, rowIndex) => raidCounterCard(row, roster, forms, cardOptions, bossTypes, counterTimes?.[rowIndex] ?? null)).join("")}</ol>`
       : beginnerCounterGroups(beginnerGroups, roster, bossTypes, forms, cardOptions)) : (ui.raid.counterLane === "owned"
       ? "<p>Star Pokémon you own and this fills in with your best raid team.</p>"
       : "<p>No owned qualifying counter is marked yet.</p>")}
@@ -4785,6 +4822,7 @@ export function bootstrap({
   const getRotationPackCardData = () => rotationPackCardData({
     currentBosses: state.currentBosses, forms: state.core.forms, data: state,
   });
+  const getCurrentBosses = () => state.currentBosses;
   // Roster gap coverage (round 15, gap-analyzer.js) needs raids.json's
   // ranked rows — gap-analyzer.js iterates both raids.regular and
   // raids.shadow, so this is gated on BOTH split files actually being loaded
@@ -4977,6 +5015,7 @@ export function bootstrap({
         questsCardHtml,
         countdownChipsHtml,
         evolutionHoldsCardHtml,
+        streakChipHtml: streakChipHtml(questJournal.streak),
         cutoff: state.core.meta?.asOf,
         offlineStatus: state.offlineStatus ?? offlineLabel(releaseState),
         updateStatus: state.updateStatus ?? releaseLabel(releaseState),
@@ -5072,11 +5111,16 @@ export function bootstrap({
       // string-based test harness (no real querySelector there).
       const previousRail = app?.querySelector?.(".dex-rail");
       const railScrollTop = previousRail ? previousRail.scrollTop : null;
+      const dexHolds = evolutionHolds({
+        currentEvents: state.currentEvents, forms: state.core.forms, roster, now: new Date(),
+      });
       app.innerHTML = interactionNotice(ui) + renderDex({
         formId: view,
-        evolutionHold: holdForFormId(evolutionHolds({
-          currentEvents: state.currentEvents, forms: state.core.forms, roster, now: new Date(),
-        }), view),
+        evolutionHold: holdForFormId(dexHolds, view),
+        evolveChecklistData: evolveChecklist({
+          formId: view, forms: state.core.forms, roster, holds: dexHolds,
+          raidRows: state.raids, pvpRows: state.pvp,
+        }),
         forms: state.core.forms,
         gym: state.gym,
         pvp: state.pvp,
@@ -5487,6 +5531,7 @@ export function bootstrap({
     getTriageResult,
     getRaidPlanCardData,
     getRotationPackCardData,
+    getCurrentBosses,
     getGymLineupCardData,
     onRosterChanged() { triageResult = null; },
     searchRefresh: () => searchRefresh(),
