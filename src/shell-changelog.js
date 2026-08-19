@@ -6,6 +6,15 @@
 
 export const SHELL_CHANGELOG = Object.freeze([
   Object.freeze({
+    rev: "r142", date: "2026-08-19",
+    added: Object.freeze([
+      "The weekly raid rotation now follows the events feed automatically \u2014 Tier 5, Mega, and Shadow raid lanes flip the moment their week starts (Lunala and Mega Swampert today), including multi-boss weeks, with future weeks held back until their day. Operator reports still override.",
+    ]),
+    tweaked: Object.freeze([
+      "Fixed: the briefing's raid lanes went empty when a rotation week rolled over before the operator reported it (Groudon/Mega Garchomp expired, nothing replaced them).",
+    ]),
+  }),
+  Object.freeze({
     rev: "r141", date: "2026-08-17",
     tweaked: Object.freeze([
       "Live Max Battle boss lines on the briefing now carry catch values \u2014 hundo CP and the IV-floor CP at the level-20 catch, straight from the raid target tool.",

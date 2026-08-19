@@ -120,8 +120,16 @@ function endOfDay(dateString) {
   return new Date(year, month - 1, day, 23, 59, 59, 999);
 }
 
+// A derived future-week row (startsAt from the events feed) is not live yet.
+function hasStarted(boss, now) {
+  if (typeof boss?.startsAt !== "string" || Number.isNaN(Date.parse(boss.startsAt))) return true;
+  const [year, month, day] = boss.startsAt.split("-").map(Number);
+  return new Date(year, month - 1, day) <= now;
+}
+
 function liveBosses(currentBosses, now) {
-  return (currentBosses?.bosses ?? []).filter((boss) => !(typeof boss?.endsAt === "string"
+  return (currentBosses?.bosses ?? []).filter((boss) => hasStarted(boss, now)
+    && !(typeof boss?.endsAt === "string"
     && !Number.isNaN(Date.parse(boss.endsAt))
     && endOfDay(boss.endsAt) < now));
 }

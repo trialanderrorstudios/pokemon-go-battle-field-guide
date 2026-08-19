@@ -86,10 +86,18 @@ function lineFor({ name, daysLeft, readiness }) {
 // leaving first. Expired bosses (endsAt already past) are excluded, not
 // shown as overdue — same fail-closed contract renderFieldBriefing's own
 // expiry filter uses.
+// A derived future-week row (startsAt from the events feed) is not live yet.
+function hasStarted(boss, now) {
+  if (typeof boss?.startsAt !== "string" || Number.isNaN(Date.parse(boss.startsAt))) return true;
+  const [year, month, day] = boss.startsAt.split("-").map(Number);
+  return new Date(year, month - 1, day) <= now;
+}
+
 export function bossCountdowns({
   currentBosses, roster, forms, raidRows, now = new Date(),
 } = {}) {
   return (currentBosses?.bosses ?? [])
+    .filter((boss) => hasStarted(boss, now))
     .map((boss) => ({ boss, daysLeft: daysUntil(boss.endsAt, now) }))
     .filter((row) => row.daysLeft !== null && row.daysLeft >= 0 && row.daysLeft <= WINDOW_DAYS)
     .sort((left, right) => left.daysLeft - right.daysLeft || left.boss.formId.localeCompare(right.boss.formId))

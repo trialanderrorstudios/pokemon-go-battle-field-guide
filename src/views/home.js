@@ -965,7 +965,11 @@ export function renderFieldBriefing({
   // rotation-refresh note instead of implying now-ness the data cannot back.
   const bosses = allBosses.filter((boss) => !(typeof boss.endsAt === "string"
     && !Number.isNaN(Date.parse(boss.endsAt))
-    && endOfDay(boss.endsAt) < now));
+    && endOfDay(boss.endsAt) < now)
+    // Feed-derived future-week rows carry startsAt — not in today's rotation.
+    && !(typeof boss.startsAt === "string"
+      && !Number.isNaN(Date.parse(boss.startsAt))
+      && startOfDayString(boss.startsAt) > now));
   const expiredCount = allBosses.length - bosses.length;
   if (!bosses.length) return "";
   const fingerprint = rotationFingerprint(currentBosses);
