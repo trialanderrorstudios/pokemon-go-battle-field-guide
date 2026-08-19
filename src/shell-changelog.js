@@ -6,6 +6,12 @@
 
 export const SHELL_CHANGELOG = Object.freeze([
   Object.freeze({
+    rev: "r144", date: "2026-08-19",
+    tweaked: Object.freeze([
+      "The Max card now headlines the boss that is live RIGHT NOW (Dynamax Magikarp this week) instead of leading with next Monday's schedule — the upcoming Max Monday demotes to a note line under it.",
+    ]),
+  }),
+  Object.freeze({
     rev: "r143", date: "2026-08-19",
     added: Object.freeze([
       "The fun-effects pass: a gold particle burst when you save a hundo (purple for a shiny), the save confirmation pops instead of appearing, quest checkmarks tick with a bounce, the streak flame breathes, and earned badges shimmer once. All of it stays quiet under Reduce Motion.",

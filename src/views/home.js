@@ -696,16 +696,25 @@ function liveMaxBosses(currentMaxBattles, now) {
 function maxLaneCardHtml({
   event, forms, roster, storage, now, currentMaxBattles, raidTargetTool,
 }) {
+  // Headline priority (operator report 2026-08-19: the card led with NEXT
+  // Monday's Hitmontop while Magikarp was the live boss all week): a boss
+  // that is live RIGHT NOW owns the headline; the scheduled next Max Monday
+  // demotes to a note line. Only with nothing live does the upcoming event
+  // headline the card.
+  const liveNow = liveMaxBosses(currentMaxBattles, now);
+  const liveHeadline = liveNow[0] ?? null;
   const subject = maxEventSubject(event.name);
-  const displayName = subject ? `${subject.modifier} ${subject.species}` : event.name;
-  const formId = event.formId ?? null;
+  const displayName = liveHeadline
+    ? `${liveHeadline.kind} ${forms?.[liveHeadline.formId]?.name ?? liveHeadline.formId}`
+    : (subject ? `${subject.modifier} ${subject.species}` : event.name);
+  const formId = liveHeadline ? liveHeadline.formId : (event.formId ?? null);
   const sprite = formId
     ? spriteHtml(formId, forms, displayName, forms?.[formId]?.primary_type)
     : `<span class="tl-glyph" aria-hidden="true">&#9670;</span>`;
   const linkedName = formId
     ? `<a href="./?boss=${encodeURIComponent(formId)}#raids">${escapeHtml(displayName)}</a>`
     : escapeHtml(displayName);
-  const laneLabel = MAX_LANE_LABEL[event.kind] ?? "Max event";
+  const laneLabel = liveHeadline ? "Max Battles — live now" : (MAX_LANE_LABEL[event.kind] ?? "Max event");
   const key = "max-lane";
   const collapsed = storage?.getItem?.(briefingCardCollapsedKey(key)) === "1";
   const inner = `<div class="briefing-section">
@@ -716,8 +725,10 @@ function maxLaneCardHtml({
         <h3>${linkedName}</h3>
       </div>
     </div>
-    <p class="briefing-note">${escapeHtml(formatEventWhen(event.startsAt, event.endsAt, now))}</p>
-    ${liveMaxBosses(currentMaxBattles, now).map((boss) => {
+    <p class="briefing-note">${liveHeadline
+    ? escapeHtml(`Next Max Monday: ${(subject ? `${subject.modifier} ${subject.species}` : event.name)} — ${formatEventWhen(event.startsAt, event.endsAt, now)}`)
+    : escapeHtml(formatEventWhen(event.startsAt, event.endsAt, now))}</p>
+    ${liveNow.map((boss) => {
     // Catch values from the raid target tool's fixed-level bands — Max
     // Battle encounters catch at the same level-20 band raids use. Only
     // rendered when the tool actually has this species; never a guess.
