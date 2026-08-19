@@ -8171,3 +8171,105 @@ html:not([data-app-booted]) #app .fallback-section {
 .dex-evolution-hold { margin: 0 0 0.5rem; font-size: 0.85rem; border: 1px solid var(--dx-lens-blue); border-radius: 8px; padding: 0.45rem 0.65rem; }
 .evolution-holds-row h2 { margin: 0 0 0.15rem; font-size: 1rem; }
 .evolution-holds-row + .evolution-holds-row { margin-top: 0.5rem; }
+
+/* ══ Fun-effects pass (r143) — decoration only, reduced-motion silent ══ */
+
+/* Boot / chunk loading block: center it in the viewport instead of
+   stranding it at the top of a tall portrait screen (iPad report,
+   2026-08-19), and give it the same measured column the content uses. */
+.boot-state {
+  width: 100%;
+  max-width: 34rem;
+  margin-inline: auto;
+  min-height: 55vh;
+  align-content: center;
+  justify-items: center;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  /* Save confirmation pop — the "Added to roster" chip lands, not appears. */
+  .ocr-row-status.is-accepted {
+    animation: fx-pop-in 340ms cubic-bezier(.34, 1.56, .64, 1);
+  }
+
+  /* Quest / today checkbox tick pop. */
+  .today-task-row.is-done .today-check {
+    animation: fx-pop-in 260ms cubic-bezier(.34, 1.56, .64, 1);
+  }
+
+  /* Streak flame breathes. */
+  .journal-flame {
+    display: inline-block;
+    animation: fx-flame 1.6s ease-in-out infinite;
+    transform-origin: 50% 85%;
+  }
+
+  /* Earned badges shimmer once when the shelf renders. */
+  .badge-tile.is-earned {
+    animation: fx-earned-glow 900ms ease-out 1;
+  }
+}
+
+@keyframes fx-pop-in {
+  0% { transform: scale(0.6); opacity: 0; }
+  100% { transform: scale(1); opacity: 1; }
+}
+
+@keyframes fx-flame {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.18) rotate(-3deg); }
+}
+
+@keyframes fx-earned-glow {
+  0% { box-shadow: 0 0 0 0 rgba(53, 196, 255, 0.55); }
+  100% { box-shadow: 0 0 0 14px rgba(53, 196, 255, 0); }
+}
+
+/* One-shot particle burst (app.js celebrationBurst): a fixed overlay whose
+   12 spans fly outward from screen center and fade. The container's own
+   animation ending is the removal signal app.js listens for. */
+.celebration-burst {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  pointer-events: none;
+  animation: fx-burst-life 1400ms linear 1;
+}
+
+.celebration-burst span {
+  position: absolute;
+  top: 42%;
+  left: 50%;
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+  background: var(--dx-lens-blue);
+  opacity: 0;
+  animation: fx-burst-fly 1200ms cubic-bezier(.15, .8, .35, 1) 1;
+}
+
+.celebration-burst.is-hundo span { background: #ffd75e; }
+.celebration-burst.is-shiny span { background: #b78cff; border-radius: 50%; }
+
+.celebration-burst span:nth-child(1)  { --fx-x: -140px; --fx-y: -180px; }
+.celebration-burst span:nth-child(2)  { --fx-x: 140px;  --fx-y: -170px; animation-delay: 30ms; }
+.celebration-burst span:nth-child(3)  { --fx-x: -220px; --fx-y: -60px;  animation-delay: 60ms; }
+.celebration-burst span:nth-child(4)  { --fx-x: 220px;  --fx-y: -80px;  animation-delay: 20ms; }
+.celebration-burst span:nth-child(5)  { --fx-x: -180px; --fx-y: 120px;  animation-delay: 80ms; }
+.celebration-burst span:nth-child(6)  { --fx-x: 180px;  --fx-y: 110px;  animation-delay: 50ms; }
+.celebration-burst span:nth-child(7)  { --fx-x: -60px;  --fx-y: -230px; animation-delay: 40ms; }
+.celebration-burst span:nth-child(8)  { --fx-x: 70px;   --fx-y: -220px; animation-delay: 70ms; }
+.celebration-burst span:nth-child(9)  { --fx-x: -110px; --fx-y: 190px;  animation-delay: 90ms; }
+.celebration-burst span:nth-child(10) { --fx-x: 120px;  --fx-y: 180px;  animation-delay: 10ms; }
+.celebration-burst span:nth-child(11) { --fx-x: -40px;  --fx-y: 240px;  animation-delay: 110ms; }
+.celebration-burst span:nth-child(12) { --fx-x: 40px;   --fx-y: -260px; animation-delay: 100ms; }
+
+@keyframes fx-burst-fly {
+  0% { transform: translate(0, 0) scale(1) rotate(0deg); opacity: 1; }
+  100% { transform: translate(var(--fx-x), var(--fx-y)) scale(0.4) rotate(300deg); opacity: 0; }
+}
+
+@keyframes fx-burst-life {
+  from { opacity: 1; }
+  to { opacity: 1; }
+}

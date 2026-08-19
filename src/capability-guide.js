@@ -77,6 +77,7 @@ export const CAPABILITY_GUIDE = Object.freeze({
       items: Object.freeze([
         Object.freeze({ name: "Guides", where: "More → Library", what: "Budget attackers, future-proof investments, Megas/Primals/Super Megas, type coverage planner, living-dex collection, Shop & Storage value guide." }),
         Object.freeze({ name: "Learning pages", where: "More / bottom routes", what: "Battle basics, Max basics, type chart, glossary, egg pool, Team GO Rocket lineups, gym leaderboard." }),
+        Object.freeze({ name: "Celebrations", where: "saves, quests, badges", what: "Hundo and shiny saves burst, quest ticks bounce, badges shimmer — all silent under Reduce Motion." }),
         Object.freeze({ name: "The honesty model", where: "everywhere", what: "Data is frozen to a verified packet with its cutoff shown in About; anything the data can't back renders as an honest absence, and estimates always carry a label." }),
       ]),
     }),

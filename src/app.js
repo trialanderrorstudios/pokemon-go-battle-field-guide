@@ -1697,15 +1697,38 @@ export function createInteractionController({
   // species caught (ownedFormIds/counts), or the collection grid keeps
   // showing it missing after a save (operator hit this scanning from the
   // grid, 2026-08-13). Never decrements; edits/deletes are untouched.
+  // One-shot celebration overlay for a hundo/shiny save (fun-effects pass,
+  // r143). Pure decoration: guarded by prefers-reduced-motion, removes
+  // itself on animation end, and any failure is swallowed — a party trick
+  // must never break a save.
+  const celebrationBurst = (kind) => {
+    try {
+      const doc = documentObject;
+      if (!doc?.createElement) return;
+      if (windowObject?.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches) return;
+      const burst = doc.createElement("div");
+      burst.className = `celebration-burst is-${kind}`;
+      burst.setAttribute("aria-hidden", "true");
+      for (let i = 0; i < 12; i += 1) burst.appendChild(doc.createElement("span"));
+      burst.addEventListener("animationend", () => burst.remove());
+      // Backstop for browsers that drop the event (tab hidden mid-burst).
+      windowObject?.setTimeout?.(() => burst.remove(), 2000);
+      doc.body?.appendChild(burst);
+    } catch { /* decoration only */ }
+  };
+
   // Journal logging is a bystander: outside every save's try block, its own
   // persist never throws, and a failure here can never unwind a save.
   const journalInstanceAdded = (built, form, via) => {
     const ivSum = (built.ivs?.atk ?? 0) + (built.ivs?.def ?? 0) + (built.ivs?.sta ?? 0);
+    const isHundo = ivSum === 45;
     logJournalEntry(storage, {
       kind: "instance-added",
       at: new Date().toISOString(),
-      detail: { formId: built.formId, name: form?.name ?? built.formId, isHundo: ivSum === 45, isShiny: Boolean(built.isShiny), via },
+      detail: { formId: built.formId, name: form?.name ?? built.formId, isHundo, isShiny: Boolean(built.isShiny), via },
     });
+    if (isHundo) celebrationBurst("hundo");
+    else if (built.isShiny) celebrationBurst("shiny");
   };
 
   const withInstanceAdded = (current, built) => {

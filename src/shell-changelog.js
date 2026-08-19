@@ -6,6 +6,15 @@
 
 export const SHELL_CHANGELOG = Object.freeze([
   Object.freeze({
+    rev: "r143", date: "2026-08-19",
+    added: Object.freeze([
+      "The fun-effects pass: a gold particle burst when you save a hundo (purple for a shiny), the save confirmation pops instead of appearing, quest checkmarks tick with a bounce, the streak flame breathes, and earned badges shimmer once. All of it stays quiet under Reduce Motion.",
+    ]),
+    tweaked: Object.freeze([
+      "The loading screen now centers itself in the viewport instead of stranding at the top on tall portrait screens (iPad report).",
+    ]),
+  }),
+  Object.freeze({
     rev: "r142", date: "2026-08-19",
     added: Object.freeze([
       "The weekly raid rotation now follows the events feed automatically \u2014 Tier 5, Mega, and Shadow raid lanes flip the moment their week starts (Lunala and Mega Swampert today), including multi-boss weeks, with future weeks held back until their day. Operator reports still override.",
