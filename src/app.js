@@ -896,6 +896,22 @@ function releaseView(releaseState = {}) {
 }
 
 
+// Disposable UI-flag writes (dismiss banners, collapse cards, snooze,
+// today-task check-offs) — never allowed to throw, same swallow-on-failure
+// contract as journal.js's persist(): a quota/storage-disabled failure here
+// must not bubble through the click dispatcher's delegate wrapper into
+// handleFailure and turn a routine dismiss tap into a persistent error
+// screen. value === null removes the key; anything else sets it.
+function setStorageFlag(storage, key, value) {
+  try {
+    if (value === null) storage?.removeItem?.(key);
+    else storage?.setItem?.(key, value);
+  } catch {
+    // Disposable UI flag — a failed write here is silent by design.
+  }
+}
+
+
 // ponytail: dismissal is a single localStorage flag per release id, not a
 // roster-backed preference — it's disposable UI state, not data worth an
 // IndexedDB write or cross-device sync.
@@ -1296,11 +1312,18 @@ export function createInteractionState({
   const taskFilters = savedTask?.filters ?? {};
   return {
     raid: raidState(savedTask?.route === "raids" ? taskFilters : {}, validFormIds),
-    gym: gymState(
-      savedTask?.route === "gyms" ? taskFilters : {},
-      gymDefenderFormIds,
-      gymDefenderSpeciesByFormId,
-    ),
+    gym: {
+      ...gymState(
+        savedTask?.route === "gyms" ? taskFilters : {},
+        gymDefenderFormIds,
+        gymDefenderSpeciesByFormId,
+      ),
+      // Coverage-band <details> open state (see gyms.js's coverageCell) —
+      // ephemeral, session-only, like ui.swap/ui.triage below; kept off the
+      // persisted taskFilters round trip since gymState()'s output also
+      // seeds structuredClone(ui.gym) for lastTask persistence.
+      openBands: new Set(),
+    },
     pvp: createPvpState({
       preferences: roster.preferences ?? {},
       filters: savedTask?.route === "pvp" ? taskFilters : {},
@@ -3560,14 +3583,14 @@ export function createInteractionController({
       const action = actionEl?.dataset?.action;
       if (action === "dismiss-whats-new") {
         const releaseId = actionEl.dataset.releaseId;
-        if (releaseId) storage?.setItem?.(whatsNewDismissedKey(releaseId), "1");
+        if (releaseId) setStorageFlag(storage, whatsNewDismissedKey(releaseId), "1");
         rerender("home");
       } else if (action === "dismiss-release-diff") {
         const releaseId = actionEl.dataset.releaseId;
-        if (releaseId) storage?.setItem?.(releaseDiffDismissedKey(releaseId), "1");
+        if (releaseId) setStorageFlag(storage, releaseDiffDismissedKey(releaseId), "1");
         rerender("home");
       } else if (action === "dismiss-triage-guide") {
-        storage?.setItem?.(TRIAGE_GUIDE_DISMISSED_KEY, "1");
+        setStorageFlag(storage, TRIAGE_GUIDE_DISMISSED_KEY, "1");
         rerender("triage");
       } else if (action === "open-triage-explainer") {
         ui.triage.explainerOpen = true;
@@ -3695,8 +3718,8 @@ export function createInteractionController({
         const taskId = actionEl.dataset.todayTaskId;
         if (taskId) {
           const storageKey = todayTaskKey(todayDateISO(new Date()), taskId);
-          if (storage?.getItem?.(storageKey) === "1") storage?.removeItem?.(storageKey);
-          else storage?.setItem?.(storageKey, "1");
+          if (storage?.getItem?.(storageKey) === "1") setStorageFlag(storage, storageKey, null);
+          else setStorageFlag(storage, storageKey, "1");
         }
         rerenderCurrent();
       } else if (action === "toggle-field-briefing") {
@@ -3707,8 +3730,8 @@ export function createInteractionController({
         const key = actionEl.dataset.briefingKey;
         if (key) {
           const storageKey = briefingCollapsedKey(key);
-          if (storage?.getItem?.(storageKey) === "1") storage?.removeItem?.(storageKey);
-          else storage?.setItem?.(storageKey, "1");
+          if (storage?.getItem?.(storageKey) === "1") setStorageFlag(storage, storageKey, null);
+          else setStorageFlag(storage, storageKey, "1");
         }
         rerenderCurrent();
       } else if (action === "ocr-copy-raw") {
@@ -3741,8 +3764,8 @@ export function createInteractionController({
         const cardKey = actionEl.dataset.briefingCardKey;
         if (cardKey) {
           const storageKey = briefingCardCollapsedKey(cardKey);
-          if (storage?.getItem?.(storageKey) === "1") storage?.removeItem?.(storageKey);
-          else storage?.setItem?.(storageKey, "1");
+          if (storage?.getItem?.(storageKey) === "1") setStorageFlag(storage, storageKey, null);
+          else setStorageFlag(storage, storageKey, "1");
         }
         rerenderCurrent();
       } else if (action === "scroll-to") {
@@ -3755,11 +3778,11 @@ export function createInteractionController({
         scrollToTop();
       } else if (action === "dismiss-update-banner") {
         const releaseId = releaseManager?.state?.candidate?.releaseId;
-        if (releaseId) storage?.setItem?.(updateBannerDismissedKey(releaseId), "1");
+        if (releaseId) setStorageFlag(storage, updateBannerDismissedKey(releaseId), "1");
         rerenderCurrent();
       } else if (action === "dismiss-staleness-banner") {
         const importedAt = roster?.preferences?.pokeGenieImport?.importedAt;
-        if (importedAt) storage?.setItem?.(stalenessSnoozeKey(importedAt), String(Date.now() + STALENESS_SNOOZE_MS));
+        if (importedAt) setStorageFlag(storage, stalenessSnoozeKey(importedAt), String(Date.now() + STALENESS_SNOOZE_MS));
         rerenderCurrent();
       } else if (action === "dismiss-backup-nudge") {
         snoozeBackupNudge(storage);
@@ -4687,7 +4710,20 @@ export function onDialogKeydown(event, app) {
 // so the key now selects the builder rather than always meaning "a gym tier".
 function onLazyToggle(event, getLazyContext) {
   const details = event.target;
-  if (details?.tagName !== "DETAILS" || !details.open || !details.hasAttribute?.("data-lazy")) return;
+  if (details?.tagName !== "DETAILS") return;
+  // Coverage-band open/close bookkeeping (gyms.js's data-band-type) runs
+  // regardless of the data-lazy/open guards below: a forceOpen band (already
+  // hydrated, no data-lazy attribute) still needs its close tracked, and this
+  // must persist independently of whether there's a lazy body left to build.
+  const bandType = details.dataset?.bandType;
+  if (bandType) {
+    const openBands = getLazyContext().gymOpenBands;
+    if (openBands) {
+      if (details.open) openBands.add(bandType);
+      else openBands.delete(bandType);
+    }
+  }
+  if (!details.open || !details.hasAttribute?.("data-lazy")) return;
   const body = details.querySelector?.(":scope > .gym-lazy-body, :scope > .lazy-body");
   if (!body) return;
   const key = details.getAttribute("data-lazy");
@@ -4951,6 +4987,9 @@ export function bootstrap({
         coveragePlanner: state.coveragePlanner,
         view,
         roster,
+        storageObject: storage,
+        groupMessage: ui.groupMessage,
+        groupMemberName: ui.groupMemberName,
         rosterQuery: ui.rosterQuery,
         collectionQuery: ui.collectionQuery,
         collectionFilter: ui.collectionFilter,
@@ -5263,6 +5302,7 @@ export function bootstrap({
           ownedFormIds: roster.ownedFormIds,
           ownedIndex: ui.gym.ownedIndex,
           overallIndex: ui.gym.overallIndex,
+          openBands: [...ui.gym.openBands],
           defenseLog: ui.defenseLog,
           rosterInstances: roster.instances,
           trainerTeam: ui.trainerProfile.team,
@@ -5586,6 +5626,7 @@ export function bootstrap({
     forms: state.core.forms,
     ownedFormIds: roster.ownedFormIds,
     ownedOnly: ui.gym.ownedOnly,
+    gymOpenBands: ui.gym.openBands,
     // Added for #pvp's deferred Full rankings body. Read at open time, like
     // everything else here: the league filter can change between the render
     // that shipped the closed <details> and the tap that opens it.

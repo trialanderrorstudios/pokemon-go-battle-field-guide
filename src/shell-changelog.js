@@ -6,6 +6,12 @@
 
 export const SHELL_CHANGELOG = Object.freeze([
   Object.freeze({
+    rev: "r146", date: "2026-08-20",
+    added: Object.freeze([
+      "Hardening audit (six dimensions, adversarially verified): the Raid Group members list actually displays now (its data was never wired to the view), gym coverage bands stay open across refreshes, Type Mastery / Buddy Planner / XL Advisor / Power-Up Planner got their missing styling (plus the badge shelf, countdown chips, and sim line whose styles had silently never shipped), dismissal writes can't crash on full storage, and five new device-journey tests cover the scan flow, battle party, Compare chip, dex deep-links, and quest-to-journal path.",
+    ]),
+  }),
+  Object.freeze({
     rev: "r145", date: "2026-08-20",
     tweaked: Object.freeze([
       "Fixed: the hundo/shiny confetti never fired (a scope bug its own safety net swallowed silently) — and the same sweep caught two sibling bugs: the dex Compare chip and the push-permission toggle both crashed on tap. All three share one fix, and a new test bans the whole bug class.",

@@ -7489,6 +7489,58 @@ html:not([data-app-booted]) #app .fallback-section {
 .dupe-moves-missing { font-style: italic; color: var(--muted); }
 
 
+/* Type Mastery (More > Attacker Bench Strength) — coordinator styling for
+   the lane's unstyled hooks; reuses tokens only. Band order best-to-worst
+   is S/A/B/thin/empty, per web/src/type-mastery.js's bandFor(). */
+.mastery-summary { color: var(--muted); font-size: 0.78rem; margin: 0 0 0.8rem; }
+.mastery-grid { list-style: none; margin: 0; padding: 0; }
+.mastery-row { margin-bottom: 0.7rem; border: 1px solid var(--line); border-radius: 0.6rem; padding: 0.6rem; }
+.mastery-row-heading { display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; }
+.mastery-type-name { font-weight: 700; }
+.mastery-band-badge { flex: none; font-family: var(--dx-mono); font-size: 0.66rem; font-weight: 800; padding: 0.2rem 0.5rem; border-radius: 999px; border: 1px solid var(--line); color: var(--muted); }
+.mastery-band-badge-S { color: var(--green); border-color: var(--green); }
+.mastery-band-badge-A { color: var(--cyan); border-color: var(--cyan); }
+.mastery-band-badge-B { color: var(--amber); border-color: var(--amber); }
+.mastery-band-badge-thin { color: var(--amber); border-color: var(--amber); }
+.mastery-band-badge-empty { color: var(--danger); border-color: var(--danger); }
+.mastery-band-label { font-size: 0.72rem; color: var(--muted); margin: 0.3rem 0 0; }
+.mastery-best-owned, .mastery-next-build { font-size: 0.76rem; margin: 0.3rem 0 0; }
+.mastery-row-empty { font-style: italic; color: var(--muted); margin: 0.3rem 0 0; }
+
+
+/* Best Buddy Planner (More > Best Buddy Planner) — coordinator styling for
+   the lane's unstyled hooks; reuses tokens only. Structural twin of the XL
+   Advisor block below, per xl.js's own header comment. */
+.buddy-intro, .buddy-estimate-note { color: var(--muted); font-size: 0.78rem; margin: 0 0 0.6rem; }
+.buddy-list { list-style: none; margin: 0; padding: 0; }
+.buddy-row { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.5rem; padding: 0.45rem 0; border-top: 1px dashed var(--line); }
+.buddy-row:first-of-type { border-top: none; }
+.buddy-row-heading { display: flex; align-items: baseline; gap: 0.5rem; flex: 1; min-width: 0; }
+
+
+/* XL Advisor (More > XL Advisor) — coordinator styling for the lane's
+   unstyled hooks; reuses tokens only. Structural twin of the Best Buddy
+   Planner block above, per this view's own header comment. */
+.xl-intro, .xl-pvp-note { color: var(--muted); font-size: 0.78rem; margin: 0 0 0.6rem; }
+.xl-list { list-style: none; margin: 0; padding: 0; }
+.xl-row { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.5rem; padding: 0.45rem 0; border-top: 1px dashed var(--line); }
+.xl-row:first-of-type { border-top: none; }
+.xl-row-heading { display: flex; align-items: baseline; gap: 0.5rem; flex: 1; min-width: 0; }
+.xl-row-level { color: var(--muted); font-size: 0.72rem; }
+.xl-cost { font-size: 0.76rem; color: var(--muted); }
+
+
+/* Power-Up Planner (More > Power-Up Planner) — coordinator styling for the
+   lane's unstyled hooks; reuses tokens only. */
+.powerup-intro, .powerup-estimate-note, .powerup-excluded { color: var(--muted); font-size: 0.78rem; margin: 0 0 0.6rem; }
+.powerup-list { list-style: none; margin: 0; padding: 0; }
+.powerup-row { border-top: 1px dashed var(--line); padding: 0.45rem 0; }
+.powerup-row:first-of-type { border-top: none; }
+.powerup-row-levels { font-weight: 700; margin-right: 0.5rem; }
+.powerup-row-cost { color: var(--muted); font-size: 0.76rem; }
+.powerup-row-gain, .powerup-row-cap-note { font-size: 0.74rem; color: var(--muted); margin: 0.2rem 0 0; }
+
+
 /* Capability tour (More > What this app can do) */
 .capability-list { list-style: none; padding: 0; margin: 0.4rem 0 1rem; }
 .capability-list li { margin-bottom: 0.6rem; font-size: 0.8rem; }
@@ -8273,3 +8325,22 @@ html:not([data-app-booted]) #app .fallback-section {
   from { opacity: 1; }
   to { opacity: 1; }
 }
+
+/* Restored r136 block (audit catch: the original append never landed) —
+   badge shelf, boss countdown chips, and the party sim line. */
+.badge-shelf { margin-bottom: 1rem; }
+.badge-shelf-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(9.5rem, 1fr)); gap: 0.5rem; margin: 0; padding: 0; list-style: none; }
+.badge-tile { border: 1px solid var(--line); border-radius: 10px; padding: 0.55rem 0.65rem; display: grid; gap: 0.2rem; }
+.badge-tile.is-locked { opacity: 0.55; }
+.badge-tile.is-earned { border-color: var(--dx-lens-blue); }
+.badge-tile-label { font-weight: 700; font-size: 0.85rem; }
+.badge-tile-detail { font-size: 0.78rem; color: var(--muted); }
+
+.boss-countdown-list { display: grid; gap: 0.4rem; margin: 0 0 0.75rem; padding: 0; list-style: none; }
+.boss-countdown-chip { border: 1px solid var(--line); border-left: 3px solid var(--dx-lens-blue); border-radius: 8px; padding: 0.45rem 0.65rem; }
+.boss-countdown-line { margin: 0; }
+
+.party-sim { margin: 0.5rem 0; }
+.party-sim-label { margin: 0; font-weight: 700; font-size: 0.9rem; }
+.party-sim-assumptions { font-size: 0.8rem; color: var(--muted); margin-top: 0.25rem; }
+.party-sim-assumptions ul { margin: 0.25rem 0 0; padding-left: 1.1rem; }
