@@ -1445,6 +1445,12 @@ export function createInteractionController({
   onNavigateToDex = () => {},
 } = {}) {
   if (!ui || !roster) throw new TypeError("Interaction state and roster are required.");
+  // The controller receives rootElement, never window/document globals —
+  // three separate dispatch branches (rotation share r137, compare chip
+  // r136, celebration burst r143) each independently reached for a
+  // nonexistent window global and threw. One derived accessor, used
+  // everywhere in this scope; a static test bans the bare identifiers.
+  const controllerWindow = () => rootElement?.ownerDocument?.defaultView ?? globalThis.window;
 
   const clearTriageCopyStatus = (state = ui) => {
     if (state.triage) {
@@ -1703,16 +1709,21 @@ export function createInteractionController({
   // must never break a save.
   const celebrationBurst = (kind) => {
     try {
-      const doc = documentObject;
+      // Derived accessor only — reaching for the startFieldGuide-scoped
+      // globals here threw a ReferenceError this try/catch then swallowed
+      // (the r137 scope lesson, relearned silently: the operator's first
+      // hundo got no confetti and nothing logged why).
+      const win = controllerWindow();
+      const doc = win?.document ?? rootElement?.ownerDocument;
       if (!doc?.createElement) return;
-      if (windowObject?.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches) return;
+      if (win?.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches) return;
       const burst = doc.createElement("div");
       burst.className = `celebration-burst is-${kind}`;
       burst.setAttribute("aria-hidden", "true");
       for (let i = 0; i < 12; i += 1) burst.appendChild(doc.createElement("span"));
       burst.addEventListener("animationend", () => burst.remove());
       // Backstop for browsers that drop the event (tab hidden mid-burst).
-      windowObject?.setTimeout?.(() => burst.remove(), 2000);
+      win?.setTimeout?.(() => burst.remove(), 2000);
       doc.body?.appendChild(burst);
     } catch { /* decoration only */ }
   };
@@ -3277,7 +3288,7 @@ export function createInteractionController({
       }
       const requestPushButton = target?.closest?.('[data-action="request-push-permission"]');
       if (requestPushButton) {
-        requestPushPermission({ flagEnabled: isPushFlagEnabled(storage), notification: windowObject.Notification })
+        requestPushPermission({ flagEnabled: isPushFlagEnabled(storage), notification: controllerWindow()?.Notification })
           .then(() => rerender("more"));
         return;
       }
@@ -3663,7 +3674,8 @@ export function createInteractionController({
         // Dex entry point: prefill side A with this entry, then open Compare.
         ui.compare.formIdA = actionEl.dataset.compareFormId || null;
         ui.compare.queryA = "";
-        windowObject.location.hash = "#more/compare";
+        const win = controllerWindow();
+        if (win) win.location.hash = "#more/compare";
       } else if (action === "compare-pick") {
         const side = actionEl.dataset.compareSide === "b" ? "B" : "A";
         const formId = actionEl.dataset.compareFormId ?? "";

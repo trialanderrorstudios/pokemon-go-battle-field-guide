@@ -6,6 +6,12 @@
 
 export const SHELL_CHANGELOG = Object.freeze([
   Object.freeze({
+    rev: "r145", date: "2026-08-20",
+    tweaked: Object.freeze([
+      "Fixed: the hundo/shiny confetti never fired (a scope bug its own safety net swallowed silently) — and the same sweep caught two sibling bugs: the dex Compare chip and the push-permission toggle both crashed on tap. All three share one fix, and a new test bans the whole bug class.",
+    ]),
+  }),
+  Object.freeze({
     rev: "r144", date: "2026-08-19",
     tweaked: Object.freeze([
       "The Max card now headlines the boss that is live RIGHT NOW (Dynamax Magikarp this week) instead of leading with next Monday's schedule — the upcoming Max Monday demotes to a note line under it.",
