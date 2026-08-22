@@ -592,6 +592,10 @@ function attackerRankRows(data) {
 // ponytail: prefix regexes cover ScrapedDuck's tier vocabulary today
 // ("Mega", "Tier 5", "Shadow"); a new tier spelling means a new lane entry.
 const BRIEFING_LANES = Object.freeze([
+  // Raid Day first: a single-day window must lead the briefing rather than
+  // lose a lane pick to a week-long boss (Starmie Super Mega Raid Day vs
+  // Mega Swampert, 2026-08-22).
+  ["raidday", (tier) => /^raid day/i.test(tier)],
   ["mega", (tier) => /^mega/i.test(tier)],
   ["legendary", (tier) => /^tier 5/i.test(tier)],
   ["shadow", (tier) => /^shadow/i.test(tier)],

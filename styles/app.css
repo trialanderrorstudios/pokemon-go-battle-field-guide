@@ -6579,6 +6579,7 @@ html:not([data-app-booted]) #app .fallback-section {
 .tier-pill[data-tier="tier3"] { border-color: var(--muted); color: var(--muted); }
 .tier-pill[data-tier="tier1"] { border-color: var(--green); color: var(--green); }
 .tier-pill[data-tier="shadow"] { border-color: var(--danger); color: var(--danger); }
+.tier-pill[data-tier="raidday"] { border-color: var(--dx-lens-blue); color: var(--dx-lens-blue); }
 
 .ends-today {
   display: inline-flex;

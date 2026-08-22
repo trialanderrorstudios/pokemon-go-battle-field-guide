@@ -6,6 +6,12 @@
 
 export const SHELL_CHANGELOG = Object.freeze([
   Object.freeze({
+    rev: "r147", date: "2026-08-22",
+    added: Object.freeze([
+      "Raid Days join the briefing with their own lead lane — Starmie Super Mega Raid Day shows today with catch values (hundo 1476 on the base-Starmie encounter), and a single-day window can no longer lose its card to a week-long boss. Future \"Super Mega Raid Day\" placeholders without a named species stay honestly absent until announced.",
+    ]),
+  }),
+  Object.freeze({
     rev: "r146", date: "2026-08-20",
     added: Object.freeze([
       "Hardening audit (six dimensions, adversarially verified): the Raid Group members list actually displays now (its data was never wired to the view), gym coverage bands stay open across refreshes, Type Mastery / Buddy Planner / XL Advisor / Power-Up Planner got their missing styling (plus the badge shelf, countdown chips, and sim line whose styles had silently never shipped), dismissal writes can't crash on full storage, and five new device-journey tests cover the scan flow, battle party, Compare chip, dex deep-links, and quest-to-journal path.",
