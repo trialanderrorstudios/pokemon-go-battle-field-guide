@@ -6,6 +6,12 @@
 
 export const SHELL_CHANGELOG = Object.freeze([
   Object.freeze({
+    rev: "r148", date: "2026-08-22",
+    added: Object.freeze([
+      "Every dex entry's PvP league cards now show the optimal stat distribution even outside the ranked top 150 — the true best IV spread, level, and CP for Great and Ultra (computed from the same stat-product model the Yours lines use), and the plain truth for Master (no cap, hundo is simply best).",
+    ]),
+  }),
+  Object.freeze({
     rev: "r147", date: "2026-08-22",
     added: Object.freeze([
       "Raid Days join the briefing with their own lead lane — Starmie Super Mega Raid Day shows today with catch values (hundo 1476 on the base-Starmie encounter), and a single-day window can no longer lose its card to a week-long boss. Future \"Super Mega Raid Day\" placeholders without a named species stay honestly absent until announced.",

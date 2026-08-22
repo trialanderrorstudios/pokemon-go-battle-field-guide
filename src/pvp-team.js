@@ -55,7 +55,7 @@ export const TOTAL_IV_SPREADS = 4096;
 // league: capped leagues allow a temporary Best Buddy level 51 build, Master
 // (no CP cap, so no benefit from a cap-driven underlevel) stays at the normal
 // power-up ceiling of 50.
-const RANK_MAX_LEVEL = Object.freeze({ great: 51, ultra: 51, master: 50 });
+export const RANK_MAX_LEVEL = Object.freeze({ great: 51, ultra: 51, master: 50 });
 
 // Best (highest) level under a league's CP cap for one FIXED IV spread — the
 // per-spread half of find_rank_one_iv's search (iv.py), ported to JS so it
@@ -63,7 +63,7 @@ const RANK_MAX_LEVEL = Object.freeze({ great: 51, ultra: 51, master: 50 });
 // build time. CP is monotonic non-decreasing in level for fixed IVs (see
 // instances.js solveLevel), so the first level that exceeds the cap means
 // every higher level does too — safe to stop there.
-function bestLevelUnderCap(form, ivs, cap, maxLevel) {
+export function bestLevelUnderCap(form, ivs, cap, maxLevel) {
   if (cap === null) return maxLevel;
   let best = null;
   for (let doubled = 2; doubled <= maxLevel * 2; doubled += 1) {

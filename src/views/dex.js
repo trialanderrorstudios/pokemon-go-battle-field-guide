@@ -6,6 +6,7 @@
 // never a blank — see §7 of the spec.
 import { escapeHtml, ownedStarButton } from "./home.js";
 import { renderEvolveChecklistCard } from "../evolve-checklist.js";
+import { dexPvpOptimal } from "../dex-pvp-optimal.js";
 import { moveLink, displayMoveName } from "./move-sheet.js";
 import { spriteHtml } from "../sprites.js";
 import { typeChip } from "./types.js";
@@ -361,11 +362,21 @@ function pvpInstanceRankHtml(form, instance, league, row) {
 // One league card: header (rank/tier/role/recommendation), target build
 // (rankOne — read from the actual encyclopedia.json shape, not guessed),
 // moveset, the caveat line's named checks (one muted line), and a Yours line
-// per saved instance. Unranked stays the honest "outside the shipped
-// top-150" line — never a fabricated spread.
+// per saved instance. Unranked keeps the honest "outside the rankings"
+// line, now WITH the computed optimal spread (dex-pvp-optimal.js reuses
+// pvp-team.js's own stat-product math — same model, not a second one), so
+// every species answers "what IVs do I want for this league" (operator ask
+// 2026-08-22).
 function pvpLeagueCardHtml(form, league, label, row, raids, formInstances) {
   if (!row) {
-    return `<li class="dex-pvp-card dex-pvp-unranked"><h4>${escapeHtml(label)}</h4><p>Outside the shipped top-150 league rankings.</p></li>`;
+    const { optimal, note } = dexPvpOptimal(form, league);
+    const buildHtml = optimal
+      ? `<p class="dex-pvp-target">Optimal build: ${escapeHtml(optimal.ivs.atk)}/${escapeHtml(optimal.ivs.def)}/${escapeHtml(optimal.ivs.sta)} IVs — CP ${escapeHtml(optimal.cp)} @ Level ${escapeHtml(optimal.level)}</p>`
+      : "";
+    return `<li class="dex-pvp-card dex-pvp-unranked"><h4>${escapeHtml(label)}</h4>
+    <p class="dex-pvp-rank">Outside the shipped top-150 league rankings.</p>
+    ${buildHtml}
+    <p class="dex-pvp-caveat">${escapeHtml(note)}</p></li>`;
   }
   const rankOneIvs = row.rankOne?.ivs;
   const targetHtml = rankOneIvs
