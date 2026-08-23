@@ -234,6 +234,12 @@ export async function cpBannerRetry(engine, file, documentObject = globalThis.do
     const variants = [
       // Bright glyphs -> dark ink on a light field, full dynamic range.
       ["inverted-grayscale", (lum) => 255 - Math.round(((lum - minLum) / range) * 255)],
+      // Sunny-weather screens (Slaking 2026-08-23): the banner sits on a
+      // BRIGHT background, so text (~255) and backdrop (~200-240) land on
+      // the same side of every global threshold and the glyphs dissolve.
+      // The CP text is the brightest thing in the crop — keep only pixels
+      // within a whisker of maxLum as ink, everything else paper.
+      ["near-white-only", (lum) => (lum >= maxLum - 12 ? 0 : 255)],
       ["otsu-binarized", (lum) => (lum > otsu ? 0 : 255)],
       ["fixed-190", (lum) => (lum > 190 ? 0 : 255)],
     ];

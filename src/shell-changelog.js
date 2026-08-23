@@ -6,6 +6,12 @@
 
 export const SHELL_CHANGELOG = Object.freeze([
   Object.freeze({
+    rev: "r149", date: "2026-08-23",
+    tweaked: Object.freeze([
+      "CP banner reading, round four: sunny-weather screens put the white CP text on a bright background where every existing preprocess dissolved it (the Slaking 3798 report) — a new near-white-isolation pass keeps only the brightest pixels as ink before OCR.",
+    ]),
+  }),
+  Object.freeze({
     rev: "r148", date: "2026-08-22",
     added: Object.freeze([
       "Every dex entry's PvP league cards now show the optimal stat distribution even outside the ranked top 150 — the true best IV spread, level, and CP for Great and Ultra (computed from the same stat-product model the Yours lines use), and the plain truth for Master (no cap, hundo is simply best).",
