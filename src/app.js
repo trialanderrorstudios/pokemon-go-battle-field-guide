@@ -70,6 +70,7 @@ import {
   appraisalTierFromText, baseSpeciesName, draftFromParse, extractMoves, parseMonScreenText, speciesFromContext,
 } from "./ocr-intake.js";
 import { cpBannerRetry } from "./ocr-worker.js";
+import { readAppraisalBars, pickCandidateByBars } from "./ocr-appraisal-bars.js";
 import { createOcrEngine as createOcrEngineDefault, OcrEngineError } from "./ocr-worker.js";
 import {
   buildLeaderboard,
@@ -2523,7 +2524,13 @@ export function createInteractionController({
           rerenderCurrent();
           const rows = [];
           for (const [index, file] of files.entries()) {
-            const text = await engine.recognize(file);
+            // Detailed read: same text, plus per-word bboxes — the appraisal
+            // bar reader anchors its scanlines on the Attack/Defense/HP
+            // labels' real positions instead of guessed proportions.
+            const detailed = await (engine.recognizeDetailed?.(file)
+              ?? engine.recognize(file).then((plain) => ({ text: plain, words: [] })));
+            const text = detailed.text;
+            const ocrWords = detailed.words ?? [];
             const parsed = parseMonScreenText(text, { forms });
             // Version stamp: a pasted raw dump must say which shell parsed it
             // (three stale-device round-trips on 2026-08-12 without it).
@@ -2599,9 +2606,32 @@ export function createInteractionController({
               }
               mergedParts.push("moves");
             }
-            if (mergeTarget && appraisalTier != null && mergeTarget.ivCandidates?.length) {
-              applyAppraisalNarrowing(mergeTarget, appraisalTier);
-              mergedParts.push("appraisal");
+            if (mergeTarget && isFragment && mergeTarget.ivCandidates?.length) {
+              // Pixel-read the appraisal bars and cross-check against the
+              // CP+HP candidate set — an exact candidate hit fully resolves
+              // the row (a misread almost never lands on a valid spread).
+              // Falls through to the coarser tier-phrase narrowing otherwise.
+              let barsResolved = false;
+              try {
+                const bars = await readAppraisalBars(file, {
+                  anchors: ocrWords, documentObject: controllerWindow()?.document,
+                });
+                if (bars?.evidence?.length) {
+                  mergeTarget.rawText += `\n--- appraisal bars ---\n${bars.evidence.join("\n")}`;
+                }
+                const picked = bars?.ivs ? pickCandidateByBars(mergeTarget.ivCandidates, bars.ivs) : null;
+                if (picked) {
+                  mergeTarget.draft = { ...mergeTarget.draft, ivs: { ...picked.ivs } };
+                  mergeTarget.solvedIvs = picked;
+                  mergeTarget.ivCandidates = null;
+                  mergedParts.push("appraisal bars (exact)");
+                  barsResolved = true;
+                }
+              } catch { /* bar read is best-effort; tier narrowing still runs */ }
+              if (!barsResolved && appraisalTier != null && mergeTarget.ivCandidates?.length) {
+                applyAppraisalNarrowing(mergeTarget, appraisalTier);
+                mergedParts.push("appraisal");
+              }
             }
             if (mergedParts.length) {
               mergeTarget.rawText += `\n--- merged ${mergedParts.join(" + ")} from ${file.name || `Screenshot ${index + 1}`} ---\n${text}`;

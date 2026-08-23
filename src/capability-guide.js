@@ -36,7 +36,7 @@ export const CAPABILITY_GUIDE = Object.freeze({
         Object.freeze({ name: "What a scan reads", where: "any mon-info screenshot", what: "Species (nickname-proof — the candy line and catch footer carry it), CP (including the stylized banner via a targeted retry), HP, weight, height, moves when visible, and the nickname itself." }),
         Object.freeze({ name: "IVs from math, not bars", where: "scan review", what: "CP + HP usually pin the exact IV spread and level; ambiguous pairs show tappable candidates. Mega screens solve too — Super Max (+2 levels) is modeled." }),
         Object.freeze({ name: "Form auto-resolve", where: "scan review", what: "Typing on screen or the CP+HP math picks the right form (Hero vs Crowned, Mega X vs Y); a real ambiguity shows pick buttons, never a guess." }),
-        Object.freeze({ name: "Appraisal narrowing", where: "scan review", what: "Add the team-leader appraisal screenshot to a batch and its verdict phrase narrows ambiguous IV candidates." }),
+        Object.freeze({ name: "Appraisal narrowing", where: "scan review", what: "Add the appraisal screenshot to a batch: its Attack/Defense/HP bars are read as pixels and resolve exact IVs when they land on a valid spread; the verdict phrase still narrows as a fallback." }),
         Object.freeze({ name: "Two-part scans", where: "scan review", what: "A moves-screen photo merges into its Pokémon's row by species, even out of order." }),
         Object.freeze({ name: "Evidence view", where: "each scan row", what: "\"What the scanner saw\" shows the verbatim OCR text with a copy button — every miss is debuggable." }),
       ]),

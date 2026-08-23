@@ -146,6 +146,38 @@ export async function createOcrEngine() {
         throw error instanceof OcrEngineError ? error : new OcrEngineError("recognize-failed", error);
       }
     },
+    // Same recognize, but ALSO returns per-word bounding boxes (the vendored
+    // worker's blocks output — GetJSONText() — which plain recognize()
+    // discards). Anchors feed ocr-appraisal-bars.js's bar-row location; the
+    // words flatten to [{text, bbox:{x0,y0,x1,y1}}].
+    async recognizeDetailed(file) {
+      let bytes;
+      try {
+        bytes = new Uint8Array(await file.arrayBuffer());
+      } catch (error) {
+        throw new OcrEngineError("recognize-failed", error);
+      }
+      try {
+        const result = await sendJob(worker, failureSignal, "recognize", {
+          image: bytes,
+          options: {},
+          output: { text: true, blocks: true },
+        });
+        const words = [];
+        for (const block of result?.blocks ?? []) {
+          for (const paragraph of block?.paragraphs ?? []) {
+            for (const line of paragraph?.lines ?? []) {
+              for (const word of line?.words ?? []) {
+                if (word?.text && word?.bbox) words.push({ text: word.text, bbox: word.bbox });
+              }
+            }
+          }
+        }
+        return { text: result?.text ?? "", words };
+      } catch (error) {
+        throw error instanceof OcrEngineError ? error : new OcrEngineError("recognize-failed", error);
+      }
+    },
     // Best-effort tesseract variable set (upstream worker-script protocol:
     // action 'setParameters', payload {params} -> SetVariable per key).
     // Throws OcrEngineError on failure; callers that can proceed without it

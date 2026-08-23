@@ -6,6 +6,12 @@
 
 export const SHELL_CHANGELOG = Object.freeze([
   Object.freeze({
+    rev: "r150", date: "2026-08-23",
+    added: Object.freeze([
+      "Appraisal bars read as pixels: when a CP+HP scan is ambiguous (the Gardevoir 3005/143 case \u2014 8 possible spreads), include the appraisal screenshot in the batch and its Attack/Defense/HP bars resolve the exact IVs automatically \u2014 a bar read only counts when it lands exactly on a mathematically valid spread. Scan evidence shows each bar's fill percentage.",
+    ]),
+  }),
+  Object.freeze({
     rev: "r149", date: "2026-08-23",
     tweaked: Object.freeze([
       "CP banner reading, round four: sunny-weather screens put the white CP text on a bright background where every existing preprocess dissolved it (the Slaking 3798 report) — a new near-white-isolation pass keeps only the brightest pixels as ink before OCR.",
