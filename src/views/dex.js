@@ -202,7 +202,7 @@ function gymSection(form, gym) {
   if (!verdict.row && !verdict.indexRow) {
     const message = verdict.shadowCapped
       ? `Outside the shipped shadow top ${escapeHtml(verdict.of)} — no full shadow ranking ships this release.`
-      : "Not ranked as a gym defender in this release.";
+      : "Outside the top-100 defender ranking this release ships (100 of ~950 eligible score high enough) — being unlisted is a score verdict, not missing data. Its attacking roles live in the Optimal section above.";
     return `<section class="dex-section" aria-labelledby="dex-gym-title"><h3 id="dex-gym-title">Gym defense</h3><p>${message}</p></section>`;
   }
   const { row, indexRow, of } = verdict;

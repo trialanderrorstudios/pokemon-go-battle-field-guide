@@ -18,6 +18,7 @@ import { renderCompareView } from "./compare.js";
 import { compareForms } from "../compare.js";
 import { renderBuddyView } from "./buddy.js";
 import { renderXlView } from "./xl.js";
+import { renderEliteTmView } from "./elitetm.js";
 import { renderGroupView } from "./group.js";
 import { loadGroupMembers } from "../group-store.js";
 import { luckyOwnedFormIdSet, shinyOwnedFormIdSet } from "../collection.js";
@@ -703,6 +704,7 @@ function renderMoreMenu() {
         ["./#more/compare", "Compare — two Pokémon head-to-head"],
         ["./#more/buddyplanner", "Best Buddy Planner"],
         ["./#more/xladvisor", "XL Advisor — is level 50 worth it?"],
+        ["./#more/elitetm", "Elite TM Planner — where to spend them"],
       ],
     })}
     ${menuSection({
@@ -811,6 +813,9 @@ export function renderMore(data = {}) {
   if (view === "mastery") return `<div class="more-view">${BACK_TO_MORE}${renderMasteryView({
     mastery: computeTypeMastery({ roster: data.roster, forms: data.forms, raidRows: data.raids }),
     forms: data.forms,
+  })}</div>`;
+  if (view === "elitetm") return `<div class="more-view">${BACK_TO_MORE}${renderEliteTmView({
+    roster: data.roster, forms: data.forms, raidRows: data.raids,
   })}</div>`;
   if (view === "xladvisor") return `<div class="more-view">${BACK_TO_MORE}${renderXlView({
     roster: data.roster, forms: data.forms, raidRows: data.raids, pvpRows: data.pvp,

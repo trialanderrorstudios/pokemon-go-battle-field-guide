@@ -35,7 +35,36 @@ export function moveLink(moveId, { elite = false, kind = "Fast", availabilityCla
 }
 
 
-export function renderMoveSheet({ moveId, catalog = {}, moveIndex, roster = {}, forms = {} } = {}) {
+// Compact PvE stat row from the extras.json moveSettings chunk (moveId ->
+// {power, durationMs, energyDelta, kind, type} — see battle-sim.js's header
+// comment for the catalog's provenance). Neutral base rates only: DPS/EPS
+// for fast moves, DPS/DPE for charged (DPE — damage per energy — is the
+// metric that actually distinguishes charged move quality). No STAB, type
+// effectiveness, or weather folds in here, so the sheet says so plainly
+// rather than implying these are real-fight numbers.
+function moveStatsHtml(settings) {
+  if (!settings) return `<p class="hint">No PvE stats in this data.</p>`;
+  const { power, durationMs, energyDelta, kind } = settings;
+  const durationS = durationMs / 1000;
+  const isFast = kind === "fast";
+  const rates = isFast
+    ? [["DPS", (power / durationS).toFixed(1)], ["EPS", (energyDelta / durationS).toFixed(1)]]
+    : [["DPS", (power / durationS).toFixed(1)], ["DPE", (power / Math.abs(energyDelta)).toFixed(2)]];
+  const items = [
+    ["Kind", isFast ? "Fast" : "Charged"],
+    ["Power", String(power)],
+    ["Duration", `${durationS}s`],
+    [isFast ? "Energy gain" : "Energy cost", isFast ? `+${energyDelta}` : String(Math.abs(energyDelta))],
+    ...rates,
+  ];
+  return `<p class="move-sheet-stats">${items
+    .map(([label, value]) => `<span class="move-sheet-stat"><b>${escapeHtml(label)}</b> ${escapeHtml(value)}</span>`)
+    .join(" · ")}</p>
+    <p class="hint">Base rates — no STAB, effectiveness, or weather applied.</p>`;
+}
+
+
+export function renderMoveSheet({ moveId, catalog = {}, moveIndex, roster = {}, forms = {}, moveSettings = {} } = {}) {
   const entry = catalog?.[moveId];
   const type = entry?.moveType ?? "Unknown";
   const slot = entry?.slot === "charged" ? "Charged" : "Fast";
@@ -51,6 +80,7 @@ export function renderMoveSheet({ moveId, catalog = {}, moveIndex, roster = {}, 
       <h2 id="move-sheet-title">${escapeHtml(displayMoveName(moveId))}</h2>
       <p class="status-kicker">${escapeHtml(slot)} move</p>
       <p>${escapeHtml(role)}</p>
+      ${moveStatsHtml(moveSettings?.[moveId])}
       <h3>Your Pokémon that use it well</h3>
       ${users.length
         ? `<ul class="move-sheet-users">${users.map((name) => `<li>${escapeHtml(name)}</li>`).join("")}</ul>`

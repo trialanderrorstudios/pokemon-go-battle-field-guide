@@ -5537,6 +5537,7 @@ export function bootstrap({
       let overlayHtml = "";
       if (ui.moveSheet) {
         overlayHtml += renderMoveSheet({
+          moveSettings: state.moveSettings,
           moveId: ui.moveSheet,
           catalog: moveCatalog,
           moveIndex,

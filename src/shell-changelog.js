@@ -6,6 +6,16 @@
 
 export const SHELL_CHANGELOG = Object.freeze([
   Object.freeze({
+    rev: "r151", date: "2026-08-23",
+    added: Object.freeze([
+      "Move details, finally with numbers: every move sheet shows power, duration, energy, DPS, EPS (fast) and damage-per-energy (charged) \u2014 labeled as base rates, no STAB/weather.",
+      "Elite TM Planner (More \u2192 Library) \u2014 which of YOUR Pok\u00e9mon deserve the free World Championships Elite TMs: never-returning exclusives rank above Community-Day-Classic moves (those come back every December), event-only moves correctly excluded.",
+    ]),
+    tweaked: Object.freeze([
+      "Dex entries outside the top-100 defender ranking now say so honestly (a score verdict over ~950 eligible, not missing data) \u2014 the Gardevoir question.",
+    ]),
+  }),
+  Object.freeze({
     rev: "r150", date: "2026-08-23",
     added: Object.freeze([
       "Appraisal bars read as pixels: when a CP+HP scan is ambiguous (the Gardevoir 3005/143 case \u2014 8 possible spreads), include the appraisal screenshot in the batch and its Attack/Defense/HP bars resolve the exact IVs automatically \u2014 a bar read only counts when it lands exactly on a mathematically valid spread. Scan evidence shows each bar's fill percentage.",

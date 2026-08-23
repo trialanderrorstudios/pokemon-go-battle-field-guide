@@ -8345,3 +8345,7 @@ html:not([data-app-booted]) #app .fallback-section {
 .party-sim-label { margin: 0; font-weight: 700; font-size: 0.9rem; }
 .party-sim-assumptions { font-size: 0.8rem; color: var(--muted); margin-top: 0.25rem; }
 .party-sim-assumptions ul { margin: 0.25rem 0 0; padding-left: 1.1rem; }
+
+/* Move sheet stat row (r151) */
+.move-sheet-stats { display: flex; flex-wrap: wrap; gap: 0.35rem 0.9rem; margin: 0.4rem 0 0.2rem; font-size: 0.85rem; }
+.move-sheet-stat b { font-weight: 700; color: var(--muted); margin-right: 0.25rem; }
