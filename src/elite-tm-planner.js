@@ -124,6 +124,14 @@ export function eliteTmPlan({ roster = {}, forms = {}, raidRows = {}, moveAvaila
           rank: row.rank,
           attackingType: row.attackingType,
           why: owned ? "Already running the elite optimal — no TM needed." : whyFor(entry.availabilityClass, row),
+          // assemble.py's eliteGainPct: percent cycle-DPS the elite set gains
+          // over the best non-elite same-type set, or null when no non-elite
+          // alternative exists at all. undefined on rows shipped before this
+          // field existed — the view must tolerate both. Not part of the sort
+          // key below: a 2% eliteOnly exclusive still outranks a 20%
+          // communityDayClassic move, because December Community Day recovers
+          // the latter for candy but an eliteOnly move never comes back.
+          gainPct: row.eliteGainPct,
         });
       }
     }

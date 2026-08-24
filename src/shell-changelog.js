@@ -6,6 +6,12 @@
 
 export const SHELL_CHANGELOG = Object.freeze([
   Object.freeze({
+    rev: "r152", date: "2026-08-24",
+    tweaked: Object.freeze([
+      "Elite TM Planner rows now say how much the elite move is actually worth: \"+6.4% over the best TM-able set\" (measured with the same DPS engine that ranks attackers) or \"no TM-able alternative\" when nothing else fills the role. The planner already only suggested elite moves that ARE the optimal set \u2014 now it shows the margin too.",
+    ]),
+  }),
+  Object.freeze({
     rev: "r151", date: "2026-08-23",
     added: Object.freeze([
       "Move details, finally with numbers: every move sheet shows power, duration, energy, DPS, EPS (fast) and damage-per-energy (charged) \u2014 labeled as base rates, no STAB/weather.",

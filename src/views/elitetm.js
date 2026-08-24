@@ -23,6 +23,11 @@ function candidateHtml(candidate, forms) {
       <strong>${escapeHtml(candidate.name)}</strong>
       <span class="xl-row-level">${escapeHtml(kind)} — ${escapeHtml(displayMoveName(candidate.move))}</span>
       <span class="xl-row-level">${escapeHtml(availability)}</span>
+      ${candidate.gainPct != null
+    ? `<span class="xl-row-level">+${escapeHtml(candidate.gainPct)}% over the best TM-able set</span>`
+    : candidate.gainPct === null
+      ? `<span class="xl-row-level">no TM-able alternative</span>`
+      : ""}
     </div>
     ${whyLine(candidate.why)}
   </li>`;
