@@ -1413,6 +1413,7 @@ export function renderHome({
   questsCardHtml = "",
   countdownChipsHtml = "",
   evolutionHoldsCardHtml = "",
+  eventEvolveCardHtml = "",
   streakChipHtml = "",
 } = {}) {
   const continueRoute = CONTINUE_ROUTES.has(continueTask?.route)
@@ -1439,6 +1440,7 @@ export function renderHome({
   })}
     ${questsCardHtml}
     ${evolutionHoldsCardHtml}
+    ${eventEvolveCardHtml}
     ${renderToday({
     data, roster, defenseLog, storage, gapByFormId, investRows, futureProof, now, profile: { trainerLevel },
   })}

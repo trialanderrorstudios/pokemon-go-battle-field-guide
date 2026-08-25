@@ -8349,3 +8349,9 @@ html:not([data-app-booted]) #app .fallback-section {
 /* Move sheet stat row (r151) */
 .move-sheet-stats { display: flex; flex-wrap: wrap; gap: 0.35rem 0.9rem; margin: 0.4rem 0 0.2rem; font-size: 0.85rem; }
 .move-sheet-stat b { font-weight: 700; color: var(--muted); margin-right: 0.25rem; }
+
+/* Event evolve-move advisor card (r153) */
+.event-evolve-block { margin-bottom: 0.8rem; }
+.event-evolve-copies, .event-evolve-iv-advice { margin: 0.2rem 0 0; font-size: 0.82rem; color: var(--muted); }
+.event-evolve-skips { margin-top: 0.5rem; font-size: 0.85rem; }
+.event-evolve-skips summary { cursor: pointer; color: var(--muted); }

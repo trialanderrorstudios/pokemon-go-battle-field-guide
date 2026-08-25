@@ -6,6 +6,12 @@
 
 export const SHELL_CHANGELOG = Object.freeze([
   Object.freeze({
+    rev: "r153", date: "2026-08-25",
+    added: Object.freeze([
+      "Event evolve-move advisor on Home: during an event granting evolution-exclusive moves (Worlds week now), every grant gets an evolve/skip verdict with the real reasons \u2014 which ranked roles the move headlines with its measured margin, which of YOUR copies to evolve (hundo ordering for raid/Master roles, league-spread ordering for Great/Ultra \u2014 a hundo is not the PvP pick), and skips collapsed with the set that beats them named. Grant lists are curated per event and validated at build.",
+    ]),
+  }),
+  Object.freeze({
     rev: "r152", date: "2026-08-24",
     tweaked: Object.freeze([
       "Elite TM Planner rows now say how much the elite move is actually worth: \"+6.4% over the best TM-able set\" (measured with the same DPS engine that ranks attackers) or \"no TM-able alternative\" when nothing else fills the role. The planner already only suggested elite moves that ARE the optimal set \u2014 now it shows the margin too.",

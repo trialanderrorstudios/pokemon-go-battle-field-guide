@@ -71,6 +71,7 @@ const SHELL_CODE_FILES = Object.freeze([
   "./src/dex-pvp-optimal.js",
   "./src/ocr-appraisal-bars.js",
   "./src/elite-tm-planner.js",
+  "./src/event-evolve-advisor.js",
   "./src/sim-verdicts.js",
   "./src/xl-advisor.js",
   "./src/evolve-checklist.js",

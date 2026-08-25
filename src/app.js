@@ -55,6 +55,7 @@ import { generateQuests, loadQuestState, toggleQuest, renderDailyQuestsCard } fr
 import { bossCountdowns, renderCountdownChips } from "./boss-countdown.js";
 import { evolutionHolds, holdForFormId, renderEvolutionHoldsCard } from "./evolution-holds.js";
 import { evolveChecklist } from "./evolve-checklist.js";
+import { eventEvolveAdvice, renderEventEvolveCard } from "./event-evolve-advisor.js";
 import { streakChipHtml } from "./views/journal.js";
 import { simulateParty } from "./battle-sim.js";
 import { counterSimTimes, soloVerdict } from "./sim-verdicts.js";
@@ -293,7 +294,7 @@ const CHUNK_FIELDS = Object.freeze({
   "extras.json": ["budgets", "megasPrimals", "futureProof", "coveragePlanner", "moveSettings"],
   "acquisition.json": ["acquisitionGuide", "shinyOdds"],
   "current-bosses.json": ["currentBosses", "currentMaxBattles"],
-  "current-events.json": ["currentEvents"],
+  "current-events.json": ["currentEvents", "eventEvolveMoves"],
   "current-eggs.json": ["currentEggs"],
   "rocket-lineups.json": ["rocketLineups"],
 });
@@ -5115,10 +5116,18 @@ export function bootstrap({
         }),
         forms: state.core.forms,
       });
+      const eventEvolveCardHtml = renderEventEvolveCard({
+        advice: eventEvolveAdvice({
+          eventEvolveMoves: state.eventEvolveMoves, forms: state.core.forms,
+          roster, raids: state.raids, pvp: state.pvp, gym: state.gym, now: new Date(),
+        }),
+        forms: state.core.forms,
+      });
       app.innerHTML = interactionNotice(ui) + renderHome({
         questsCardHtml,
         countdownChipsHtml,
         evolutionHoldsCardHtml,
+        eventEvolveCardHtml,
         streakChipHtml: streakChipHtml(questJournal.streak),
         cutoff: state.core.meta?.asOf,
         offlineStatus: state.offlineStatus ?? offlineLabel(releaseState),
