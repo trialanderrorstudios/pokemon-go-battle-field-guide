@@ -105,8 +105,24 @@ function pvpHitsFor(evolvedFormId, move, pvp) {
 
 function gymHitsFor(evolvedFormId, move, gym) {
   const row = (gym?.defenderRanking ?? []).find((entry) => entry.formId === evolvedFormId);
-  if (!row || (row.bestFastMove !== move && row.bestChargedMove !== move)) return [];
-  return [{ rank: row.rank, tier: row.tier }];
+  if (!row) return [];
+  if (row.bestFastMove === move || row.bestChargedMove === move) {
+    return [{ rank: row.rank, tier: row.tier, upgrade: null }];
+  }
+  // The defender rows carry the elite-move UPGRADE as an object (r152's
+  // defense-side gain data): eliteCharged = {move, gainPct, rank, tier} —
+  // a granted move matching the upgrade is a real gym role the string
+  // compare above misses (operator catch 2026-08-25: Togekiss Aura Sphere
+  // +20.1% defense read as "no role").
+  const upgrade = row.eliteCharged;
+  if (upgrade && typeof upgrade === "object" && upgrade.move === move) {
+    return [{
+      rank: upgrade.rank ?? row.rank,
+      tier: upgrade.tier ?? row.tier,
+      upgrade: { gainPct: typeof upgrade.gainPct === "number" ? upgrade.gainPct : null },
+    }];
+  }
+  return [];
 }
 
 // --- why / whyNot ---
@@ -129,6 +145,10 @@ function pvpHitPhrase(hit) {
 }
 
 function gymHitPhrase(hit) {
+  if (hit.upgrade) {
+    const gain = hit.upgrade.gainPct != null ? ` (+${hit.upgrade.gainPct}% defense output)` : "";
+    return `gym-defense upgrade to rank #${hit.rank}${gain}`;
+  }
   return `gym defense rank #${hit.rank} (Tier ${hit.tier})`;
 }
 

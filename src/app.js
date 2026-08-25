@@ -5116,13 +5116,27 @@ export function bootstrap({
         }),
         forms: state.core.forms,
       });
-      const eventEvolveCardHtml = renderEventEvolveCard({
-        advice: eventEvolveAdvice({
-          eventEvolveMoves: state.eventEvolveMoves, forms: state.core.forms,
-          roster, raids: state.raids, pvp: state.pvp, gym: state.gym, now: new Date(),
-        }),
-        forms: state.core.forms,
-      });
+      // GATED on the ranking chunks (r154 fix): Home cold-boots before the
+      // lazy raids/pvp/gyms chunks land, and the advisor computed with
+      // missing data rendered confident wrong "no ranked role" skips
+      // (Lickilicky, a GL #1, read as not worth evolving on-device).
+      // Verdicts wait for real data; an honest loading line holds the slot.
+      const advisorChunksReady = ["raids-regular.json", "raids-shadow.json", "pvp.json", "gyms.json"]
+        .every((path) => loadedChunkPaths.has(path));
+      const eventEvolveCardHtml = advisorChunksReady
+        ? renderEventEvolveCard({
+          advice: eventEvolveAdvice({
+            eventEvolveMoves: state.eventEvolveMoves, forms: state.core.forms,
+            roster, raids: state.raids, pvp: state.pvp, gym: state.gym, now: new Date(),
+          }),
+          forms: state.core.forms,
+        })
+        : (() => {
+          const live = (state.eventEvolveMoves?.events ?? []).some((event) => typeof event.endsAt === "string");
+          return live
+            ? `<div class="fallback-section event-evolve-card"><p class="status-kicker">Event moves</p><p class="briefing-note">Evolve-move verdicts load with the rankings data — one moment.</p></div>`
+            : "";
+        })();
       app.innerHTML = interactionNotice(ui) + renderHome({
         questsCardHtml,
         countdownChipsHtml,

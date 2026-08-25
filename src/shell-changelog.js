@@ -6,6 +6,13 @@
 
 export const SHELL_CHANGELOG = Object.freeze([
   Object.freeze({
+    rev: "r154", date: "2026-08-25",
+    tweaked: Object.freeze([
+      "Fixed: the evolve-move advisor rendered confident wrong skips on cold boot (Lickilicky, Great League #1, read as \"not worth it\") because Home drew the card before the rankings data loaded — verdicts now wait for real data behind an honest loading line.",
+      "The advisor now counts gym-defense upgrades too: Togekiss Aura Sphere (+20.1% defense output), Metagross Meteor Mash (+22.3%), Feraligatr Hydro Cannon (+23.7%) flip to evolve on their gym value.",
+    ]),
+  }),
+  Object.freeze({
     rev: "r153", date: "2026-08-25",
     added: Object.freeze([
       "Event evolve-move advisor on Home: during an event granting evolution-exclusive moves (Worlds week now), every grant gets an evolve/skip verdict with the real reasons \u2014 which ranked roles the move headlines with its measured margin, which of YOUR copies to evolve (hundo ordering for raid/Master roles, league-spread ordering for Great/Ultra \u2014 a hundo is not the PvP pick), and skips collapsed with the set that beats them named. Grant lists are curated per event and validated at build.",
