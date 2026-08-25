@@ -8380,3 +8380,9 @@ html:not([data-app-booted]) #app .fallback-section {
 
 /* Shadow-Frustration warning on the advisor (r159) */
 .ev-adv-shadow-warning { margin: 0.5rem 0 0; font-size: 0.8rem; color: var(--amber, #e0a13d); }
+
+/* Advisor rank lines (r161 — each league/role rank is its own line item) */
+.ev-adv-rank-line { margin: 0.05rem 0 0; font-weight: 800; font-size: 0.88rem; }
+.ev-adv-rank-line.is-pvp { color: var(--dx-lens-blue); }
+.ev-adv-rank-line.is-raid { color: var(--amber, #e0a13d); }
+.ev-adv-rank-line.is-gym { color: var(--muted); }

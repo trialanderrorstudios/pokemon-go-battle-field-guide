@@ -6,6 +6,12 @@
 
 export const SHELL_CHANGELOG = Object.freeze([
   Object.freeze({
+    rev: "r161", date: "2026-08-25",
+    tweaked: Object.freeze([
+      "Every advisor row now leads with each rank as its own bold line — per PvP league, per raid lane (Shadow labeled), gym defense — plus the species' standing gym defender rank out of all 955 (Corviknight: #7, who knew).",
+    ]),
+  }),
+  Object.freeze({
     rev: "r160", date: "2026-08-25",
     tweaked: Object.freeze([
       "Ships the shadow fixes that missed r159's build: \"as Shadow:\" labels on dual raid claims, and the standing Frustration warning on the advisor card.",

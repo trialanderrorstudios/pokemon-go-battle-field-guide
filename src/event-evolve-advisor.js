@@ -292,6 +292,11 @@ function grantRow(grant, { forms, roster, raids, pvp, gym }) {
     pvp: pvpHitsFor(evolvedFormId, move, pvp),
     gym: gymHitsFor(evolvedFormId, move, gym),
   };
+  // The species' standing defender rank (full 955-form index), independent
+  // of whether the granted move touches its gym set — informational context
+  // the operator asked for beside the move-driven role lines.
+  const indexRow = (gym?.defenderIndex ?? []).find((entry) => entry.formId === evolvedFormId);
+  const gymDefenderRank = indexRow ? { rank: indexRow.rank, of: (gym.defenderIndex ?? []).length } : null;
   const verdict = (roles.raid.length || roles.pvp.length || roles.gym.length) ? "evolve" : "skip";
   const hasRaidMl = roles.raid.length > 0 || roles.pvp.some((hit) => hit.league === "master");
   const glUlHits = roles.pvp.filter((hit) => hit.league === "great" || hit.league === "ultra");
@@ -311,6 +316,7 @@ function grantRow(grant, { forms, roster, raids, pvp, gym }) {
     yourCopies: yourCopiesFor({
       evolvedFormId, forms, roster, hasRaidMl, hasGlUl: !!bestGlUlLeague, bestGlUlLeague,
     }),
+    gymDefenderRank,
     ivAdvice: ivAdviceFor(hasRaidMl, !!bestGlUlLeague),
     ivTarget: bestGlUlLeague ? leagueTarget(forms?.[grant.evolvedFormId], bestGlUlLeague) : null,
   };
@@ -421,6 +427,27 @@ function recipeBlocks(row, forms) {
   return blocks;
 }
 
+// Per-league/role rank as its OWN LINE (operator ask 2026-08-25, twice:
+// the ranks are the headline claim — buried-in-prose first, chips second;
+// stacked labeled lines is the read they want).
+function rankLinesHtml(row) {
+  const lines = [];
+  for (const hit of (row.roles.raid ?? []).slice().sort((a, b) => (a.shadow ? 1 : 0) - (b.shadow ? 1 : 0) || a.rank - b.rank)) {
+    lines.push(`<p class="ev-adv-rank-line is-raid">${escapeHtml(`${hit.shadow ? "Shadow " : ""}${hit.attackingType} raids: #${hit.rank}`)}</p>`);
+  }
+  for (const hit of row.roles.pvp ?? []) {
+    lines.push(`<p class="ev-adv-rank-line is-pvp">${escapeHtml(`${LEAGUE_LABEL[hit.league]}: #${hit.rank}`)}</p>`);
+  }
+  for (const hit of row.roles.gym ?? []) {
+    lines.push(`<p class="ev-adv-rank-line is-gym">${escapeHtml(`Gym defense: #${hit.rank}${hit.upgrade?.gainPct != null ? ` (+${hit.upgrade.gainPct}% output)` : ""}`)}</p>`);
+  }
+  // Standing defender rank as context when the move itself has no gym role.
+  if (!(row.roles.gym ?? []).length && row.gymDefenderRank) {
+    lines.push(`<p class="ev-adv-rank-line is-gym">${escapeHtml(`Gym defender: #${row.gymDefenderRank.rank} of ${row.gymDefenderRank.of}`)}</p>`);
+  }
+  return lines.join("");
+}
+
 function rowHtml(row, forms, priority = null) {
   const form = forms?.[row.evolvedFormId];
   return `<li class="ev-adv-row" data-form-id="${escapeHtml(row.evolvedFormId)}" data-verdict="${escapeHtml(row.verdict)}">
@@ -428,6 +455,7 @@ function rowHtml(row, forms, priority = null) {
     ${spriteHtml(row.evolvedFormId, forms, row.name, form?.primary_type)}
     <div class="ev-adv-body">
       <p class="ev-adv-heading"><strong>${escapeHtml(row.name)}</strong> · ${escapeHtml((row.moves ?? [row.move]).map(displayMoveName).join(" + "))} · <span class="ev-adv-verdict">${row.verdict === "evolve" ? "Evolve" : "Skip"}</span></p>
+      ${row.verdict === "evolve" ? rankLinesHtml(row) : ""}
       ${whyLine(row.verdict === "evolve" ? row.why : row.whyNot)}
       ${row.verdict === "evolve" ? recipeBlocks(row, forms).map((block) => `<div class="ev-adv-recipe-block">
         <p class="ev-adv-recipe-label">${escapeHtml(block.label)}</p>
