@@ -223,20 +223,22 @@ function bestByIvSum(copies) {
 // The exact league target comes from dex-pvp-optimal.js's rank-1 scan
 // (operator ask 2026-08-25: "note what the optimal IV is") — same math the
 // dex league cards show, so the two surfaces can never disagree.
-function leagueTargetPhrase(form, league) {
+// The target spread renders as its OWN emphasized line (operator ask
+// 2026-08-25: "shouldn't get glanced over"), so ivAdvice stays prose and
+// ivTarget carries the number.
+function leagueTarget(form, league) {
   const { optimal } = dexPvpOptimal(form ?? {}, league);
-  if (!optimal) return "";
-  return ` Target: ${optimal.ivs.atk}/${optimal.ivs.def}/${optimal.ivs.sta} @ L${optimal.level}.`;
+  if (!optimal) return null;
+  return `${LEAGUE_LABEL[league]} target: ${optimal.ivs.atk}/${optimal.ivs.def}/${optimal.ivs.sta} @ L${optimal.level}`;
 }
 
-function ivAdviceFor(hasRaidMl, hasGlUl, form, bestGlUlLeague) {
-  const target = hasGlUl && bestGlUlLeague ? leagueTargetPhrase(form, bestGlUlLeague) : "";
+function ivAdviceFor(hasRaidMl, hasGlUl) {
   if (hasRaidMl && hasGlUl) {
     return "Chase high IVs for raids/Master League — hundo best. For Great/Ultra League, low attack, high bulk "
-      + `spreads rank best instead — a hundo is NOT the PvP pick there.${target}`;
+      + "spreads rank best instead — a hundo is NOT the PvP pick there.";
   }
   if (hasRaidMl) return "Chase high IVs — hundo best.";
-  if (hasGlUl) return `Low attack, high bulk spreads rank best — a hundo is NOT the PvP pick.${target}`;
+  if (hasGlUl) return "Low attack, high bulk spreads rank best — a hundo is NOT the PvP pick.";
   return "No raid or PvP role for this move — IV chase doesn't matter here.";
 }
 
@@ -307,7 +309,8 @@ function grantRow(grant, { forms, roster, raids, pvp, gym }) {
     yourCopies: yourCopiesFor({
       evolvedFormId, forms, roster, hasRaidMl, hasGlUl: !!bestGlUlLeague, bestGlUlLeague,
     }),
-    ivAdvice: ivAdviceFor(hasRaidMl, !!bestGlUlLeague, forms?.[grant.evolvedFormId], bestGlUlLeague),
+    ivAdvice: ivAdviceFor(hasRaidMl, !!bestGlUlLeague),
+    ivTarget: bestGlUlLeague ? leagueTarget(forms?.[grant.evolvedFormId], bestGlUlLeague) : null,
   };
 }
 
@@ -412,6 +415,7 @@ function rowHtml(row, forms, priority = null) {
       ${row.verdict === "evolve" ? recipeLines(row, forms).map((line) => `<p class="ev-adv-recipe">${escapeHtml(line)}</p>`).join("") : ""}
       ${row.yourCopies.lines.map((line) => `<p class="event-evolve-copies">${escapeHtml(line)}</p>`).join("")}
       <p class="event-evolve-iv-advice">${escapeHtml(row.ivAdvice)}</p>
+      ${row.ivTarget ? `<p class="ev-adv-target">${escapeHtml(row.ivTarget)}</p>` : ""}
     </div>
   </li>`;
 }

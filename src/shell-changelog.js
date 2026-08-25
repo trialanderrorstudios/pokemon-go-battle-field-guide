@@ -6,6 +6,12 @@
 
 export const SHELL_CHANGELOG = Object.freeze([
   Object.freeze({
+    rev: "r158", date: "2026-08-25",
+    tweaked: Object.freeze([
+      "The PvP IV target on advisor rows is its own bold accent line now (\"Great League target: 0/15/10 @ L23.5\") instead of a trailing clause you could glance past.",
+    ]),
+  }),
+  Object.freeze({
     rev: "r157", date: "2026-08-25",
     added: Object.freeze([
       "The evolve advisor now prints the full move recipe per role — \"Raids (Steel): Bullet Punch + Meteor Mash\", \"Master League: Shadow Claw + Meteor Mash & Earthquake (2nd slot: 75,000 dust)\", gym defense sets included — straight from each role's own optimal-set data.",

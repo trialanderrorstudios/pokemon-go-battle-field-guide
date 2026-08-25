@@ -8369,3 +8369,6 @@ html:not([data-app-booted]) #app .fallback-section {
 
 /* Advisor move recipes (r157) */
 .ev-adv-recipe { margin: 0.1rem 0 0; font-size: 0.82rem; }
+
+/* Emphasized IV target line (r158 — must not get glanced over) */
+.ev-adv-target { margin: 0.15rem 0 0; font-weight: 800; color: var(--dx-lens-blue); font-size: 0.88rem; }
