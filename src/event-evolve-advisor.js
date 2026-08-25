@@ -84,7 +84,10 @@ function raidHitsFor(evolvedFormId, move, kind, raids) {
     .filter((row) => row.status === "ranked" && (row.formId === evolvedFormId || row.formId === siblingId)
       && matchesMove(row, move, kind));
   return rows.map((row) => {
-    const hit = { attackingType: row.attackingType, rank: row.rank, investmentTier: row.investmentTier };
+    const hit = {
+      attackingType: row.attackingType, rank: row.rank, investmentTier: row.investmentTier,
+      fastMove: row.optimalFastMove, chargedMove: row.optimalChargedMove,
+    };
     // A shadow-sibling hit is real advice (you can evolve an owned shadow
     // pre-evolution) but must not set the WILD hunt order — flagged so
     // bestClaim can prefer the catchable form's own ranks.
@@ -102,7 +105,7 @@ function pvpHitsFor(evolvedFormId, move, pvp) {
   for (const league of Object.keys(LEAGUE_LABEL)) {
     const row = (pvp?.[league] ?? []).find((entry) => entry.formId === evolvedFormId);
     if (row && (row.fastMove === move || (row.chargedMoves ?? []).includes(move))) {
-      hits.push({ league, rank: row.rank });
+      hits.push({ league, rank: row.rank, fastMove: row.fastMove, chargedMoves: [...(row.chargedMoves ?? [])] });
     }
   }
   return hits;
@@ -112,7 +115,7 @@ function gymHitsFor(evolvedFormId, move, gym) {
   const row = (gym?.defenderRanking ?? []).find((entry) => entry.formId === evolvedFormId);
   if (!row) return [];
   if (row.bestFastMove === move || row.bestChargedMove === move) {
-    return [{ rank: row.rank, tier: row.tier, upgrade: null }];
+    return [{ rank: row.rank, tier: row.tier, upgrade: null, fastMove: row.bestFastMove, chargedMove: row.bestChargedMove }];
   }
   // The defender rows carry the elite-move UPGRADE as an object (r152's
   // defense-side gain data): eliteCharged = {move, gainPct, rank, tier} —
@@ -125,6 +128,7 @@ function gymHitsFor(evolvedFormId, move, gym) {
       rank: upgrade.rank ?? row.rank,
       tier: upgrade.tier ?? row.tier,
       upgrade: { gainPct: typeof upgrade.gainPct === "number" ? upgrade.gainPct : null },
+      fastMove: row.bestFastMove, chargedMove: upgrade.move,
     }];
   }
   return [];
@@ -364,6 +368,39 @@ function rowCompare(left, right) {
 // on portrait tablets — text rendered VERTICALLY (device report
 // 2026-08-25). Own grid classes, and evolve rows carry an explicit hunt
 // priority number so the order reads as a ranking, not a list.
+// The full moveset recipe per role lane (operator ask 2026-08-25: "the full
+// recipe for what their moves should be") — straight from the role rows'
+// own optimal sets, deduped when lanes agree. PvP sets with a second
+// charged move carry the form's real third-slot dust cost.
+function recipeLines(row, forms) {
+  const form = forms?.[row.evolvedFormId];
+  const lines = [];
+  const seen = new Set();
+  const push = (label, fast, charged) => {
+    const key = `${fast}|${charged.join("|")}`;
+    if (!fast || !charged.length || seen.has(key)) return;
+    seen.add(key);
+    lines.push(`${label}: ${displayMoveName(fast)} + ${charged.map(displayMoveName).join(" & ")}`);
+  };
+  const bestRaid = (row.roles.raid ?? []).filter((hit) => !hit.shadow).sort((a, b) => a.rank - b.rank)[0];
+  if (bestRaid) push(`Raids (${bestRaid.attackingType})`, bestRaid.fastMove, [bestRaid.chargedMove].filter(Boolean));
+  for (const hit of row.roles.pvp ?? []) {
+    const charged = (hit.chargedMoves ?? []).filter(Boolean);
+    const cost = charged.length > 1 && form?.third_move_cost
+      ? ` (2nd slot: ${Number(form.third_move_cost).toLocaleString()} dust)` : "";
+    if (hit.fastMove && charged.length) {
+      const key = `${hit.fastMove}|${charged.join("|")}`;
+      if (!seen.has(key)) {
+        seen.add(key);
+        lines.push(`${LEAGUE_LABEL[hit.league]}: ${displayMoveName(hit.fastMove)} + ${charged.map(displayMoveName).join(" & ")}${cost}`);
+      }
+    }
+  }
+  const gymHit = (row.roles.gym ?? [])[0];
+  if (gymHit) push("Gym defense", gymHit.fastMove, [gymHit.chargedMove].filter(Boolean));
+  return lines;
+}
+
 function rowHtml(row, forms, priority = null) {
   const form = forms?.[row.evolvedFormId];
   return `<li class="ev-adv-row" data-form-id="${escapeHtml(row.evolvedFormId)}" data-verdict="${escapeHtml(row.verdict)}">
@@ -372,6 +409,7 @@ function rowHtml(row, forms, priority = null) {
     <div class="ev-adv-body">
       <p class="ev-adv-heading"><strong>${escapeHtml(row.name)}</strong> · ${escapeHtml((row.moves ?? [row.move]).map(displayMoveName).join(" + "))} · <span class="ev-adv-verdict">${row.verdict === "evolve" ? "Evolve" : "Skip"}</span></p>
       ${whyLine(row.verdict === "evolve" ? row.why : row.whyNot)}
+      ${row.verdict === "evolve" ? recipeLines(row, forms).map((line) => `<p class="ev-adv-recipe">${escapeHtml(line)}</p>`).join("") : ""}
       ${row.yourCopies.lines.map((line) => `<p class="event-evolve-copies">${escapeHtml(line)}</p>`).join("")}
       <p class="event-evolve-iv-advice">${escapeHtml(row.ivAdvice)}</p>
     </div>

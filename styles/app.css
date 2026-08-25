@@ -8366,3 +8366,6 @@ html:not([data-app-booted]) #app .fallback-section {
 .ev-adv-heading { margin: 0 0 0.15rem; overflow-wrap: anywhere; }
 .ev-adv-verdict { text-transform: uppercase; font-size: 0.7rem; letter-spacing: 0.08em; color: var(--dx-lens-blue); }
 .ev-adv-row[data-verdict="skip"] .ev-adv-verdict { color: var(--muted); }
+
+/* Advisor move recipes (r157) */
+.ev-adv-recipe { margin: 0.1rem 0 0; font-size: 0.82rem; }

@@ -6,6 +6,12 @@
 
 export const SHELL_CHANGELOG = Object.freeze([
   Object.freeze({
+    rev: "r157", date: "2026-08-25",
+    added: Object.freeze([
+      "The evolve advisor now prints the full move recipe per role — \"Raids (Steel): Bullet Punch + Meteor Mash\", \"Master League: Shadow Claw + Meteor Mash & Earthquake (2nd slot: 75,000 dust)\", gym defense sets included — straight from each role's own optimal-set data.",
+    ]),
+  }),
+  Object.freeze({
     rev: "r156", date: "2026-08-25",
     tweaked: Object.freeze([
       "The evolve-move advisor got its own row layout — the borrowed list styling was collapsing text into vertical one-character columns on portrait tablets (the \"garbled cards\" reports). Rows now carry an explicit hunt-priority number (#1 first), a species with two granted moves shows as one row, and a Shadow sibling's raid rank no longer inflates a wild catch's priority.",
