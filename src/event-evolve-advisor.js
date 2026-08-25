@@ -228,19 +228,22 @@ function bestByIvSum(copies) {
 // The target spread renders as its OWN emphasized line (operator ask
 // 2026-08-25: "shouldn't get glanced over"), so ivAdvice stays prose and
 // ivTarget carries the number.
-function leagueTarget(form, league) {
+function leagueTargetSpread(form, league) {
   const { optimal } = dexPvpOptimal(form ?? {}, league);
   if (!optimal) return null;
-  return `${LEAGUE_LABEL[league]} target: ${optimal.ivs.atk}/${optimal.ivs.def}/${optimal.ivs.sta} @ L${optimal.level}`;
+  return `${optimal.ivs.atk}/${optimal.ivs.def}/${optimal.ivs.sta} @ L${optimal.level}`;
 }
 
-function ivAdviceFor(hasRaidMl, hasGlUl) {
+function ivAdviceFor(hasRaidMl, hasGlUl, hasGym = false) {
   if (hasRaidMl && hasGlUl) {
     return "Chase high IVs for raids/Master League — hundo best. For Great/Ultra League, low attack, high bulk "
       + "spreads rank best instead — a hundo is NOT the PvP pick there.";
   }
   if (hasRaidMl) return "Chase high IVs — hundo best.";
   if (hasGlUl) return "Low attack, high bulk spreads rank best — a hundo is NOT the PvP pick.";
+  // Gym defense wants bulk (operator catch 2026-08-25: this said "IV chase
+  // doesn't matter" on gym-role rows like Incineroar's).
+  if (hasGym) return "Gym defense wants bulk — high Defense/HP IVs; a hundo is the safe chase.";
   return "No raid or PvP role for this move — IV chase doesn't matter here.";
 }
 
@@ -317,8 +320,11 @@ function grantRow(grant, { forms, roster, raids, pvp, gym }) {
       evolvedFormId, forms, roster, hasRaidMl, hasGlUl: !!bestGlUlLeague, bestGlUlLeague,
     }),
     gymDefenderRank,
-    ivAdvice: ivAdviceFor(hasRaidMl, !!bestGlUlLeague),
-    ivTarget: bestGlUlLeague ? leagueTarget(forms?.[grant.evolvedFormId], bestGlUlLeague) : null,
+    ivAdvice: ivAdviceFor(hasRaidMl, !!bestGlUlLeague, roles.gym.length > 0),
+    leagueTargets: Object.fromEntries(roles.pvp
+      .filter((hit) => hit.league !== "master")
+      .map((hit) => [hit.league, leagueTargetSpread(forms?.[grant.evolvedFormId], hit.league)])
+      .filter(([, spread]) => spread)),
   };
 }
 
@@ -436,7 +442,10 @@ function rankLinesHtml(row) {
     lines.push(`<p class="ev-adv-rank-line is-raid">${escapeHtml(`${hit.shadow ? "Shadow " : ""}${hit.attackingType} raids: #${hit.rank}`)}</p>`);
   }
   for (const hit of row.roles.pvp ?? []) {
-    lines.push(`<p class="ev-adv-rank-line is-pvp">${escapeHtml(`${LEAGUE_LABEL[hit.league]}: #${hit.rank}`)}</p>`);
+    // Each league's own rank-1 target rides ITS line (operator ask
+    // 2026-08-25: IVs with the league, not at the card bottom).
+    const target = row.leagueTargets?.[hit.league];
+    lines.push(`<p class="ev-adv-rank-line is-pvp">${escapeHtml(`${LEAGUE_LABEL[hit.league]}: #${hit.rank}${target ? ` — target ${target}` : ""}`)}</p>`);
   }
   for (const hit of row.roles.gym ?? []) {
     lines.push(`<p class="ev-adv-rank-line is-gym">${escapeHtml(`Gym defense: #${hit.rank}${hit.upgrade?.gainPct != null ? ` (+${hit.upgrade.gainPct}% output)` : ""}`)}</p>`);
@@ -463,7 +472,7 @@ function rowHtml(row, forms, priority = null) {
       </div>`).join("") : ""}
       ${row.yourCopies.lines.map((line) => `<p class="event-evolve-copies">${escapeHtml(line)}</p>`).join("")}
       <p class="event-evolve-iv-advice">${escapeHtml(row.ivAdvice)}</p>
-      ${row.ivTarget ? `<p class="ev-adv-target">${escapeHtml(row.ivTarget)}</p>` : ""}
+
     </div>
   </li>`;
 }

@@ -6,6 +6,12 @@
 
 export const SHELL_CHANGELOG = Object.freeze([
   Object.freeze({
+    rev: "r162", date: "2026-08-25",
+    tweaked: Object.freeze([
+      "Advisor IV targets moved onto their league's own rank line (\"Great League: #1 — target 0/15/10 @ L23.5\", per league), and gym-role rows now say the truth about IVs: gym defense wants bulk, a hundo is the safe chase.",
+    ]),
+  }),
+  Object.freeze({
     rev: "r161", date: "2026-08-25",
     tweaked: Object.freeze([
       "Every advisor row now leads with each rank as its own bold line — per PvP league, per raid lane (Shadow labeled), gym defense — plus the species' standing gym defender rank out of all 955 (Corviknight: #7, who knew).",
