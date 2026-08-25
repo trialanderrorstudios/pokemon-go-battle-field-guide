@@ -375,33 +375,48 @@ function rowCompare(left, right) {
 // recipe for what their moves should be") — straight from the role rows'
 // own optimal sets, deduped when lanes agree. PvP sets with a second
 // charged move carry the form's real third-slot dust cost.
-function recipeLines(row, forms) {
+// The full moveset recipe per role lane, as LABELED SLOT LINES rather than
+// prose (operator ask 2026-08-25: "Fast move? Elite move, and second charge
+// move? Separate lines, not one sentence") — this is the part of the card
+// you act on at the TM screen. The event-granted move is flagged in place.
+function recipeBlocks(row, forms) {
   const form = forms?.[row.evolvedFormId];
-  const lines = [];
+  const granted = new Set(row.moves ?? [row.move]);
+  const tag = (move) => (granted.has(move) ? " — the event move" : "");
+  const blocks = [];
   const seen = new Set();
-  const push = (label, fast, charged) => {
-    const key = `${fast}|${charged.join("|")}`;
-    if (!fast || !charged.length || seen.has(key)) return;
-    seen.add(key);
-    lines.push(`${label}: ${displayMoveName(fast)} + ${charged.map(displayMoveName).join(" & ")}`);
-  };
   const bestRaid = (row.roles.raid ?? []).filter((hit) => !hit.shadow).sort((a, b) => a.rank - b.rank)[0];
-  if (bestRaid) push(`Raids (${bestRaid.attackingType})`, bestRaid.fastMove, [bestRaid.chargedMove].filter(Boolean));
+  if (bestRaid?.fastMove && bestRaid?.chargedMove) {
+    seen.add(`${bestRaid.fastMove}|${bestRaid.chargedMove}`);
+    blocks.push({ label: `Raids (${bestRaid.attackingType})`, lines: [
+      `Fast: ${displayMoveName(bestRaid.fastMove)}${tag(bestRaid.fastMove)}`,
+      `Charged: ${displayMoveName(bestRaid.chargedMove)}${tag(bestRaid.chargedMove)}`,
+    ] });
+  }
   for (const hit of row.roles.pvp ?? []) {
     const charged = (hit.chargedMoves ?? []).filter(Boolean);
-    const cost = charged.length > 1 && form?.third_move_cost
-      ? ` (2nd slot: ${Number(form.third_move_cost).toLocaleString()} dust)` : "";
-    if (hit.fastMove && charged.length) {
-      const key = `${hit.fastMove}|${charged.join("|")}`;
-      if (!seen.has(key)) {
-        seen.add(key);
-        lines.push(`${LEAGUE_LABEL[hit.league]}: ${displayMoveName(hit.fastMove)} + ${charged.map(displayMoveName).join(" & ")}${cost}`);
-      }
+    if (!hit.fastMove || !charged.length) continue;
+    const key = `${hit.fastMove}|${charged.join("|")}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    const lines = [
+      `Fast: ${displayMoveName(hit.fastMove)}${tag(hit.fastMove)}`,
+      `Charged: ${displayMoveName(charged[0])}${tag(charged[0])}`,
+    ];
+    if (charged[1]) {
+      const cost = form?.third_move_cost ? ` (${Number(form.third_move_cost).toLocaleString()} dust to unlock)` : "";
+      lines.push(`2nd Charged: ${displayMoveName(charged[1])}${tag(charged[1])}${cost}`);
     }
+    blocks.push({ label: LEAGUE_LABEL[hit.league], lines });
   }
   const gymHit = (row.roles.gym ?? [])[0];
-  if (gymHit) push("Gym defense", gymHit.fastMove, [gymHit.chargedMove].filter(Boolean));
-  return lines;
+  if (gymHit?.fastMove && gymHit?.chargedMove && !seen.has(`${gymHit.fastMove}|${gymHit.chargedMove}`)) {
+    blocks.push({ label: "Gym defense", lines: [
+      `Fast: ${displayMoveName(gymHit.fastMove)}${tag(gymHit.fastMove)}`,
+      `Charged: ${displayMoveName(gymHit.chargedMove)}${tag(gymHit.chargedMove)}`,
+    ] });
+  }
+  return blocks;
 }
 
 function rowHtml(row, forms, priority = null) {
@@ -412,7 +427,10 @@ function rowHtml(row, forms, priority = null) {
     <div class="ev-adv-body">
       <p class="ev-adv-heading"><strong>${escapeHtml(row.name)}</strong> · ${escapeHtml((row.moves ?? [row.move]).map(displayMoveName).join(" + "))} · <span class="ev-adv-verdict">${row.verdict === "evolve" ? "Evolve" : "Skip"}</span></p>
       ${whyLine(row.verdict === "evolve" ? row.why : row.whyNot)}
-      ${row.verdict === "evolve" ? recipeLines(row, forms).map((line) => `<p class="ev-adv-recipe">${escapeHtml(line)}</p>`).join("") : ""}
+      ${row.verdict === "evolve" ? recipeBlocks(row, forms).map((block) => `<div class="ev-adv-recipe-block">
+        <p class="ev-adv-recipe-label">${escapeHtml(block.label)}</p>
+        ${block.lines.map((line) => `<p class="ev-adv-recipe-line">${escapeHtml(line)}</p>`).join("")}
+      </div>`).join("") : ""}
       ${row.yourCopies.lines.map((line) => `<p class="event-evolve-copies">${escapeHtml(line)}</p>`).join("")}
       <p class="event-evolve-iv-advice">${escapeHtml(row.ivAdvice)}</p>
       ${row.ivTarget ? `<p class="ev-adv-target">${escapeHtml(row.ivTarget)}</p>` : ""}

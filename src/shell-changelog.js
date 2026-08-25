@@ -6,6 +6,12 @@
 
 export const SHELL_CHANGELOG = Object.freeze([
   Object.freeze({
+    rev: "r159", date: "2026-08-25",
+    tweaked: Object.freeze([
+      "Advisor move recipes are labeled slot lines now — Fast / Charged / 2nd Charged (with unlock dust) per role, the event move flagged in place — instead of a sentence you had to parse at the TM screen.",
+    ]),
+  }),
+  Object.freeze({
     rev: "r158", date: "2026-08-25",
     tweaked: Object.freeze([
       "The PvP IV target on advisor rows is its own bold accent line now (\"Great League target: 0/15/10 @ L23.5\") instead of a trailing clause you could glance past.",

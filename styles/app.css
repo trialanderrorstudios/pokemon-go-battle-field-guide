@@ -8372,3 +8372,8 @@ html:not([data-app-booted]) #app .fallback-section {
 
 /* Emphasized IV target line (r158 — must not get glanced over) */
 .ev-adv-target { margin: 0.15rem 0 0; font-weight: 800; color: var(--dx-lens-blue); font-size: 0.88rem; }
+
+/* Recipe slot lines (r159 — labeled slots, not a sentence) */
+.ev-adv-recipe-block { margin: 0.3rem 0 0; padding-left: 0.6rem; border-left: 2px solid var(--line); }
+.ev-adv-recipe-label { margin: 0; font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.07em; color: var(--muted); }
+.ev-adv-recipe-line { margin: 0.05rem 0 0; font-size: 0.86rem; }
