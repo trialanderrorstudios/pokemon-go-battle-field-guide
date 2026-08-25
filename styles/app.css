@@ -8377,3 +8377,6 @@ html:not([data-app-booted]) #app .fallback-section {
 .ev-adv-recipe-block { margin: 0.3rem 0 0; padding-left: 0.6rem; border-left: 2px solid var(--line); }
 .ev-adv-recipe-label { margin: 0; font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.07em; color: var(--muted); }
 .ev-adv-recipe-line { margin: 0.05rem 0 0; font-size: 0.86rem; }
+
+/* Shadow-Frustration warning on the advisor (r159) */
+.ev-adv-shadow-warning { margin: 0.5rem 0 0; font-size: 0.8rem; color: var(--amber, #e0a13d); }

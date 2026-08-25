@@ -6,9 +6,16 @@
 
 export const SHELL_CHANGELOG = Object.freeze([
   Object.freeze({
+    rev: "r160", date: "2026-08-25",
+    tweaked: Object.freeze([
+      "Ships the shadow fixes that missed r159's build: \"as Shadow:\" labels on dual raid claims, and the standing Frustration warning on the advisor card.",
+    ]),
+  }),
+  Object.freeze({
     rev: "r159", date: "2026-08-25",
     tweaked: Object.freeze([
       "Advisor move recipes are labeled slot lines now — Fast / Charged / 2nd Charged (with unlock dust) per role, the event move flagged in place — instead of a sentence you had to parse at the TM screen.",
+      "Shadow-sibling raid claims are labeled (\"as Shadow: Dark raid #1\") instead of reading as a duplicate, and the advisor carries a standing warning: evolving a Shadow keeps Frustration and does not reliably grant the event move — clear it at a Rocket takeover first.",
     ]),
   }),
   Object.freeze({

@@ -146,7 +146,9 @@ function raidHitPhrase(hit) {
   let gainNote = "";
   if (hit.eliteGainPct === null) gainNote = " (no TM-able alternative)";
   else if (typeof hit.eliteGainPct === "number") gainNote = ` (+${hit.eliteGainPct}% over any TM-able set)`;
-  return `${hit.attackingType} raid role at rank #${hit.rank}${gainNote}`;
+  // The shadow sibling reads as a separate labeled claim — two unlabeled
+  // "Dark raid role" phrases on one row confused the operator (2026-08-25).
+  return `${hit.shadow ? "as Shadow: " : ""}${hit.attackingType} raid role at rank #${hit.rank}${gainNote}`;
 }
 
 function pvpHitPhrase(hit) {
@@ -470,6 +472,7 @@ function eventBlockHtml(event, forms) {
     <h2>${escapeHtml(event.name)}</h2>
     <p class="briefing-note">${escapeHtml(event.daysLeftLine)} Hunt order — best use of your candy first.</p>
     <ol class="ev-adv-list">${evolveRows.map((row, index) => rowHtml(row, forms, index + 1)).join("")}</ol>
+    <p class="ev-adv-shadow-warning">Shadow pre-evolutions: evolving keeps Frustration and does not reliably grant the event move — clear Frustration at a Team GO Rocket takeover first. (Learned the hard way, 2026-08-25.)</p>
     ${skipsHtml}
   </div>`;
 }
