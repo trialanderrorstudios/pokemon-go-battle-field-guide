@@ -6,6 +6,13 @@
 
 export const SHELL_CHANGELOG = Object.freeze([
   Object.freeze({
+    rev: "r155", date: "2026-08-25",
+    tweaked: Object.freeze([
+      "Fixed: the evolve-move advisor card vanished after the r154 gate — Home never loads the rankings files it was waiting for. They now ride Home's existing deferred fetch (the roster-gap teaser's lane), so the card fills in a few seconds after Home opens.",
+      "PvP advice lines on the advisor now carry the exact rank-1 target spread (\"Target: 0/15/10 @ L23.5\") from the same math the dex league cards use.",
+    ]),
+  }),
+  Object.freeze({
     rev: "r154", date: "2026-08-25",
     tweaked: Object.freeze([
       "Fixed: the evolve-move advisor rendered confident wrong skips on cold boot (Lickilicky, Great League #1, read as \"not worth it\") because Home drew the card before the rankings data loaded — verdicts now wait for real data behind an honest loading line.",

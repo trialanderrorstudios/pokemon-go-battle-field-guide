@@ -261,7 +261,10 @@ export const ROUTE_CHUNKS = Object.freeze({
   // raids.json fetch (see ROUTE_CHUNKS.home above) can go through the exact
   // same claim/load/merge machinery as a real route instead of a bespoke
   // fetch call.
-  [HOME_DEFERRED_CHUNK_KEY]: ["raids-regular.json", "raids-shadow.json"],
+  // pvp/gyms joined 2026-08-25 (r155): the evolve-move advisor's verdicts
+  // need all four ranking files; its card holds a loading line until they
+  // land via this same deferred fetch.
+  [HOME_DEFERRED_CHUNK_KEY]: ["raids-regular.json", "raids-shadow.json", "pvp.json", "gyms.json"],
 });
 
 export function chunksNeededFor(route, loadedChunkPaths) {

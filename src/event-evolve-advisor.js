@@ -25,6 +25,7 @@
 //                          spread among all 4096, for a league, on the
 //                          EVOLVED form — IVs survive evolution unchanged).
 import { escapeHtml, whyLine } from "./views/home.js";
+import { dexPvpOptimal } from "./dex-pvp-optimal.js";
 import { spriteHtml } from "./sprites.js";
 import { displayMoveName } from "./views/move-sheet.js";
 import { rankIvSpread } from "./pvp-team.js";
@@ -211,13 +212,23 @@ function bestByIvSum(copies) {
   return copies.reduce((best, candidate) => (ivSum(candidate.ivs) > ivSum(best.ivs) ? candidate : best));
 }
 
-function ivAdviceFor(hasRaidMl, hasGlUl) {
+// The exact league target comes from dex-pvp-optimal.js's rank-1 scan
+// (operator ask 2026-08-25: "note what the optimal IV is") — same math the
+// dex league cards show, so the two surfaces can never disagree.
+function leagueTargetPhrase(form, league) {
+  const { optimal } = dexPvpOptimal(form ?? {}, league);
+  if (!optimal) return "";
+  return ` Target: ${optimal.ivs.atk}/${optimal.ivs.def}/${optimal.ivs.sta} @ L${optimal.level}.`;
+}
+
+function ivAdviceFor(hasRaidMl, hasGlUl, form, bestGlUlLeague) {
+  const target = hasGlUl && bestGlUlLeague ? leagueTargetPhrase(form, bestGlUlLeague) : "";
   if (hasRaidMl && hasGlUl) {
     return "Chase high IVs for raids/Master League — hundo best. For Great/Ultra League, low attack, high bulk "
-      + "spreads rank best instead — a hundo is NOT the PvP pick there.";
+      + `spreads rank best instead — a hundo is NOT the PvP pick there.${target}`;
   }
   if (hasRaidMl) return "Chase high IVs — hundo best.";
-  if (hasGlUl) return "Low attack, high bulk spreads rank best — a hundo is NOT the PvP pick.";
+  if (hasGlUl) return `Low attack, high bulk spreads rank best — a hundo is NOT the PvP pick.${target}`;
   return "No raid or PvP role for this move — IV chase doesn't matter here.";
 }
 
@@ -288,7 +299,7 @@ function grantRow(grant, { forms, roster, raids, pvp, gym }) {
     yourCopies: yourCopiesFor({
       evolvedFormId, forms, roster, hasRaidMl, hasGlUl: !!bestGlUlLeague, bestGlUlLeague,
     }),
-    ivAdvice: ivAdviceFor(hasRaidMl, !!bestGlUlLeague),
+    ivAdvice: ivAdviceFor(hasRaidMl, !!bestGlUlLeague, forms?.[grant.evolvedFormId], bestGlUlLeague),
   };
 }
 
