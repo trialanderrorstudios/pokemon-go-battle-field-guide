@@ -6,6 +6,12 @@
 
 export const SHELL_CHANGELOG = Object.freeze([
   Object.freeze({
+    rev: "r156", date: "2026-08-25",
+    tweaked: Object.freeze([
+      "The evolve-move advisor got its own row layout — the borrowed list styling was collapsing text into vertical one-character columns on portrait tablets (the \"garbled cards\" reports). Rows now carry an explicit hunt-priority number (#1 first), a species with two granted moves shows as one row, and a Shadow sibling's raid rank no longer inflates a wild catch's priority.",
+    ]),
+  }),
+  Object.freeze({
     rev: "r155", date: "2026-08-25",
     tweaked: Object.freeze([
       "Fixed: the evolve-move advisor card vanished after the r154 gate — Home never loads the rankings files it was waiting for. They now ride Home's existing deferred fetch (the roster-gap teaser's lane), so the card fills in a few seconds after Home opens.",

@@ -8355,3 +8355,14 @@ html:not([data-app-booted]) #app .fallback-section {
 .event-evolve-copies, .event-evolve-iv-advice { margin: 0.2rem 0 0; font-size: 0.82rem; color: var(--muted); }
 .event-evolve-skips { margin-top: 0.5rem; font-size: 0.85rem; }
 .event-evolve-skips summary { cursor: pointer; color: var(--muted); }
+
+/* Evolve-advisor purpose-built rows (r156 — the xl-row flex reuse rendered
+   vertical one-character text columns on portrait tablets). */
+.ev-adv-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 0.55rem; }
+.ev-adv-row { display: grid; grid-template-columns: auto 48px minmax(0, 1fr); gap: 0.55rem; align-items: start; border: 1px solid var(--line); border-radius: 10px; padding: 0.55rem 0.65rem; }
+.ev-adv-priority { font-family: var(--dx-mono, monospace); font-weight: 800; font-size: 0.9rem; color: var(--dx-lens-blue); min-width: 1.6rem; padding-top: 0.15rem; }
+.ev-adv-priority.is-skip { color: var(--muted); }
+.ev-adv-body { min-width: 0; }
+.ev-adv-heading { margin: 0 0 0.15rem; overflow-wrap: anywhere; }
+.ev-adv-verdict { text-transform: uppercase; font-size: 0.7rem; letter-spacing: 0.08em; color: var(--dx-lens-blue); }
+.ev-adv-row[data-verdict="skip"] .ev-adv-verdict { color: var(--muted); }

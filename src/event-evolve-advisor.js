@@ -85,6 +85,10 @@ function raidHitsFor(evolvedFormId, move, kind, raids) {
       && matchesMove(row, move, kind));
   return rows.map((row) => {
     const hit = { attackingType: row.attackingType, rank: row.rank, investmentTier: row.investmentTier };
+    // A shadow-sibling hit is real advice (you can evolve an owned shadow
+    // pre-evolution) but must not set the WILD hunt order — flagged so
+    // bestClaim can prefer the catchable form's own ranks.
+    if (row.formId === siblingId) hit.shadow = true;
     // eliteGainPct: present-and-null means "no TM-able alternative" (assemble.py),
     // absent means the row predates the field — keep that distinction, don't
     // coerce either into the other (see elite-tm-planner.js's own doc comment).
@@ -336,38 +340,76 @@ function rankOf(hits) {
   return hits.length ? Math.min(...hits.map((hit) => hit.rank)) : Infinity;
 }
 
-function rowCompare(left, right) {
-  return rankOf(left.roles.raid) - rankOf(right.roles.raid) || rankOf(left.roles.pvp) - rankOf(right.roles.pvp);
+// Hunt priority = the row's single best claim to your candy, whichever lane
+// it comes from — a GL #1 (Lickilicky) must not sort below a raid #6 just
+// because it has no raid row. Ties break toward the raid lane, then name.
+function bestClaim(row) {
+  // Shadow-sibling raid ranks are excluded from the hunt order: a wild
+  // catch can never be shadow, so Shadow Greninja's #4 must not rank plain
+  // Greninja above hundo-worthy Inteleon (device report 2026-08-25).
+  const raid = rankOf((row.roles.raid ?? []).filter((hit) => !hit.shadow));
+  const pvp = rankOf(row.roles.pvp);
+  const gym = row.roles.gym?.length ? Math.min(...row.roles.gym.map((hit) => hit.rank ?? 999)) : 999;
+  return Math.min(raid, pvp, gym);
 }
 
-function rowHtml(row, forms) {
+function rowCompare(left, right) {
+  return bestClaim(left) - bestClaim(right)
+    || rankOf(left.roles.raid) - rankOf(right.roles.raid)
+    || String(left.name).localeCompare(String(right.name));
+}
+
+// Purpose-built row (r156): the borrowed .xl-row baseline-flex heading
+// collapsed its text spans to a one-character column beside the 48px sprite
+// on portrait tablets — text rendered VERTICALLY (device report
+// 2026-08-25). Own grid classes, and evolve rows carry an explicit hunt
+// priority number so the order reads as a ranking, not a list.
+function rowHtml(row, forms, priority = null) {
   const form = forms?.[row.evolvedFormId];
-  return `<li class="xl-row" data-form-id="${escapeHtml(row.evolvedFormId)}" data-verdict="${escapeHtml(row.verdict)}">
-    <div class="xl-row-heading">
-      ${spriteHtml(row.evolvedFormId, forms, row.name, form?.primary_type)}
-      <strong>${escapeHtml(row.name)}</strong>
-      <span class="xl-row-level">${escapeHtml(displayMoveName(row.move))}</span>
-      <span class="xl-row-level">${row.verdict === "evolve" ? "Evolve" : "Skip"}</span>
+  return `<li class="ev-adv-row" data-form-id="${escapeHtml(row.evolvedFormId)}" data-verdict="${escapeHtml(row.verdict)}">
+    ${priority != null ? `<span class="ev-adv-priority">#${escapeHtml(priority)}</span>` : `<span class="ev-adv-priority is-skip">–</span>`}
+    ${spriteHtml(row.evolvedFormId, forms, row.name, form?.primary_type)}
+    <div class="ev-adv-body">
+      <p class="ev-adv-heading"><strong>${escapeHtml(row.name)}</strong> · ${escapeHtml((row.moves ?? [row.move]).map(displayMoveName).join(" + "))} · <span class="ev-adv-verdict">${row.verdict === "evolve" ? "Evolve" : "Skip"}</span></p>
+      ${whyLine(row.verdict === "evolve" ? row.why : row.whyNot)}
+      ${row.yourCopies.lines.map((line) => `<p class="event-evolve-copies">${escapeHtml(line)}</p>`).join("")}
+      <p class="event-evolve-iv-advice">${escapeHtml(row.ivAdvice)}</p>
     </div>
-    ${whyLine(row.verdict === "evolve" ? row.why : row.whyNot)}
-    ${row.yourCopies.lines.map((line) => `<p class="event-evolve-copies">${escapeHtml(line)}</p>`).join("")}
-    <p class="event-evolve-iv-advice">${escapeHtml(row.ivAdvice)}</p>
   </li>`;
 }
 
+// Two grants on one species (Walrein's fast + charged) render as ONE row —
+// duplicate cards read as a bug on-device. Moves join with " + "; roles are
+// identical between the merged rows by construction when both moves hit the
+// same lanes, and unioned when they differ.
+function mergeRowsByForm(rows) {
+  const byForm = new Map();
+  for (const row of rows) {
+    const existing = byForm.get(row.evolvedFormId);
+    if (!existing) { byForm.set(row.evolvedFormId, { ...row, moves: [row.move] }); continue; }
+    existing.moves.push(row.move);
+    for (const lane of ["raid", "pvp", "gym"]) {
+      const seen = new Set(existing.roles[lane].map((hit) => JSON.stringify(hit)));
+      for (const hit of row.roles[lane]) if (!seen.has(JSON.stringify(hit))) existing.roles[lane].push(hit);
+    }
+    if (row.why && existing.why && row.why !== existing.why) existing.why = `${existing.why} ${row.why}`;
+  }
+  return [...byForm.values()];
+}
+
 function eventBlockHtml(event, forms) {
-  const evolveRows = event.rows.filter((row) => row.verdict === "evolve").sort(rowCompare);
-  const skipRows = event.rows.filter((row) => row.verdict === "skip").sort(rowCompare);
+  const evolveRows = mergeRowsByForm(event.rows.filter((row) => row.verdict === "evolve")).sort(rowCompare);
+  const skipRows = mergeRowsByForm(event.rows.filter((row) => row.verdict === "skip")).sort(rowCompare);
   const skipsHtml = skipRows.length
     ? `<details class="event-evolve-skips">
       <summary>${skipRows.length} not worth an evolve — why</summary>
-      <ul class="xl-list">${skipRows.map((row) => rowHtml(row, forms)).join("")}</ul>
+      <ul class="ev-adv-list">${skipRows.map((row) => rowHtml(row, forms)).join("")}</ul>
     </details>`
     : "";
   return `<div class="event-evolve-block" data-status="${escapeHtml(event.status)}">
     <h2>${escapeHtml(event.name)}</h2>
-    <p class="briefing-note">${escapeHtml(event.daysLeftLine)}</p>
-    <ul class="xl-list">${evolveRows.map((row) => rowHtml(row, forms)).join("")}</ul>
+    <p class="briefing-note">${escapeHtml(event.daysLeftLine)} Hunt order — best use of your candy first.</p>
+    <ol class="ev-adv-list">${evolveRows.map((row, index) => rowHtml(row, forms, index + 1)).join("")}</ol>
     ${skipsHtml}
   </div>`;
 }
