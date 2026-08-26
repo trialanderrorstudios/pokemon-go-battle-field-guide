@@ -350,6 +350,7 @@ export function eventEvolveAdvice({
         rows: (event.grants ?? []).map((grant) => grantRow(grant, {
           forms, roster, raids, pvp, gym,
         })),
+        spawnEvaluations: (event.spawns ?? []).map((spawn) => spawnEvaluation(spawn, { forms, raids, pvp })),
       };
     });
   return { events };
@@ -496,6 +497,35 @@ function mergeRowsByForm(rows) {
   return [...byForm.values()];
 }
 
+// Bulk spawns WITHOUT bonus moves (operator ask 2026-08-26): the same
+// role/rank machinery answers "is this line worth hunting at all" — for the
+// current event every one is an honest "candy and dex value only", and
+// that answer belongs on the card rather than in a chat thread.
+function spawnEvaluation({ spawnFormId, evolvedFormId }, { forms, raids, pvp }) {
+  const hits = [];
+  for (const lane of ["regular", "shadow"]) {
+    for (const row of raids?.[lane] ?? []) {
+      if (row.formId === evolvedFormId && row.status === "ranked") hits.push(`${row.attackingType} raids #${row.rank}`);
+    }
+  }
+  for (const league of Object.keys(LEAGUE_LABEL)) {
+    const row = (pvp?.[league] ?? []).find((entry) => entry.formId === evolvedFormId);
+    if (row) hits.push(`${LEAGUE_LABEL[league]} #${row.rank}`);
+  }
+  return {
+    spawnName: forms?.[spawnFormId]?.name ?? spawnFormId,
+    evolvedName: forms?.[evolvedFormId]?.name ?? evolvedFormId,
+    line: hits.length ? hits.join(" · ") : "no ranked raid, PvP, or gym role — candy and dex value only",
+  };
+}
+
+function spawnLinesHtml(event) {
+  const evaluations = event.spawnEvaluations ?? [];
+  if (!evaluations.length) return "";
+  const items = evaluations.map((row) => `<li class="ev-adv-spawn-row"><strong>${escapeHtml(row.spawnName)}</strong> → ${escapeHtml(row.evolvedName)}: ${escapeHtml(row.line)}</li>`).join("");
+  return `<details class="event-evolve-skips"><summary>Bulk spawns without bonus moves — worth hunting?</summary><ul class="ev-adv-spawn-list">${items}</ul></details>`;
+}
+
 function eventBlockHtml(event, forms) {
   const evolveRows = mergeRowsByForm(event.rows.filter((row) => row.verdict === "evolve")).sort(rowCompare);
   const skipRows = mergeRowsByForm(event.rows.filter((row) => row.verdict === "skip")).sort(rowCompare);
@@ -509,6 +539,7 @@ function eventBlockHtml(event, forms) {
     <h2>${escapeHtml(event.name)}</h2>
     <p class="briefing-note">${escapeHtml(event.daysLeftLine)} Hunt order — best use of your candy first.</p>
     <ol class="ev-adv-list">${evolveRows.map((row, index) => rowHtml(row, forms, index + 1)).join("")}</ol>
+    ${spawnLinesHtml(event)}
     <p class="ev-adv-shadow-warning">Shadow pre-evolutions: evolving keeps Frustration and does not reliably grant the event move — clear Frustration at a Team GO Rocket takeover first. (Learned the hard way, 2026-08-25.)</p>
     ${skipsHtml}
   </div>`;

@@ -6,6 +6,12 @@
 
 export const SHELL_CHANGELOG = Object.freeze([
   Object.freeze({
+    rev: "r163", date: "2026-08-26",
+    added: Object.freeze([
+      "The evolve advisor now also covers the event's bulk spawns WITHOUT bonus moves — a collapsible \"worth hunting?\" list giving each line's honest verdict (this event: Numel, Drifloon, Elgyem, Pawmi, and Foongus are all candy-and-dex value only).",
+    ]),
+  }),
+  Object.freeze({
     rev: "r162", date: "2026-08-25",
     tweaked: Object.freeze([
       "Advisor IV targets moved onto their league's own rank line (\"Great League: #1 — target 0/15/10 @ L23.5\", per league), and gym-role rows now say the truth about IVs: gym defense wants bulk, a hundo is the safe chase.",

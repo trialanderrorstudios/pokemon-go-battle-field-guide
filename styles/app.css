@@ -8386,3 +8386,7 @@ html:not([data-app-booted]) #app .fallback-section {
 .ev-adv-rank-line.is-pvp { color: var(--dx-lens-blue); }
 .ev-adv-rank-line.is-raid { color: var(--amber, #e0a13d); }
 .ev-adv-rank-line.is-gym { color: var(--muted); }
+
+/* Bulk-spawn evaluation list (r163) */
+.ev-adv-spawn-list { list-style: none; margin: 0.3rem 0 0; padding: 0; display: grid; gap: 0.25rem; }
+.ev-adv-spawn-row { font-size: 0.84rem; }
