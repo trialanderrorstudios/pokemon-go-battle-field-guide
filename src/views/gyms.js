@@ -369,11 +369,14 @@ function counterMoves(counter, forms) {
 // the opposite claim from the hand-curated block it used to live inside.
 function soloCountersLine(row, forms) {
   if (!row.soloCounters?.length) return "";
+  // One counter per LINE (device report 2026-08-29: the comma-joined string
+  // read as one continuous run of names and movesets).
   const counters = row.soloCounters.map((counter) => {
     const tier = counter.investmentTier ? `, ${escapeHtml(investmentTierLabel(counter.investmentTier))} investment` : "";
-    return `${escapeHtml(counter.pokemon)} (${counterMoves(counter, forms)}${tier})`;
-  }).join(", ");
-  return `<p class="why-line"><strong>Best answers:</strong> ${counters} <span class="acq-flag">computed</span></p>`;
+    return `<li class="gym-counter-line">${escapeHtml(counter.pokemon)} (${counterMoves(counter, forms)}${tier})</li>`;
+  }).join("");
+  return `<div class="why-line"><strong>Best answers:</strong> <span class="acq-flag">computed</span>
+    <ul class="gym-counter-list">${counters}</ul></div>`;
 }
 
 // The body of a ranked row's "Move numbers, origin and full reasoning"

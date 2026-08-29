@@ -6,6 +6,12 @@
 
 export const SHELL_CHANGELOG = Object.freeze([
   Object.freeze({
+    rev: "r164", date: "2026-08-29",
+    tweaked: Object.freeze([
+      "Gym defender rows' \"Best answers\" render one counter per line instead of a comma-run of names and movesets.",
+    ]),
+  }),
+  Object.freeze({
     rev: "r163", date: "2026-08-26",
     added: Object.freeze([
       "The evolve advisor now also covers the event's bulk spawns WITHOUT bonus moves — a collapsible \"worth hunting?\" list giving each line's honest verdict (this event: Numel, Drifloon, Elgyem, Pawmi, and Foongus are all candy-and-dex value only).",

@@ -8390,3 +8390,7 @@ html:not([data-app-booted]) #app .fallback-section {
 /* Bulk-spawn evaluation list (r163) */
 .ev-adv-spawn-list { list-style: none; margin: 0.3rem 0 0; padding: 0; display: grid; gap: 0.25rem; }
 .ev-adv-spawn-row { font-size: 0.84rem; }
+
+/* Gym best-answers as one counter per line (r164) */
+.gym-counter-list { list-style: none; margin: 0.15rem 0 0; padding: 0; display: grid; gap: 0.15rem; }
+.gym-counter-line { font-size: 0.84rem; }
