@@ -28,6 +28,7 @@ export const CAPABILITY_GUIDE = Object.freeze({
         Object.freeze({ name: "Solo/duo verdicts", where: "Raids → target", what: "Simulated call on whether your best six can solo, duo, or need a group — with per-counter solo pace on owned attackers." }),
         Object.freeze({ name: "XL Advisor", where: "More → Library", what: "Which owned Pokémon justify the level-50 XL push, with computed gains and standard costs." }),
         Object.freeze({ name: "Elite TM Planner", where: "More → Library", what: "Where your Elite TMs do the most good — never-returning exclusives before December-recoverable Community Day moves." }),
+        Object.freeze({ name: "Spread Checker", where: "More → Library", what: "Species + IVs in, verdict out — per-league rank of 4096, CP at level, meta standing, evolutions walked automatically." }),
         Object.freeze({ name: "Before you evolve", where: "dex entries", what: "Best copy to evolve, candy cost, ranked-or-not, and the Community Day hold in one card." }),
       ]),
     }),

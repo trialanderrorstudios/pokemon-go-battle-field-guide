@@ -1380,6 +1380,7 @@ export function createInteractionState({
     rosterShareOpen: false,
     bulkRemove: { pattern: "", error: "", matches: null },
     compare: { formIdA: null, formIdB: null, queryA: "", queryB: "" },
+    spreadcheck: { formId: null, query: "", ivs: { atk: 0, def: 0, sta: 0 } },
     dexShinySprite: false,
     groupMemberName: "",
     groupMessage: "",
@@ -1839,6 +1840,20 @@ export function createInteractionController({
       markLongPressCardEl = null;
     },
     handleInput(event) {
+      const spreadcheckQuery = event?.target?.closest?.("[data-spreadcheck-query]");
+      if (spreadcheckQuery) {
+        ui.spreadcheck.query = String(spreadcheckQuery.value ?? "").slice(0, 60);
+        const caret = Math.min(
+          Number.isInteger(spreadcheckQuery.selectionStart) ? spreadcheckQuery.selectionStart : ui.spreadcheck.query.length,
+          ui.spreadcheck.query.length,
+        );
+        const ownerDocument = spreadcheckQuery.ownerDocument;
+        rerenderCurrent();
+        const nextInput = ownerDocument?.querySelector?.("[data-spreadcheck-query]");
+        nextInput?.focus?.({ preventScroll: true });
+        nextInput?.setSelectionRange?.(caret, caret);
+        return;
+      }
       const compareQuery = event?.target?.closest?.("[data-compare-query]");
       if (compareQuery) {
         const side = compareQuery.dataset.compareQuery === "b" ? "B" : "A";
@@ -2011,6 +2026,15 @@ export function createInteractionController({
       const target = event?.target;
       // I2 quick-add IV/move selects — native <select> (picker wheel), fires
       // "change" on commit, not "input".
+      const spreadcheckIv = target?.closest?.("[data-spreadcheck-iv]");
+      if (spreadcheckIv) {
+        const stat = spreadcheckIv.dataset.spreadcheckIv;
+        if (["atk", "def", "sta"].includes(stat)) {
+          ui.spreadcheck.ivs = { ...ui.spreadcheck.ivs, [stat]: Math.max(0, Math.min(15, Number(spreadcheckIv.value) || 0)) };
+          rerenderCurrent();
+        }
+        return;
+      }
       const quickAddIvSelect = target?.closest?.("[data-iv-select]");
       if (quickAddIvSelect && ui.quickAdd) {
         const stat = quickAddIvSelect.dataset.stat;
@@ -3733,6 +3757,11 @@ export function createInteractionController({
         ui.compare.queryA = "";
         const win = controllerWindow();
         if (win) win.location.hash = "#more/compare";
+      } else if (action === "spreadcheck-pick") {
+        const formId = actionEl.dataset.spreadcheckFormId ?? "";
+        ui.spreadcheck.formId = formId || null;
+        if (!formId) ui.spreadcheck.query = "";
+        rerenderCurrent();
       } else if (action === "compare-pick") {
         const side = actionEl.dataset.compareSide === "b" ? "B" : "A";
         const formId = actionEl.dataset.compareFormId ?? "";
@@ -5040,6 +5069,7 @@ export function bootstrap({
         pvp: state.pvp,
         gym: state.gym,
         compareSelection: ui.compare,
+        spreadcheckSelection: ui.spreadcheck,
         currentBosses: state.currentBosses ?? state.core?.currentBosses,
         textSize: ui.textSize,
         theme: ui.theme,

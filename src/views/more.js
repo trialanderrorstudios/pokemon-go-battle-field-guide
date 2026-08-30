@@ -19,6 +19,8 @@ import { compareForms } from "../compare.js";
 import { renderBuddyView } from "./buddy.js";
 import { renderXlView } from "./xl.js";
 import { renderEliteTmView } from "./elitetm.js";
+import { renderSpreadCheckView } from "./spreadcheck.js";
+import { checkSpread } from "../spread-checker.js";
 import { renderGroupView } from "./group.js";
 import { loadGroupMembers } from "../group-store.js";
 import { luckyOwnedFormIdSet, shinyOwnedFormIdSet } from "../collection.js";
@@ -705,6 +707,7 @@ function renderMoreMenu() {
         ["./#more/buddyplanner", "Best Buddy Planner"],
         ["./#more/xladvisor", "XL Advisor — is level 50 worth it?"],
         ["./#more/elitetm", "Elite TM Planner — where to spend them"],
+        ["./#more/spreadcheck", "Spread Checker — species + IVs, get the verdict"],
       ],
     })}
     ${menuSection({
@@ -814,6 +817,13 @@ export function renderMore(data = {}) {
     mastery: computeTypeMastery({ roster: data.roster, forms: data.forms, raidRows: data.raids }),
     forms: data.forms,
   })}</div>`;
+  if (view === "spreadcheck") {
+    const sel = data.spreadcheckSelection ?? { formId: null, query: "", ivs: { atk: 0, def: 0, sta: 0 } };
+    const result = sel.formId
+      ? checkSpread({ formId: sel.formId, ivs: sel.ivs, forms: data.forms, pvp: data.pvp, raids: data.raids, gym: data.gym })
+      : null;
+    return `<div class="more-view">${BACK_TO_MORE}${renderSpreadCheckView({ state: sel, result, forms: data.forms })}</div>`;
+  }
   if (view === "elitetm") return `<div class="more-view">${BACK_TO_MORE}${renderEliteTmView({
     roster: data.roster, forms: data.forms, raidRows: data.raids,
   })}</div>`;

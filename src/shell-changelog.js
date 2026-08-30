@@ -6,6 +6,15 @@
 
 export const SHELL_CHANGELOG = Object.freeze([
   Object.freeze({
+    rev: "r165", date: "2026-08-30",
+    added: Object.freeze([
+      "Spread Checker (More \u2192 Library): pick any species, set the IVs from an alert-map sighting, and get the whole verdict \u2014 per-league rank of 4096 with CP@level, the species' real meta standing, raid and gym context, evolutions walked automatically (checking a Spheal answers about Walrein), and an honest one-line call.",
+    ]),
+    tweaked: Object.freeze([
+      "Evolve-advisor copy lines now include the CP the copy reaches at its league's level.",
+    ]),
+  }),
+  Object.freeze({
     rev: "r164", date: "2026-08-29",
     tweaked: Object.freeze([
       "Gym defender rows' \"Best answers\" render one counter per line instead of a comma-run of names and movesets.",

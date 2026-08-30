@@ -276,7 +276,9 @@ function yourCopiesFor({
     if (ranked.length) {
       const best = ranked.reduce((top, entry) => (entry.rank.rank < top.rank.rank ? entry : top));
       const spread = `${best.instance.ivs.atk}/${best.instance.ivs.def}/${best.instance.ivs.sta}`;
-      lines.push(`your ${spread} ranks #${best.rank.rank} for ${LEAGUE_LABEL[bestGlUlLeague]}${lines.length ? "" : unrecordedNote}`);
+      // CP@level is the number you act on at the power-up screen (operator
+      // ask 2026-08-30: the rank alone didn't say what the copy becomes).
+      lines.push(`your ${spread} ranks #${best.rank.rank} for ${LEAGUE_LABEL[bestGlUlLeague]} — reaches CP ${best.rank.cp} @ L${best.rank.level}${lines.length ? "" : unrecordedNote}`);
     }
   }
   if (!lines.length) {
