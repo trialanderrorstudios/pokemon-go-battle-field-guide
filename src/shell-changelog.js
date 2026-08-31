@@ -6,6 +6,16 @@
 
 export const SHELL_CHANGELOG = Object.freeze([
   Object.freeze({
+    rev: "r166", date: "2026-08-31",
+    added: Object.freeze([
+      "Home briefing: Research & GO Pass encounters card \u2014 the Mega Finale choose-your-partner research (Chespin / Fennekin / Froakie) with the hundo and floor CP at the level-15 research catch, live for the event window.",
+    ]),
+    tweaked: Object.freeze([
+      "The whole Road-to-the-Finale raid week is in the rotation: each day's Mega Ascension boss (Victreebel+Dragonite+Malamar, Falinks, Skarmory, Starmie, Raichu X+Y), Mega Latias and Mega Latios all week, Armored Mewtwo and Mega Mewtwo X/Y on the finale weekend \u2014 hundo catch values included.",
+      "Rotation feed parsing: multi-species headlines that repeat the Mega/Shadow prefix per name, plus \"Armored Mewtwo\" and \"(Hero of Many Battles)\" names, now resolve instead of being skipped.",
+    ]),
+  }),
+  Object.freeze({
     rev: "r165", date: "2026-08-30",
     added: Object.freeze([
       "Spread Checker (More \u2192 Library): pick any species, set the IVs from an alert-map sighting, and get the whole verdict \u2014 per-league rank of 4096 with CP@level, the species' real meta standing, raid and gym context, evolutions walked automatically (checking a Spheal answers about Walrein), and an honest one-line call.",

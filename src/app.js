@@ -29,7 +29,7 @@ import { defenderPoolFromRanking, scorePlacement } from "./placement.js";
 import { jargonTerm } from "./glossary.js";
 import { dismissGuide, renderGuide, showGuide } from "./guide.js";
 import {
-  briefingCardCollapsedKey, briefingCollapsedKey, currentRaidPlanCardData, escapeHtml, ownedStarButton, renderHome, viewSegments,
+  briefingCardCollapsedKey, briefingCollapsedKey, currentRaidPlanCardData, escapeHtml, ownedStarButton, renderHome, renderResearchEncountersCard, viewSegments,
 } from "./views/home.js";
 import { renderBasics } from "./views/basics.js";
 import { renderMaxBasics } from "./views/maxbasics.js";
@@ -297,7 +297,7 @@ const CHUNK_FIELDS = Object.freeze({
   "extras.json": ["budgets", "megasPrimals", "futureProof", "coveragePlanner", "moveSettings"],
   "acquisition.json": ["acquisitionGuide", "shinyOdds"],
   "current-bosses.json": ["currentBosses", "currentMaxBattles"],
-  "current-events.json": ["currentEvents", "eventEvolveMoves"],
+  "current-events.json": ["currentEvents", "eventEvolveMoves", "researchEncounters"],
   "current-eggs.json": ["currentEggs"],
   "rocket-lineups.json": ["rocketLineups"],
 });
@@ -5149,6 +5149,9 @@ export function bootstrap({
         }),
         forms: state.core.forms,
       });
+      const researchEncountersCardHtml = renderResearchEncountersCard({
+        researchEncounters: state.researchEncounters, now: new Date(),
+      });
       // GATED on the ranking chunks (r154 fix): Home cold-boots before the
       // lazy raids/pvp/gyms chunks land, and the advisor computed with
       // missing data rendered confident wrong "no ranked role" skips
@@ -5175,6 +5178,7 @@ export function bootstrap({
         countdownChipsHtml,
         evolutionHoldsCardHtml,
         eventEvolveCardHtml,
+        researchEncountersCardHtml,
         streakChipHtml: streakChipHtml(questJournal.streak),
         cutoff: state.core.meta?.asOf,
         offlineStatus: state.offlineStatus ?? offlineLabel(releaseState),

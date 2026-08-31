@@ -1386,6 +1386,30 @@ export function renderFieldTimeline({
 }
 
 
+// Research / GO Pass encounter card — one row per encounter with the
+// assemble-computed level-15 CP band (floor 10/10/10, top IS the hundo, same
+// contract as the egg card). Rows are date-gated here: startsAt/endsAt are
+// bare local wall-clock strings, so `new Date(str)` already parses them as
+// local time — the evolution-holds.js convention, appending "Z" would be the
+// bug. "" when no lane is live (silence, not a placeholder).
+export function renderResearchEncountersCard({ researchEncounters, now = new Date() } = {}) {
+  const live = (researchEncounters?.events ?? []).filter((event) => {
+    const start = new Date(event.startsAt);
+    const end = new Date(event.endsAt);
+    if (Number.isNaN(start.valueOf()) || Number.isNaN(end.valueOf())) return false;
+    return now >= start && now <= end;
+  });
+  if (!live.length) return "";
+  return `<div class="fallback-section research-encounters-card">
+    <p class="status-kicker">Research &amp; GO Pass encounters</p>
+    ${live.map((event) => `<div class="research-encounter-event">
+      <h2>${escapeHtml(event.name)}</h2>
+      ${event.encounters.map((row) => `<p class="briefing-note">${escapeHtml(row.name)} — hundo <strong>${escapeHtml(row.cpHundo)}</strong> CP at the level-15 research catch (floor ${escapeHtml(row.cpFloor)})</p>`).join("")}
+    </div>`).join("")}
+  </div>`;
+}
+
+
 export function renderHome({
   cutoff,
   offlineStatus = "Offline setup incomplete",
@@ -1414,6 +1438,7 @@ export function renderHome({
   countdownChipsHtml = "",
   evolutionHoldsCardHtml = "",
   eventEvolveCardHtml = "",
+  researchEncountersCardHtml = "",
   streakChipHtml = "",
 } = {}) {
   const continueRoute = CONTINUE_ROUTES.has(continueTask?.route)
@@ -1441,6 +1466,7 @@ export function renderHome({
     ${questsCardHtml}
     ${evolutionHoldsCardHtml}
     ${eventEvolveCardHtml}
+    ${researchEncountersCardHtml}
     ${renderToday({
     data, roster, defenseLog, storage, gapByFormId, investRows, futureProof, now, profile: { trainerLevel },
   })}
