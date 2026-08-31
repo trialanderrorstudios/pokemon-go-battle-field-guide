@@ -5139,7 +5139,7 @@ export function bootstrap({
       const countdownChipsHtml = renderCountdownChips({
         rows: bossCountdowns({
           currentBosses: state.currentBosses, roster, forms: state.core.forms,
-          raidRows: state.raids, now: new Date(),
+          raidRows: state.raids, raidTargetTool: state.raidTargetTool, now: new Date(),
         }),
         forms: state.core.forms,
       });

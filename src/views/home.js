@@ -606,10 +606,29 @@ function pickLaneBosses(bosses, rankedRows) {
   for (const [lane, matches] of BRIEFING_LANES) {
     const laneBosses = bosses.filter((boss) => typeof boss.tier === "string" && matches(boss.tier));
     if (!laneBosses.length) continue;
-    const ranked = pickFeaturedBoss(laneBosses, rankedRows);
-    if (ranked) { picks.push({ lane, ...ranked }); continue; }
-    const boss = laneBosses.find((row) => typeof row.endsAt === "string") ?? laneBosses[0];
-    picks.push({ lane, boss, rows: [], topRow: null });
+    // Shadow stays a single featured pick — its pool is the evergreen grunt
+    // list, and a card per grunt would flood the briefing. Every OTHER lane
+    // renders one card per live boss (operator ask 2026-08-31: "each mega is
+    // supposed to be its own entry", after five Ascension Megas collapsed
+    // into one Latios pick). Best ranked verdict first, then feed order.
+    if (lane === "shadow") {
+      const ranked = pickFeaturedBoss(laneBosses, rankedRows);
+      if (ranked) { picks.push({ lane, ...ranked }); continue; }
+      const boss = laneBosses.find((row) => typeof row.endsAt === "string") ?? laneBosses[0];
+      picks.push({ lane, boss, rows: [], topRow: null });
+      continue;
+    }
+    const withRows = laneBosses.map((boss) => {
+      const rows = attackerRowsFor(boss.formId, rankedRows);
+      return { lane, boss, rows, topRow: rows[0] ?? null };
+    });
+    withRows.sort((left, right) => {
+      const leftTier = left.topRow ? (INVEST_TIER_ORDER[left.topRow.investmentTier] ?? 9) : 99;
+      const rightTier = right.topRow ? (INVEST_TIER_ORDER[right.topRow.investmentTier] ?? 9) : 99;
+      return leftTier - rightTier
+        || (left.topRow?.rank ?? Infinity) - (right.topRow?.rank ?? Infinity);
+    });
+    picks.push(...withRows);
   }
   return picks;
 }
@@ -1060,24 +1079,6 @@ export function renderFieldBriefing({
     const cardKey = `${fingerprint}::${card.featured.formId}`;
     const cardCollapsed = storage?.getItem?.(briefingCardCollapsedKey(cardKey)) === "1";
     const boss = bosses.find((row) => row.formId === card.featured.formId);
-    // One pick per lane hid the rest of a multi-boss day entirely (2026-08-31:
-    // five live Megas, briefing showed only Latios). The pick keeps the
-    // verdict headline; every OTHER live boss in the lane gets its own line
-    // with the catch hundo, so a rotation day is never invisible.
-    const laneMatcher = BRIEFING_LANES.find(([lane]) => lane === card.lane)?.[1];
-    const laneMates = laneMatcher
-      ? bosses.filter((row) => row.formId !== card.featured.formId
-        && typeof row.tier === "string" && laneMatcher(row.tier))
-      : [];
-    const laneMatesHtml = laneMates.length
-      ? `<div class="briefing-lane-mates"><p class="briefing-note">Also in this lane today:</p><ul class="briefing-lane-mate-list">${laneMates.map((row) => {
-        const mateName = forms?.[row.formId]?.name ?? row.formId;
-        const target = (raidTargetTool?.targets ?? []).find((t) => t.bossFormId === row.formId);
-        const hundo = target?.normal?.hundoCP ? ` — hundo ${target.normal.hundoCP}` : "";
-        const through = typeof row.endsAt === "string" ? ` (through ${row.endsAt})` : "";
-        return `<li><a href="./#dex/${encodeURIComponent(row.formId)}" data-route="dex">${escapeHtml(mateName)}</a>${escapeHtml(`${hundo}${through}`)}</li>`;
-      }).join("")}</ul></div>`
-      : "";
     const inner = featuredBossCard({
       featured: card.featured,
       plan: card.featured.formId === featured?.formId ? plan : planFor(card.featured.formId),
@@ -1092,7 +1093,7 @@ export function renderFieldBriefing({
         <span class="briefing-reopen">Reopen ⌃</span>
       </button>
       <button type="button" class="briefing-dismiss briefing-lane-dismiss" data-action="toggle-briefing-card" data-briefing-card-key="${escapeHtml(cardKey)}" aria-expanded="${!cardCollapsed}">Dismiss ⌄</button>
-      <div class="briefing-lane-body">${inner}${laneMatesHtml}</div>
+      <div class="briefing-lane-body">${inner}</div>
     </div>`;
   }).join("");
   // Max lane card (operator ask 2026-08-13) — after Shadow, sourced from

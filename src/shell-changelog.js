@@ -6,6 +6,13 @@
 
 export const SHELL_CHANGELOG = Object.freeze([
   Object.freeze({
+    rev: "r168", date: "2026-08-31",
+    tweaked: Object.freeze([
+      "Every live Mega and Tier 5 boss is now its OWN briefing card with its own verdict, catch hundo, and dismiss \u2014 replacing r167's lines-under-one-card approach (today: six Mega cards and three Regi cards instead of one Latios pick).",
+      "The \"leaves today/in N days\" countdown rows now carry each boss's catch hundo, so the numbers survive card dismissals.",
+    ]),
+  }),
+  Object.freeze({
     rev: "r167", date: "2026-08-31",
     tweaked: Object.freeze([
       "Multi-boss raid days no longer hide behind the single lane pick \u2014 the Mega/Tier 5/Shadow briefing cards now list every OTHER live boss in their lane (\"Also in this lane today\"), each with its catch hundo and window. Today that surfaces all five Ascension Megas instead of just Latios.",

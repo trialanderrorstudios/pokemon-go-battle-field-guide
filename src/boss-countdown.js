@@ -94,8 +94,15 @@ function hasStarted(boss, now) {
 }
 
 export function bossCountdowns({
-  currentBosses, roster, forms, raidRows, now = new Date(),
+  currentBosses, roster, forms, raidRows, raidTargetTool, now = new Date(),
 } = {}) {
+  // Countdown rows are the surface that survives every card dismissal, so
+  // the catch hundo rides here too (operator ask 2026-08-31: five Ascension
+  // Megas, hundo only visible inside a dismissible lane card). Same
+  // raid-target row the briefing catch line reads; no target row, no number.
+  const targetsByFormId = new Map(
+    (raidTargetTool?.targets ?? []).map((target) => [target.bossFormId, target]),
+  );
   return (currentBosses?.bosses ?? [])
     .filter((boss) => hasStarted(boss, now))
     .map((boss) => ({ boss, daysLeft: daysUntil(boss.endsAt, now) }))
@@ -106,15 +113,15 @@ export function bossCountdowns({
       const readiness = readinessFor({
         formId: boss.formId, forms, roster, raidRows,
       });
+      const hundoCP = targetsByFormId.get(boss.formId)?.normal?.hundoCP ?? null;
+      const line = lineFor({ name, daysLeft, readiness });
       return {
         formId: boss.formId,
         name,
         daysLeft,
         urgency: urgencyFor(daysLeft),
         readiness: readiness.ready,
-        line: lineFor({
-          name, daysLeft, readiness,
-        }),
+        line: hundoCP ? `${line} · hundo ${hundoCP}` : line,
       };
     });
 }
