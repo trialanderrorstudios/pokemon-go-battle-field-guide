@@ -6,6 +6,12 @@
 
 export const SHELL_CHANGELOG = Object.freeze([
   Object.freeze({
+    rev: "r167", date: "2026-08-31",
+    tweaked: Object.freeze([
+      "Multi-boss raid days no longer hide behind the single lane pick \u2014 the Mega/Tier 5/Shadow briefing cards now list every OTHER live boss in their lane (\"Also in this lane today\"), each with its catch hundo and window. Today that surfaces all five Ascension Megas instead of just Latios.",
+    ]),
+  }),
+  Object.freeze({
     rev: "r166", date: "2026-08-31",
     added: Object.freeze([
       "Home briefing: Research & GO Pass encounters card \u2014 the Mega Finale choose-your-partner research (Chespin / Fennekin / Froakie) with the hundo and floor CP at the level-15 research catch, live for the event window.",
