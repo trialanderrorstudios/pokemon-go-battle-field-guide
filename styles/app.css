@@ -8394,3 +8394,17 @@ html:not([data-app-booted]) #app .fallback-section {
 /* Gym best-answers as one counter per line (r164) */
 .gym-counter-list { list-style: none; margin: 0.15rem 0 0; padding: 0; display: grid; gap: 0.15rem; }
 .gym-counter-line { font-size: 0.84rem; }
+
+/* PvP Next Season theorycraft (r170) */
+.tc-league-heading { margin: 1rem 0 0.35rem; font-size: 1rem; }
+.tc-card { border: 1px solid var(--border, rgba(255,255,255,0.08)); border-radius: 8px; padding: 0.6rem 0.7rem; margin: 0 0 0.5rem; }
+.tc-call { margin: 0; font-size: 0.78rem; color: var(--accent, #7fd1b9); text-transform: uppercase; letter-spacing: 0.04em; }
+.tc-new-move { margin: 0.25rem 0 0; font-size: 0.84rem; }
+.tc-ivs { margin: 0.25rem 0 0; font-size: 0.8rem; color: var(--muted); }
+.tc-move-table { display: grid; gap: 0.4rem; }
+.tc-move-row { border-left: 3px solid var(--border, rgba(255,255,255,0.12)); padding-left: 0.55rem; }
+.tc-move-row[data-direction="buff"] { border-left-color: #4caf7d; }
+.tc-move-row[data-direction="nerf"] { border-left-color: #c95c5c; }
+.tc-move-row[data-direction="rework"] { border-left-color: #c9a94f; }
+.tc-move-name { margin: 0; font-size: 0.88rem; }
+.tc-move-type, .tc-move-direction { font-size: 0.72rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; margin-left: 0.3rem; }

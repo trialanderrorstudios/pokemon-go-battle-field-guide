@@ -293,7 +293,7 @@ const CHUNK_FIELDS = Object.freeze({
   "raids-shadow.json": ["raids"],
   "raid-targets.json": ["raidTargetTool"],
   "gyms.json": ["gym", "placement"],
-  "pvp.json": ["pvp", "pvpTeams", "pvpAlternatives"],
+  "pvp.json": ["pvp", "pvpTeams", "pvpAlternatives", "pvpTheorycraft"],
   "extras.json": ["budgets", "megasPrimals", "futureProof", "coveragePlanner", "moveSettings"],
   "acquisition.json": ["acquisitionGuide", "shinyOdds"],
   "current-bosses.json": ["currentBosses", "currentMaxBattles"],
@@ -5453,6 +5453,7 @@ export function bootstrap({
         ["rankings", "Rankings"],
         ["antimeta", "Anti-Meta"],
         ["swap", "Battle Swap"],
+        ["theorycraft", "Next Season"],
       ], view);
       if (view === "swap") {
         app.innerHTML = interactionNotice(ui) + tabs + (state.pvp
@@ -5468,6 +5469,7 @@ export function bootstrap({
           pvp: state.pvp, pvpTeams: state.pvpTeams,
           pvpAlternatives: state.pvpAlternatives, forms: state.core.forms,
           roster, state: ui.pvp, view, trainerLevel: ui.trainerProfile.level, pvpMoveCatalog,
+          pvpTheorycraft: state.pvpTheorycraft,
         })
         : chunkNotice("pvp", "PvP"));
     },

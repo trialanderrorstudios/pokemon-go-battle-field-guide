@@ -12,7 +12,7 @@ import { computeMetaCoverage } from "../meta-coverage.js";
 export const PVP_LEAGUES = Object.freeze(["great", "ultra", "master"]);
 const PVP_LEAGUE_FILTERS = Object.freeze(["all", ...PVP_LEAGUES]);
 const FORM_FILTERS = new Set(["all", "regular", "shadow"]);
-const VIEWS = new Set(["rankings", "teams", "antimeta"]);
+const VIEWS = new Set(["rankings", "teams", "antimeta", "theorycraft"]);
 const INVESTMENT_FILTERS = new Set(["all", "S+", "S", "A", "B", "C"]);
 const ANTI_META_FILTERS = new Set(["all", "countersMeta"]);
 // "Meta" proxy: top-N by published rank in a league. Not real usage/ladder
@@ -634,17 +634,57 @@ export function buildPvpFullRankings(context = {}) {
 // the answer are not. A bare #pvp is Teams. Battle Swap is a segment of that
 // strip now; the "Reset PvP filters" link is gone because it never reset any —
 // it pointed at ./#pvp, which re-renders with the same persisted filters.
+// Next-season theorycraft (operator ask 2026-09-01): what the rebalance
+// changes (from -> to) and who rises where, BEFORE computed rankings exist.
+// Every card is labeled a projection; the re-base retires this content.
+const THEORYCRAFT_LEAGUE_LABEL = Object.freeze({
+  great: "Great League", ultra: "Ultra League", master: "Master League",
+});
+
+function theorycraftView(theorycraft, forms) {
+  const season = theorycraft?.season ?? {};
+  const changes = theorycraft?.moveChanges ?? [];
+  const projections = theorycraft?.projections ?? [];
+  if (!changes.length && !projections.length) {
+    return `<div class="fallback-section"><p class="briefing-note">No next-season theorycraft on file yet — it lands when a rebalance is announced.</p></div>`;
+  }
+  const leagues = ["great", "ultra", "master"]
+    .map((league) => ({ league, rows: projections.filter((row) => row.league === league) }))
+    .filter((group) => group.rows.length);
+  return `<div class="fallback-section theorycraft-view">
+    <p class="status-kicker">Next season: ${escapeHtml(season.name ?? "rebalance")}</p>
+    <p class="briefing-note">${escapeHtml(`${season.startsAt ?? ""} → ${season.endsAt ?? ""}`)} · Projections, not rankings — the computed re-base replaces this once the season's data ships.</p>
+    ${leagues.map(({ league, rows }) => `<h2 class="tc-league-heading">${escapeHtml(THEORYCRAFT_LEAGUE_LABEL[league])}</h2>
+      ${rows.map((row) => `<div class="tc-card" data-call="${escapeHtml(row.call ?? "")}">
+        <div class="pvp-card-heading">${spriteHtml(row.formId, forms, row.name, forms?.[row.formId]?.primary_type)}<h3><a href="./#dex/${encodeURIComponent(row.formId)}" data-route="dex">${escapeHtml(row.name)}</a></h3><p class="tc-call">${escapeHtml(row.call ?? "")}</p></div>
+        ${row.newMove ? `<p class="tc-new-move">New move: <strong>${escapeHtml(row.newMove)}</strong></p>` : ""}
+        <p class="briefing-note">${escapeHtml(row.why ?? "")}</p>
+        ${row.targetIvs ? `<p class="tc-ivs">Target IVs: ${escapeHtml(row.targetIvs)}</p>` : ""}
+      </div>`).join("")}`).join("")}
+    <h2 class="tc-league-heading">Every announced move change</h2>
+    <div class="tc-move-table">
+      ${changes.map((row) => `<div class="tc-move-row" data-direction="${escapeHtml(row.direction ?? "")}">
+        <p class="tc-move-name">${escapeHtml(row.move)} <span class="tc-move-type">${escapeHtml(row.type ?? "")}</span> <span class="tc-move-direction">${escapeHtml(row.direction ?? "")}</span></p>
+        <p class="briefing-note">${escapeHtml(`${row.from} → ${row.to}`)}${row.note ? escapeHtml(` — ${row.note}`) : ""}</p>
+      </div>`).join("")}
+    </div>
+    <p class="tl-honesty">Values are the announced trainer-battle numbers; exact energy costs were not published for every change. Source: the season announcement.</p>
+  </div>`;
+}
+
 export function renderPvp({
-  pvp = {}, pvpTeams = [], pvpAlternatives = [], forms = {}, roster = {}, state, view = "", trainerLevel = null, pvpMoveCatalog = {},
+  pvp = {}, pvpTeams = [], pvpAlternatives = [], forms = {}, roster = {}, state, view = "", trainerLevel = null, pvpMoveCatalog = {}, pvpTheorycraft = null,
 } = {}) {
   const normalized = createPvpState({ filters: state });
   const activeView = allowed(view, VIEWS, "teams");
   return `<div class="pvp-view" id="pvp-top">
-    ${controls(normalized, activeView)}
+    ${activeView === "theorycraft" ? "" : controls(normalized, activeView)}
     ${activeView === "teams"
       ? teamsView(pvp, pvpTeams, pvpAlternatives, forms, roster, normalized, trainerLevel, pvpMoveCatalog)
       : activeView === "antimeta"
         ? antiMetaView(pvp, forms, normalized)
-        : rankingsView(pvp, forms, normalized, trainerLevel, pvpMoveCatalog)}
+        : activeView === "theorycraft"
+          ? theorycraftView(pvpTheorycraft, forms)
+          : rankingsView(pvp, forms, normalized, trainerLevel, pvpMoveCatalog)}
   </div>`;
 }
