@@ -256,7 +256,7 @@ export const ROUTE_CHUNKS = Object.freeze({
   // and the entry's raid-attacker section is one section among many, not the
   // reason most visits happen — so it's chained through HOME_DEFERRED_CHUNK_KEY
   // after these five land (see the dex-route-visit chaining below).
-  dex: ["gyms.json", "pvp.json", "acquisition.json", "current-eggs.json", "raid-targets.json"],
+  dex: ["gyms.json", "pvp.json", "acquisition.json", "current-eggs.json", "raid-targets.json", "extras.json"],
   // Not a real route — no URL ever resolves here. It exists so the deferred
   // raids.json fetch (see ROUTE_CHUNKS.home above) can go through the exact
   // same claim/load/merge machinery as a real route instead of a bespoke
@@ -5291,6 +5291,7 @@ export function bootstrap({
         raidTargetTool: state.raidTargetTool,
         raids: state.raids,
         raidsLoaded: loadedChunkPaths.has("raids-regular.json") && loadedChunkPaths.has("raids-shadow.json"),
+        moveSettings: state.moveSettings,
         acquisitionGuide: state.acquisitionGuide,
         currentEggs: state.currentEggs,
         roster,

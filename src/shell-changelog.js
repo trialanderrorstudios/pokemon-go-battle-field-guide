@@ -6,6 +6,18 @@
 
 export const SHELL_CHANGELOG = Object.freeze([
   Object.freeze({
+    rev: "r173", date: "2026-09-01",
+    added: Object.freeze([
+      "Dex move rows now badge which ranked moveset each move belongs to \u2014 GL/UL/ML chips for the published PvP movesets, an amber Raids chip for the optimal raid moveset \u2014 so \"which moves do I actually keep\" reads straight off the list.",
+    ]),
+  }),
+  Object.freeze({
+    rev: "r172", date: "2026-09-01",
+    tweaked: Object.freeze([
+      "Dex move lists now show each move's stats inline \u2014 power, energy, DPS, plus EPS (fast) or DPE (charged) \u2014 sorted best-first, so moves compare at a glance instead of requiring the tap-through sheet (which stays for the full detail).",
+    ]),
+  }),
+  Object.freeze({
     rev: "r171", date: "2026-09-01",
     tweaked: Object.freeze([
       "Fixed: the PvP \u2192 Next Season tab routed back to Teams (the sub-view was missing from the router's allowlist, so the click just reloaded the page).",

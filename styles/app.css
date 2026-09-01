@@ -8408,3 +8408,16 @@ html:not([data-app-booted]) #app .fallback-section {
 .tc-move-row[data-direction="rework"] { border-left-color: #c9a94f; }
 .tc-move-name { margin: 0; font-size: 0.88rem; }
 .tc-move-type, .tc-move-direction { font-size: 0.72rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; margin-left: 0.3rem; }
+
+/* Dex moves: inline stat columns for at-a-glance comparison (r172) */
+.dex-move-list { display: grid; gap: 0.3rem; }
+.dex-move-row { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.25rem 0.6rem; }
+.dex-move-name { min-width: 9rem; }
+.dex-move-stats { display: inline-flex; flex-wrap: wrap; gap: 0.55rem; font-size: 0.78rem; color: var(--muted); font-variant-numeric: tabular-nums; }
+.dex-move-stat b { font-weight: 600; color: var(--muted); opacity: 0.75; margin-right: 0.15rem; }
+.dex-move-legend { font-size: 0.72rem; color: var(--muted); margin-left: 0.4rem; }
+
+/* Dex move badges: which ranked moveset a move belongs to (r173) */
+.dex-move-badge { font-size: 0.66rem; text-transform: uppercase; letter-spacing: 0.04em; border-radius: 4px; padding: 0.05rem 0.3rem; margin-left: 0.3rem; vertical-align: middle; }
+.dex-move-badge[data-badge="pvp"] { background: rgba(96, 148, 234, 0.18); color: #7fa8ef; }
+.dex-move-badge[data-badge="raids"] { background: rgba(214, 116, 73, 0.18); color: #e08a5c; }

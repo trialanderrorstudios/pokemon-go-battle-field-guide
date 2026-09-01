@@ -416,24 +416,90 @@ function pvpSection(form, pvp, roster, raids) {
 // event_only_moves (PvPoke's legacyMoves) are moves this form can never get
 // via any TM, Elite included — a stricter claim than eliteIds, so it gets its
 // own badge rather than reusing moveLink's "Elite TM" wording.
-function moveList(moveIds, eliteIds, eventOnlyIds, kind) {
-  return moveIds.map((moveId) => (eliteIds.has(moveId)
-    ? `<li>${moveLink(moveId, { elite: true, kind })}</li>`
-    : eventOnlyIds.has(moveId)
-      ? `<li>${moveLink(moveId, { kind })} <small class="elite-tm">Event-only move</small></li>`
-      : `<li>${moveLink(moveId, { kind })}</li>`)).join("");
+// Inline stats per move (operator ask 2026-09-01: the popup link alone made
+// at-a-glance comparison impossible). Base PvE rates from moveSettings —
+// same numbers, provenance, and no-STAB caveat as move-sheet's stats row.
+// Fast rows sort by DPS, charged by DPE (the metric that distinguishes
+// charged move quality); no stats for a move -> unsorted tail, stats blank.
+function moveStatCells(settings) {
+  if (!settings) return "";
+  const { power, durationMs, energyDelta, kind } = settings;
+  const seconds = durationMs / 1000;
+  const isFast = kind === "fast";
+  const cells = isFast
+    ? [["Pwr", power], ["+E", energyDelta], ["DPS", (power / seconds).toFixed(1)], ["EPS", (energyDelta / seconds).toFixed(1)]]
+    : [["Pwr", power], ["E", Math.abs(energyDelta)], ["DPS", (power / seconds).toFixed(1)], ["DPE", (power / Math.abs(energyDelta)).toFixed(2)]];
+  return cells.map(([label, value]) => `<span class="dex-move-stat"><b>${escapeHtml(label)}</b> ${escapeHtml(value)}</span>`).join("");
+}
+
+function moveSortKey(settings) {
+  if (!settings) return -1;
+  const { power, durationMs, energyDelta, kind } = settings;
+  return kind === "fast" ? power / (durationMs / 1000) : power / Math.abs(energyDelta);
+}
+
+// moveId -> Set of badge labels: which ranked movesets this move belongs to.
+// PvP labels come from the form's published top-50 rows per league (absent
+// when the form isn't ranked there); "Raids" from its ranked raid-attacker
+// rows. raids.json is deferred on the dex route, so the Raids badge appears
+// once that chunk lands — same honest-degrade as the raid attacker section.
+function movesetBadges(form, pvp, raids) {
+  const byMove = new Map();
+  const add = (moveId, label) => {
+    if (!moveId) return;
+    if (!byMove.has(moveId)) byMove.set(moveId, new Set());
+    byMove.get(moveId).add(label);
+  };
+  for (const [league, label] of [["great", "GL"], ["ultra", "UL"], ["master", "ML"]]) {
+    for (const row of pvp?.[league] ?? []) {
+      if (row.formId !== form.form_id) continue;
+      add(row.fastMove, label);
+      for (const moveId of row.chargedMoves ?? []) add(moveId, label);
+    }
+  }
+  for (const row of [...(raids?.regular ?? []), ...(raids?.shadow ?? [])]) {
+    if (row.formId !== form.form_id) continue;
+    add(row.optimalFastMove, "Raids");
+    add(row.optimalChargedMove, "Raids");
+  }
+  return byMove;
+}
+
+const BADGE_ORDER = ["GL", "UL", "ML", "Raids"];
+
+function moveBadgesHtml(labels) {
+  if (!labels?.size) return "";
+  return [...labels].sort((left, right) => BADGE_ORDER.indexOf(left) - BADGE_ORDER.indexOf(right))
+    .map((label) => `<small class="dex-move-badge" data-badge="${escapeHtml(label === "Raids" ? "raids" : "pvp")}">${escapeHtml(label)}</small>`)
+    .join("");
+}
+
+function moveList(moveIds, eliteIds, eventOnlyIds, kind, moveSettings, badges) {
+  const rows = [...moveIds].sort((left, right) =>
+    moveSortKey(moveSettings?.[right]) - moveSortKey(moveSettings?.[left]));
+  return rows.map((moveId) => {
+    const link = eliteIds.has(moveId)
+      ? moveLink(moveId, { elite: true, kind })
+      : eventOnlyIds.has(moveId)
+        ? `${moveLink(moveId, { kind })} <small class="elite-tm">Event-only move</small>`
+        : moveLink(moveId, { kind });
+    return `<li class="dex-move-row"><span class="dex-move-name">${link}${moveBadgesHtml(badges?.get(moveId))}</span><span class="dex-move-stats">${moveStatCells(moveSettings?.[moveId])}</span></li>`;
+  }).join("");
 }
 
 
-function movesSection(form) {
+function movesSection(form, moveSettings, pvp, raids) {
   const elite = new Set(form.elite_moves ?? []);
   const eventOnly = new Set(form.event_only_moves ?? []);
+  const hasStats = Boolean(moveSettings && Object.keys(moveSettings).length);
+  const badges = movesetBadges(form, pvp, raids);
   return `<section class="dex-section" aria-labelledby="dex-moves-title">
     <h3 id="dex-moves-title">Moves</h3>
-    <p>Fast</p>
-    <ul class="dex-list">${moveList(form.fast_moves ?? [], elite, eventOnly, "Fast")}</ul>
-    <p>Charged</p>
-    <ul class="dex-list">${moveList(form.charged_moves ?? [], elite, eventOnly, "Charged")}</ul>
+    <p>Fast${hasStats ? ` <span class="dex-move-legend">Pwr power · +E energy gain · DPS damage/s · EPS energy/s</span>` : ""}</p>
+    <ul class="dex-list dex-move-list">${moveList(form.fast_moves ?? [], elite, eventOnly, "Fast", moveSettings, badges)}</ul>
+    <p>Charged${hasStats ? ` <span class="dex-move-legend">Pwr power · E energy cost · DPS damage/s · DPE damage/energy</span>` : ""}</p>
+    <ul class="dex-list dex-move-list">${moveList(form.charged_moves ?? [], elite, eventOnly, "Charged", moveSettings, badges)}</ul>
+    ${hasStats ? `<p class="hint">Base rates, sorted best-first (fast by DPS, charged by DPE) — no STAB, effectiveness, or weather applied. Tap a move for the full sheet.</p>` : ""}
   </section>`;
 }
 
@@ -1730,6 +1796,7 @@ export function renderDex({
   raidTargetTool = null,
   raids = null,
   raidsLoaded = false,
+  moveSettings = null,
   acquisitionGuide = null,
   currentEggs = null,
   roster = { ownedFormIds: [], ownedFormCounts: {}, instances: [] },
@@ -1769,7 +1836,7 @@ export function renderDex({
     ${gymSection(form, gym)}
     ${raidAttackerSection(form, raids, raidsLoaded)}
     ${pvpSection(form, pvp, roster, raids)}
-    ${movesSection(form)}
+    ${movesSection(form, moveSettings, pvp, raids)}
     ${evolutionSection(form, forms, evolutionHold, evolveChecklistData)}
     ${acquisitionSection(form, acquisitionGuide, forms)}
     ${availabilitySection(form, currentEggs)}
