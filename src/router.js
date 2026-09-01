@@ -15,7 +15,7 @@ const DEX_FORM_ID_PATTERN = /^\d{4}[a-z0-9-]*$/i;
 const ROUTE_VIEWS = Object.freeze({
   raids: ["target", "hundo"],
   gyms: ["defend"],
-  pvp: ["rankings", "antimeta", "swap"],
+  pvp: ["rankings", "antimeta", "swap", "theorycraft"],
   triage: ["gaps", "candy"],
   basics: ["types", "glossary", "drill", "tricks", "max", "items"],
   // Adding a renderMore view without listing it here is the "lands at the

@@ -6,6 +6,12 @@
 
 export const SHELL_CHANGELOG = Object.freeze([
   Object.freeze({
+    rev: "r171", date: "2026-09-01",
+    tweaked: Object.freeze([
+      "Fixed: the PvP \u2192 Next Season tab routed back to Teams (the sub-view was missing from the router's allowlist, so the click just reloaded the page).",
+    ]),
+  }),
+  Object.freeze({
     rev: "r170", date: "2026-09-01",
     added: Object.freeze([
       "PvP \u2192 Next Season: the theorycraft tab. Every announced Twilight Trails move change with exact from \u2192 to values (color-coded buff/nerf/rework), and per-league projection cards \u2014 who rises in Great, Ultra, and Master, WHY (which move change drives it), new moves flagged, and target IVs where they matter. Explicitly labeled projections; the computed re-base replaces them when season data ships.",
