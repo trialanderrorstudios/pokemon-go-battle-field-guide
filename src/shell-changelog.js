@@ -6,6 +6,12 @@
 
 export const SHELL_CHANGELOG = Object.freeze([
   Object.freeze({
+    rev: "r169", date: "2026-08-31",
+    added: Object.freeze([
+      "\"Tomorrow's rotation\" preview in the briefing \u2014 any boss whose window opens tomorrow shows tonight as its own line with the catch hundo (tonight: Mega Falinks, hundo 1347), so raid targets are plannable the evening before without faking live-ness.",
+    ]),
+  }),
+  Object.freeze({
     rev: "r168", date: "2026-08-31",
     tweaked: Object.freeze([
       "Every live Mega and Tier 5 boss is now its OWN briefing card with its own verdict, catch hundo, and dismiss \u2014 replacing r167's lines-under-one-card approach (today: six Mega cards and three Regi cards instead of one Latios pick).",

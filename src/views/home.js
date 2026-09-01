@@ -1105,9 +1105,33 @@ export function renderFieldBriefing({
   const maxCardHtml = maxEvent ? maxLaneCardHtml({
     event: maxEvent, forms, roster, storage, now, currentMaxBattles: data?.currentMaxBattles, raidTargetTool,
   }) : "";
+  // Tomorrow preview (operator ask 2026-08-31, 9pm: "we need tomorrow's raid
+  // targets"): rotation rows whose window OPENS tomorrow, one line each with
+  // the catch hundo — planning material tonight without faking live-ness.
+  // Same part-wise local-date parsing as the live gates above.
+  const tomorrowStart = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1);
+  const tomorrowEnd = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1, 23, 59, 59, 999);
+  const tomorrowRows = allBosses.filter((boss) => typeof boss.startsAt === "string"
+    && !Number.isNaN(Date.parse(boss.startsAt))
+    && startOfDayString(boss.startsAt) >= tomorrowStart
+    && startOfDayString(boss.startsAt) <= tomorrowEnd);
+  const tomorrowHtml = tomorrowRows.length
+    ? `<div class="briefing-section briefing-tomorrow"><p class="status-kicker">Tomorrow's rotation</p>
+      ${tomorrowRows.map((row) => {
+    const rowName = forms?.[row.formId]?.name ?? row.formId;
+    const target = (raidTargetTool?.targets ?? []).find((t) => t.bossFormId === row.formId);
+    const hundo = target?.normal?.hundoCP ? ` — hundo ${target.normal.hundoCP}` : "";
+    // "Falinks (Mega)" + tier "Mega" would read "(Mega) (Mega)" — the tier
+    // tag only adds signal when the canonical name doesn't already carry it.
+    const tierTag = typeof row.tier === "string" && !rowName.includes(row.tier) ? ` (${row.tier})` : "";
+    return `<p class="briefing-note"><a href="./#dex/${encodeURIComponent(row.formId)}" data-route="dex">${escapeHtml(rowName)}</a>${escapeHtml(`${tierTag}${hundo}`)}</p>`;
+  }).join("")}
+    </div>`
+    : "";
   const body = `${cardsHtml || maxCardHtml
     ? `${cardsHtml}${maxCardHtml}`
     : `<div class="briefing-section"><p class="briefing-note">${escapeHtml(bestRow?.headline ?? "Not enough data yet — star more Pokémon you own.")}</p></div>`}
+    ${tomorrowHtml}
     <hr class="briefing-divider">
     ${briefingSkipSection(restRows, forms, bosses)}`;
 
