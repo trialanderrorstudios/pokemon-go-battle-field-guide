@@ -6,6 +6,12 @@
 
 export const SHELL_CHANGELOG = Object.freeze([
   Object.freeze({
+    rev: "r174", date: "2026-09-05",
+    added: Object.freeze([
+      "Home: GO Fest Mega Finale habitat card \u2014 today's four hourly habitats with their Mega Raid bosses and catch hundos, the live window flagged, finished windows dimmed. Saturday and Sunday schedules; gone after the weekend.",
+    ]),
+  }),
+  Object.freeze({
     rev: "r173", date: "2026-09-01",
     added: Object.freeze([
       "Dex move rows now badge which ranked moveset each move belongs to \u2014 GL/UL/ML chips for the published PvP movesets, an amber Raids chip for the optimal raid moveset \u2014 so \"which moves do I actually keep\" reads straight off the list.",

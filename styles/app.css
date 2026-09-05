@@ -8421,3 +8421,11 @@ html:not([data-app-booted]) #app .fallback-section {
 .dex-move-badge { font-size: 0.66rem; text-transform: uppercase; letter-spacing: 0.04em; border-radius: 4px; padding: 0.05rem 0.3rem; margin-left: 0.3rem; vertical-align: middle; }
 .dex-move-badge[data-badge="pvp"] { background: rgba(96, 148, 234, 0.18); color: #7fa8ef; }
 .dex-move-badge[data-badge="raids"] { background: rgba(214, 116, 73, 0.18); color: #e08a5c; }
+
+/* GO Fest finale hourly habitats (r174) */
+.finale-habitat { border-left: 3px solid var(--border, rgba(255,255,255,0.12)); padding-left: 0.55rem; margin: 0.45rem 0; }
+.finale-habitat[data-status="live"] { border-left-color: #4caf7d; }
+.finale-habitat[data-status="past"] { opacity: 0.55; }
+.finale-habitat h2 { font-size: 0.95rem; margin: 0 0 0.2rem; }
+.finale-habitat-when { font-size: 0.74rem; color: var(--muted); font-weight: 400; margin-left: 0.35rem; }
+.finale-habitat-megas { list-style: none; margin: 0; padding: 0; display: grid; gap: 0.1rem; font-size: 0.84rem; }

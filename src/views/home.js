@@ -1453,6 +1453,50 @@ export function renderResearchEncountersCard({ researchEncounters, now = new Dat
 }
 
 
+// GO Fest finale hourly habitat card (operator ask 2026-09-05): today's
+// habitat windows with their Mega bosses and catch hundo, the live window
+// flagged. Date-gated on the curated day's date (local wall clock, part-wise
+// construction — never new Date("YYYY-MM-DD")). "" outside the event days.
+function localDayKey(date) {
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+}
+
+function windowState([start, end], now) {
+  const [sh, sm] = start.split(":").map(Number);
+  const [eh, em] = end.split(":").map(Number);
+  const startAt = new Date(now.getFullYear(), now.getMonth(), now.getDate(), sh, sm);
+  const endAt = new Date(now.getFullYear(), now.getMonth(), now.getDate(), eh, em);
+  if (now >= startAt && now < endAt) return "live";
+  return now < startAt ? "upcoming" : "past";
+}
+
+export function renderFinaleHabitatsCard({
+  finaleHabitats, raidTargetTool, forms, now = new Date(),
+} = {}) {
+  const today = localDayKey(now);
+  const day = (finaleHabitats?.days ?? []).find((row) => row.date === today);
+  if (!day?.habitats?.length) return "";
+  const targets = new Map((raidTargetTool?.targets ?? []).map((target) => [target.bossFormId, target]));
+  const habitats = day.habitats.map((habitat) => {
+    const states = (habitat.windows ?? []).map((window) => windowState(window, now));
+    const status = states.includes("live") ? "live" : states.includes("upcoming") ? "upcoming" : "past";
+    return { ...habitat, status };
+  });
+  return `<div class="fallback-section finale-habitats-card">
+    <p class="status-kicker">Finale habitats — ${escapeHtml(day.label ?? day.date)}</p>
+    ${habitats.map((habitat) => `<div class="finale-habitat" data-status="${escapeHtml(habitat.status)}">
+      <h2>${escapeHtml(habitat.name)} <span class="finale-habitat-when">${escapeHtml((habitat.windows ?? []).map(([start, end]) => `${start}–${end}`).join(" · "))}${habitat.status === "live" ? " · LIVE NOW" : ""}</span></h2>
+      <ul class="finale-habitat-megas">${(habitat.megas ?? []).map((formId) => {
+    const name = forms?.[formId]?.name ?? formId;
+    const hundo = targets.get(formId)?.normal?.hundoCP;
+    return `<li><a href="./#dex/${encodeURIComponent(formId)}" data-route="dex">${escapeHtml(name)}</a>${hundo ? escapeHtml(` — hundo ${hundo}`) : ""}</li>`;
+  }).join("")}</ul>
+    </div>`).join("")}
+    <p class="tl-honesty">Local-time windows from the event schedule; each habitat runs twice. Hundo is the catch CP at the level-20 raid encounter.</p>
+  </div>`;
+}
+
+
 export function renderHome({
   cutoff,
   offlineStatus = "Offline setup incomplete",
