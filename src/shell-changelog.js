@@ -6,6 +6,12 @@
 
 export const SHELL_CHANGELOG = Object.freeze([
   Object.freeze({
+    rev: "r175", date: "2026-09-05",
+    added: Object.freeze([
+      "Finale habitat card now lists each habitat's WILD SPAWNS alongside its Mega Raids \u2014 every species linked to its dex entry, tagged GL/UL when the line's final form is in the published PvP rows and Raids when it's an S/A-tier attacker line (Meditite \u2192 GL, Swablu \u2192 GL, Fletchling \u2192 GL+UL, Dratini/Bagon/Beldum \u2192 Raids).",
+    ]),
+  }),
+  Object.freeze({
     rev: "r174", date: "2026-09-05",
     added: Object.freeze([
       "Home: GO Fest Mega Finale habitat card \u2014 today's four hourly habitats with their Mega Raid bosses and catch hundos, the live window flagged, finished windows dimmed. Saturday and Sunday schedules; gone after the weekend.",

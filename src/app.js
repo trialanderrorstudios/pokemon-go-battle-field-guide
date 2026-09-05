@@ -5153,7 +5153,7 @@ export function bootstrap({
         researchEncounters: state.researchEncounters, now: new Date(),
       }) + renderFinaleHabitatsCard({
         finaleHabitats: state.finaleHabitats, raidTargetTool: state.raidTargetTool,
-        forms: state.core.forms, now: new Date(),
+        forms: state.core.forms, pvp: state.pvp, raids: state.raids, now: new Date(),
       });
       // GATED on the ranking chunks (r154 fix): Home cold-boots before the
       // lazy raids/pvp/gyms chunks land, and the advisor computed with

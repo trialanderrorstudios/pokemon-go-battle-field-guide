@@ -1470,8 +1470,40 @@ function windowState([start, end], now) {
   return now < startAt ? "upcoming" : "past";
 }
 
+// Every final-stage form reachable from a spawn (itself when it doesn't
+// evolve) — the same evolves_to walk dex.js/evolution-holds.js use, cycle-
+// guarded so bad curated data truncates instead of hanging.
+function finalFormsOf(formId, forms, visited = new Set()) {
+  if (visited.has(formId)) return [];
+  visited.add(formId);
+  const next = (forms?.[formId]?.evolves_to ?? []).map((step) => step.formId).filter(Boolean);
+  if (!next.length) return [formId];
+  return next.flatMap((child) => finalFormsOf(child, forms, visited));
+}
+
+// "Worth it" tags for a wild spawn: GL/UL when the line's final form sits in
+// the published top rows, Raids when it (or a mega of it) is a ranked raid
+// attacker. pvp/raids are Home-deferred chunks — tags fill in once they land;
+// spawn names never wait on them.
+function spawnWorthTags(formId, forms, pvp, raids) {
+  const finals = new Set([formId, ...finalFormsOf(formId, forms)]);
+  const tags = [];
+  for (const [league, label] of [["great", "GL"], ["ultra", "UL"]]) {
+    if ((pvp?.[league] ?? []).some((row) => finals.has(row.formId))) tags.push(label);
+  }
+  // Raid rows can carry formId null (unresolved masterfile-gap rows) — a
+  // real-data render crashed Home on .startsWith before this guard.
+  // Only S+, S, or A tier rows earn the tag — a C-tier mega on the line (Weedle via
+  // Mega Beedrill) tagged nearly every spawn and drowned the signal.
+  const raidRows = [...(raids?.regular ?? []), ...(raids?.shadow ?? [])]
+    .filter((row) => typeof row?.formId === "string" && ["S+", "S", "A"].includes(row.investmentTier));
+  const dexPrefixes = [...finals].map((id) => `${id.split("-")[0]}-mega`);
+  if (raidRows.some((row) => finals.has(row.formId) || dexPrefixes.some((prefix) => row.formId.startsWith(prefix)))) tags.push("Raids");
+  return tags;
+}
+
 export function renderFinaleHabitatsCard({
-  finaleHabitats, raidTargetTool, forms, now = new Date(),
+  finaleHabitats, raidTargetTool, forms, pvp = null, raids = null, now = new Date(),
 } = {}) {
   const today = localDayKey(now);
   const day = (finaleHabitats?.days ?? []).find((row) => row.date === today);
@@ -1486,13 +1518,20 @@ export function renderFinaleHabitatsCard({
     <p class="status-kicker">Finale habitats — ${escapeHtml(day.label ?? day.date)}</p>
     ${habitats.map((habitat) => `<div class="finale-habitat" data-status="${escapeHtml(habitat.status)}">
       <h2>${escapeHtml(habitat.name)} <span class="finale-habitat-when">${escapeHtml((habitat.windows ?? []).map(([start, end]) => `${start}–${end}`).join(" · "))}${habitat.status === "live" ? " · LIVE NOW" : ""}</span></h2>
+      <p class="finale-habitat-label">Mega Raids</p>
       <ul class="finale-habitat-megas">${(habitat.megas ?? []).map((formId) => {
     const name = forms?.[formId]?.name ?? formId;
     const hundo = targets.get(formId)?.normal?.hundoCP;
     return `<li><a href="./#dex/${encodeURIComponent(formId)}" data-route="dex">${escapeHtml(name)}</a>${hundo ? escapeHtml(` — hundo ${hundo}`) : ""}</li>`;
   }).join("")}</ul>
+      ${(habitat.spawns ?? []).length ? `<p class="finale-habitat-label">Wild spawns</p>
+      <ul class="finale-habitat-spawns">${habitat.spawns.map((formId) => {
+    const name = forms?.[formId]?.name ?? formId;
+    const tags = spawnWorthTags(formId, forms, pvp, raids);
+    return `<li><a href="./#dex/${encodeURIComponent(formId)}" data-route="dex">${escapeHtml(name)}</a>${tags.map((tag) => `<small class="dex-move-badge" data-badge="${tag === "Raids" ? "raids" : "pvp"}">${escapeHtml(tag)}</small>`).join("")}</li>`;
+  }).join("")}</ul>` : ""}
     </div>`).join("")}
-    <p class="tl-honesty">Local-time windows from the event schedule; each habitat runs twice. Hundo is the catch CP at the level-20 raid encounter.</p>
+    <p class="tl-honesty">Local-time windows from the event schedule; each habitat runs twice. Hundo is the catch CP at the level-20 raid encounter. Spawn tags: GL/UL = the line's final form is in the published PvP rows; Raids = a ranked raid attacker (tags fill in as the rankings data loads).</p>
   </div>`;
 }
 
