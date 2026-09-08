@@ -641,7 +641,17 @@ const THEORYCRAFT_LEAGUE_LABEL = Object.freeze({
   great: "Great League", ultra: "Ultra League", master: "Master League",
 });
 
-function theorycraftView(theorycraft, forms) {
+// Computed-standing line for a projection card: the projection was written
+// before the season's rankings existed; once the re-base lands, the card
+// shows what the sims actually said next to what we guessed.
+function theorycraftComputedLine(row, pvp) {
+  const rows = pvp?.[row.league];
+  if (!Array.isArray(rows) || !rows.length) return "";
+  const hit = rows.find((entry) => entry.formId === row.formId);
+  return `<p class="tc-computed">Computed now: ${hit ? `<strong>#${escapeHtml(hit.rank)}</strong> in the published ${escapeHtml(THEORYCRAFT_LEAGUE_LABEL[row.league] ?? row.league)} rows` : "not in the published top rows"}</p>`;
+}
+
+function theorycraftView(theorycraft, forms, pvp) {
   const season = theorycraft?.season ?? {};
   const changes = theorycraft?.moveChanges ?? [];
   const projections = theorycraft?.projections ?? [];
@@ -660,6 +670,7 @@ function theorycraftView(theorycraft, forms) {
         ${row.newMove ? `<p class="tc-new-move">New move: <strong>${escapeHtml(row.newMove)}</strong></p>` : ""}
         <p class="briefing-note">${escapeHtml(row.why ?? "")}</p>
         ${row.targetIvs ? `<p class="tc-ivs">Target IVs: ${escapeHtml(row.targetIvs)}</p>` : ""}
+        ${theorycraftComputedLine(row, pvp)}
       </div>`).join("")}`).join("")}
     <h2 class="tc-league-heading">Every announced move change</h2>
     <div class="tc-move-table">
@@ -684,7 +695,7 @@ export function renderPvp({
       : activeView === "antimeta"
         ? antiMetaView(pvp, forms, normalized)
         : activeView === "theorycraft"
-          ? theorycraftView(pvpTheorycraft, forms)
+          ? theorycraftView(pvpTheorycraft, forms, pvp)
           : rankingsView(pvp, forms, normalized, trainerLevel, pvpMoveCatalog)}
   </div>`;
 }

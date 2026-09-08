@@ -6,6 +6,13 @@
 
 export const SHELL_CHANGELOG = Object.freeze([
   Object.freeze({
+    rev: "r176", date: "2026-09-08",
+    added: Object.freeze([
+      "Twilight Trails re-base: PvP rankings, movesets, and PvP move values are now the season's computed numbers (Tinkaton GL+UL #1 with Gigaton Hammer + Bulldoze, Corviknight GL #4 / UL #2, Lickilicky out of the top 50). The Next Season tab now shows \"Computed now: #N\" under every projection so you can see where the guesses landed.",
+      "Suggested Teams rebuilt around ranked members (Snorlax, Melmetal, Galarian Corsola, Mantine, Ninetales, Quagsire, Feraligatr replace the mons that fell out).",
+    ]),
+  }),
+  Object.freeze({
     rev: "r175", date: "2026-09-05",
     added: Object.freeze([
       "Finale habitat card now lists each habitat's WILD SPAWNS alongside its Mega Raids \u2014 every species linked to its dex entry, tagged GL/UL when the line's final form is in the published PvP rows and Raids when it's an S/A-tier attacker line (Meditite \u2192 GL, Swablu \u2192 GL, Fletchling \u2192 GL+UL, Dratini/Bagon/Beldum \u2192 Raids).",
