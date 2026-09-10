@@ -6,6 +6,12 @@
 
 export const SHELL_CHANGELOG = Object.freeze([
   Object.freeze({
+    rev: "r177", date: "2026-09-09",
+    added: Object.freeze([
+      "PvP rankings and dex PvP sections show \"PvPoke's pick\" when PvPoke's recommended moveset differs from the most-used set in its sims (Altaria: Moonblast + Flamethrower vs Sky Attack; Quagsire: Stone Edge vs Mud Bomb; Umbreon: Last Resort vs Foul Play).",
+    ]),
+  }),
+  Object.freeze({
     rev: "r176", date: "2026-09-08",
     added: Object.freeze([
       "Twilight Trails re-base: PvP rankings, movesets, and PvP move values are now the season's computed numbers (Tinkaton GL+UL #1 with Gigaton Hammer + Bulldoze, Corviknight GL #4 / UL #2, Lickilicky out of the top 50). The Next Season tab now shows \"Computed now: #N\" under every projection so you can see where the guesses landed.",

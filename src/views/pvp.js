@@ -249,6 +249,7 @@ function pvpCard(row, forms, { showLeague = false, publishedRank = false, traine
       <dl class="pvp-moves">
         <div><dt>${jargonTerm("fast-move", "Fast move")}</dt><dd>${moveWithElite(row.fastMove, eliteMoves, "Fast")}</dd></div>
         <div><dt>${jargonTerm("charged-move", "Charged moves")}</dt><dd>${(row.chargedMoves ?? []).map((move) => moveWithElite(move, eliteMoves, "Charged")).join(" + ")}</dd></div>
+        ${row.recommendedMoveset ? `<div class="pvp-recommended"><dt>PvPoke's pick</dt><dd>${moveWithElite(row.recommendedMoveset.fastMove, eliteMoves, "Fast")} / ${(row.recommendedMoveset.chargedMoves ?? []).map((move) => moveWithElite(move, eliteMoves, "Charged")).join(" + ")} <small class="hint">(the set above is the most-used in sims; this is PvPoke's editorial recommendation)</small></dd></div>` : ""}
       </dl>
       ${moveCounts ? `<p class="pvp-move-counts">${escapeHtml(moveCounts)}</p>` : ""}
       <dl class="pvp-stats" aria-label="Independently calculated rank-1 IVs">

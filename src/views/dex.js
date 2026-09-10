@@ -393,6 +393,7 @@ function pvpLeagueCardHtml(form, league, label, row, raids, formInstances) {
     </div>
     ${targetHtml}
     <p class="dex-pvp-moves">${fastBadge} + ${chargedBadges}</p>
+    ${row.recommendedMoveset ? `<p class="dex-pvp-recommended">PvPoke's pick: ${pvpMoveBadge(row.recommendedMoveset.fastMove, "Fast", form, raids)} + ${(row.recommendedMoveset.chargedMoves ?? []).map((moveId) => pvpMoveBadge(moveId, "Charged", form, raids)).join(" + ")}</p>` : ""}
     ${row.caveat ? `<p class="dex-pvp-caveat">${escapeHtml(row.caveat)}</p>` : ""}
     ${yoursHtml}
   </li>`;
