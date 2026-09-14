@@ -6,6 +6,13 @@
 
 export const SHELL_CHANGELOG = Object.freeze([
   Object.freeze({
+    rev: "r179", date: "2026-09-14",
+    added: Object.freeze([
+      "Rankings rows now explain themselves: PvPoke role tags with scores (Overall / Lead / Switch / Closer / Charger / Attacker / Consistency), a \"Why #N\" brief built from the row's own sim data (best roles, what it beats, its energy engine, what to watch out for), and a Move breakdown under Details \u2014 every simmed move with damage/energy/DPE, pvpoke's archetype, buff effects, and how often the sims chose it.",
+      "Next Season tab now scores itself: each projection carries a hit / partial / miss verdict with a post-mortem line, and the tab opens with the tally (4 hit \u00b7 3 partial \u00b7 8 miss) and the pattern behind the misses.",
+    ]),
+  }),
+  Object.freeze({
     rev: "r178", date: "2026-09-14",
     tweaked: Object.freeze([
       "PvP Rankings rebuilt PvPoke-style: compact rows (rank, sprite, types, score bar, ranked moveset with sim-usage %), a Category selector (Overall / Leads / Closers / Switches / Chargers / Attackers / Consistency \u2014 sorts by that role's own score), and a name search. Everything the old card showed (rank-1 IVs, CP, matchups, counters, caveats) is one tap away under Details.",

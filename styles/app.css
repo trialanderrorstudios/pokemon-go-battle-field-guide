@@ -8444,3 +8444,26 @@ html:not([data-app-booted]) #app .fallback-section {
 .pvp-usage { font-size: 0.7rem; color: var(--muted); margin-left: 0.1rem; }
 .pvp-card-details > summary { cursor: pointer; font-size: 0.8rem; color: var(--muted); margin: 0.2rem 0 0.4rem; }
 .pvp-controls input[type="search"] { min-width: 8rem; }
+
+/* Rankings: role tags, why-ranked brief, move breakdown; theorycraft post-mortem (r179) */
+.pvp-role-tags { display: flex; flex-wrap: wrap; gap: 0.25rem; margin: 0.15rem 0 0.3rem; }
+.pvp-role-tag { font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.04em; border: 1px solid var(--border, rgba(255,255,255,0.14)); border-radius: 4px; padding: 0.05rem 0.35rem; color: var(--muted); }
+.pvp-role-tag[data-tag="overall"] { color: inherit; }
+.pvp-role-tag[data-best="true"] { border-color: #7fa8ef; color: #7fa8ef; }
+.pvp-role-tag[data-role="true"] { background: rgba(96, 148, 234, 0.14); }
+.pvp-why { border-left: 3px solid var(--border, rgba(255,255,255,0.12)); padding-left: 0.55rem; margin: 0.3rem 0 0.4rem; }
+.pvp-why p { margin: 0.1rem 0; font-size: 0.84rem; }
+.pvp-move-breakdown { margin: 0.3rem 0 0.6rem; }
+.pvp-move-breakdown-title { margin: 0 0 0.2rem; font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); }
+.pvp-move-rows { list-style: none; margin: 0; padding: 0; display: grid; gap: 0.3rem; }
+.pvp-move-row { display: grid; gap: 0.1rem; border-left: 2px solid var(--border, rgba(255,255,255,0.1)); padding-left: 0.45rem; }
+.pvp-move-row[data-kind="fast"] { border-left-color: #c9a94f; }
+.pvp-move-row-stats { font-size: 0.78rem; font-variant-numeric: tabular-nums; }
+.pvp-move-row-tradeoff { font-size: 0.76rem; color: var(--muted); }
+.tc-scorecard { border: 1px solid var(--border, rgba(255,255,255,0.1)); border-radius: 8px; padding: 0.5rem 0.7rem; margin: 0.5rem 0; }
+.tc-scorecard-line { margin: 0.1rem 0; font-size: 0.95rem; }
+.tc-scorecard-line [data-verdict="hit"], .tc-verdict[data-verdict="hit"] { color: #4caf7d; }
+.tc-scorecard-line [data-verdict="partial"], .tc-verdict[data-verdict="partial"] { color: #c9a94f; }
+.tc-scorecard-line [data-verdict="miss"], .tc-verdict[data-verdict="miss"] { color: #c95c5c; }
+.tc-verdict { font-size: 0.7rem; margin-left: 0.4rem; border: 1px solid currentColor; border-radius: 4px; padding: 0 0.3rem; }
+.tc-postmortem { margin: 0.3rem 0 0; font-size: 0.82rem; }

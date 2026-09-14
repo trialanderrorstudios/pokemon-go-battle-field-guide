@@ -279,6 +279,93 @@ function matchupsSection(row) {
 }
 
 
+// PvPoke's category names for pvpoke's roleScores keys (operator ask
+// 2026-09-14: "missing tags like charger, attacker, overall").
+const ROLE_TAG_LABEL = Object.freeze({
+  "Lead": "Lead", "Safe Switch": "Switch", "Closer": "Closer",
+  "Shield Pressure": "Charger", "Attack Pressure": "Attacker", "Consistency": "Consistency",
+});
+
+function roleTagsHtml(row) {
+  const scores = row?.roleScores ?? {};
+  const entries = Object.entries(ROLE_TAG_LABEL)
+    .filter(([key]) => Number.isFinite(scores[key]))
+    .sort((left, right) => scores[right[0]] - scores[left[0]]);
+  if (!entries.length) return "";
+  const best = entries[0][0];
+  return `<p class="pvp-role-tags">${Number.isFinite(row.score) ? `<span class="pvp-role-tag" data-tag="overall">Overall ${escapeHtml(row.score)}</span>` : ""}${entries.map(([key, label]) => `<span class="pvp-role-tag"${key === best ? ' data-best="true"' : ""}${(row.roles ?? []).includes(key) ? ' data-role="true"' : ""}>${escapeHtml(label)} ${escapeHtml(scores[key])}</span>`).join("")}</p>`;
+}
+
+// One move's PvP numbers + a tradeoff line derived from pvpoke's archetype
+// and buff fields — never a hand-written opinion. Null stats -> honest gap.
+function moveBreakdownRow(moveId, kind, row, catalog, eliteMoves) {
+  const stat = catalog?.[moveId];
+  const share = moveUsageShare(row, moveId, kind);
+  const isFast = kind === "Fast";
+  let numbers = "no PvP stats in this data";
+  let tradeoff = "";
+  if (stat) {
+    if (isFast) {
+      const dpt = stat.turns ? (stat.power / stat.turns).toFixed(1) : "—";
+      const ept = stat.turns ? (stat.energyGain / stat.turns).toFixed(1) : "—";
+      numbers = `${stat.power} dmg · +${stat.energyGain} energy · ${stat.turns} turn${stat.turns === 1 ? "" : "s"} → ${dpt} DPT / ${ept} EPT`;
+      const eptNum = Number(ept); const dptNum = Number(dpt);
+      tradeoff = eptNum >= 4.5 ? "energy engine — reaches charged moves fast, low chip damage"
+        : dptNum >= 3 ? "damage fast move — wins fast-move duels, slower to charged moves"
+          : "balanced fast move";
+    } else {
+      const dpe = stat.energy ? (stat.power / stat.energy).toFixed(2) : "—";
+      numbers = `${stat.power} power · ${stat.energy} energy → ${dpe} DPE`;
+      const arch = stat.archetype ? stat.archetype : "";
+      const buff = Array.isArray(stat.buffs)
+        ? ` ${stat.buffTarget === "self" ? "self" : "opponent"} ${stat.buffs[0] ? `Atk ${stat.buffs[0] > 0 ? "+" : ""}${stat.buffs[0]}` : ""}${stat.buffs[0] && stat.buffs[1] ? " / " : ""}${stat.buffs[1] ? `Def ${stat.buffs[1] > 0 ? "+" : ""}${stat.buffs[1]}` : ""}${Number.isFinite(stat.buffApplyChance) && stat.buffApplyChance < 1 ? ` (${Math.round(stat.buffApplyChance * 100)}%)` : " (guaranteed)"}`
+        : "";
+      const costNote = stat.energy <= 40 ? "cheap — bait/shield pressure" : stat.energy >= 60 ? "expensive — one big hit, easy to shield" : "mid cost";
+      tradeoff = [arch, costNote].filter(Boolean).join(" · ") + (buff ? ` · buff:${buff}` : "");
+    }
+  }
+  const typeTag = stat?.type ? ` ${typeChip(stat.type)}` : "";
+  return `<li class="pvp-move-row" data-kind="${escapeHtml(kind.toLowerCase())}">
+    <span class="pvp-move-row-name">${moveWithElite(moveId, eliteMoves, kind)}${typeTag}${share === null ? "" : ` <small class="pvp-usage">${escapeHtml(share)}% of sims</small>`}</span>
+    <span class="pvp-move-row-stats">${escapeHtml(numbers)}</span>
+    ${tradeoff ? `<span class="pvp-move-row-tradeoff">${escapeHtml(tradeoff)}</span>` : ""}
+  </li>`;
+}
+
+function moveBreakdownHtml(row, catalog, eliteMoves) {
+  const usage = row?.moveUsage ?? {};
+  const fastIds = [...new Set([row.fastMove, ...(usage.fastMoves ?? []).map((m) => m.moveId)])].filter(Boolean).slice(0, 3);
+  const chargedIds = [...new Set([...(row.chargedMoves ?? []), ...(usage.chargedMoves ?? []).map((m) => m.moveId)])].filter(Boolean).slice(0, 5);
+  return `<div class="pvp-move-breakdown">
+    <p class="pvp-move-breakdown-title">Move breakdown</p>
+    <ul class="pvp-move-rows">${fastIds.map((id) => moveBreakdownRow(id, "Fast", row, catalog, eliteMoves)).join("")}${chargedIds.map((id) => moveBreakdownRow(id, "Charged", row, catalog, eliteMoves)).join("")}</ul>
+    <p class="hint">DPT/EPT = damage/energy per turn; DPE = damage per energy. "% of sims" = how often pvpoke's matchup sims chose the move. Archetype and buff wording is pvpoke's own.</p>
+  </div>`;
+}
+
+// "Why #N" — assembled only from the row's own numbers: score and best
+// roles, the sim wins that put it there, what it loses to, and the moveset
+// engine. No editorial; every clause traces to a field on the row.
+function rankingBriefHtml(row, catalog) {
+  const scores = row?.roleScores ?? {};
+  const ranked = Object.entries(ROLE_TAG_LABEL).filter(([key]) => Number.isFinite(scores[key])).sort((l, r) => scores[r[0]] - scores[l[0]]);
+  const strong = ranked.slice(0, 2).map(([key, label]) => `${label} ${scores[key]}`).join(", ");
+  const weak = ranked.length ? `${ROLE_TAG_LABEL[ranked[ranked.length - 1][0]]} ${scores[ranked[ranked.length - 1][0]]}` : "";
+  const wins = (row.keyMatchups ?? []).filter((m) => m.rating > 500).slice(0, 4).map((m) => m.opponentName);
+  const losses = (row.keyCounters ?? []).slice(0, 4).map((m) => `${m.opponentName} (${m.rating})`);
+  const fast = catalog?.[row.fastMove];
+  const engine = fast && fast.turns ? `${displayMoveName(row.fastMove)} makes ${(fast.energyGain / fast.turns).toFixed(1)} energy a turn` : "";
+  const cheapest = (row.chargedMoves ?? []).map((id) => catalog?.[id]).filter((m) => m && m.energy).sort((a, b) => a.energy - b.energy)[0];
+  const counts = moveCountsFor(row.fastMove, row.chargedMoves, catalog);
+  const countText = counts.length ? counts.map(({ chargedMoveId, count }) => `${count} to ${displayMoveName(chargedMoveId)}`).join(", ") : "";
+  return `<div class="pvp-why">
+    <p><strong>Why #${escapeHtml(row.rank)}:</strong> ${escapeHtml(row.primaryRole ?? "")}${strong ? ` — strongest as ${escapeHtml(strong)}` : ""}${weak ? `, weakest as ${escapeHtml(weak)}` : ""}. ${Number.isFinite(row.score) ? `Meta-weighted score ${escapeHtml(row.score)}.` : ""}</p>
+    ${wins.length ? `<p><strong>Strong because it beats:</strong> ${escapeHtml(wins.join(", "))}.</p>` : ""}
+    ${engine ? `<p><strong>Engine:</strong> ${escapeHtml(engine)}${cheapest ? `; cheapest charged move ${escapeHtml(cheapest.energy)} energy` : ""}${countText ? ` (${escapeHtml(countText)})` : ""}.</p>` : ""}
+    ${losses.length ? `<p><strong>Watch out for:</strong> ${escapeHtml(losses.join(", "))}.</p>` : ""}
+  </div>`;
+}
+
 // Usage share suffix for a ranked move ("83%"), silent when unknown.
 function usageTag(row, moveId, kind) {
   const share = moveUsageShare(row, moveId, kind);
@@ -305,7 +392,10 @@ function pvpCard(row, forms, {
       <div class="pvp-card-heading">${spriteHtml(row.formId, forms, row.pokemon, forms?.[row.formId]?.primary_type)}<p class="pvp-rank">${publishedRank ? "Published rank " : ""}#${escapeHtml(row.rank)}</p><h3 id="${cardId}">${escapeHtml(row.pokemon)}</h3>${score === null ? "" : `<span class="pvp-score"><meter class="pvp-score-meter" min="0" max="100" value="${escapeHtml(score)}" aria-label="${escapeHtml(scoreLabel)}"></meter><b>${escapeHtml(score)}</b></span>`}</div>
       <p class="pvp-types">${typeChipsFor(forms, row.formId)}${row.shadow ? ` <strong>${jargonTerm("shadow", "Shadow")}</strong>` : ""}</p>
       <p class="pvp-moveset-line">${moveWithElite(row.fastMove, eliteMoves, "Fast")}${usageTag(row, row.fastMove, "Fast")} / ${(row.chargedMoves ?? []).map((move) => `${moveWithElite(move, eliteMoves, "Charged")}${usageTag(row, move, "Charged")}`).join(" + ")}</p>
+      ${roleTagsHtml(row)}
+      ${rankingBriefHtml(row, pvpMoveCatalog)}
       <details class="pvp-card-details"><summary>Details</summary>
+      ${moveBreakdownHtml(row, pvpMoveCatalog, eliteMoves)}
       <p class="pvp-types-text">${escapeHtml(typesFor(forms, row.formId))}${row.shadow ? ` · <strong>${jargonTerm("shadow", "Shadow form")}</strong>` : " · Regular form"}</p>
       <dl class="pvp-moves">
         <div><dt>${jargonTerm("fast-move", "Fast move")}</dt><dd>${moveWithElite(row.fastMove, eliteMoves, "Fast")}</dd></div>
@@ -724,16 +814,24 @@ function theorycraftView(theorycraft, forms, pvp) {
   const leagues = ["great", "ultra", "master"]
     .map((league) => ({ league, rows: projections.filter((row) => row.league === league) }))
     .filter((group) => group.rows.length);
+  const tally = { hit: 0, partial: 0, miss: 0 };
+  for (const row of projections) if (row.verdict in tally) tally[row.verdict] += 1;
+  const scored = tally.hit + tally.partial + tally.miss;
+  const scorecard = scored
+    ? `<div class="tc-scorecard"><p class="status-kicker">Post-mortem</p><p class="tc-scorecard-line"><span data-verdict="hit">${tally.hit} hit</span> · <span data-verdict="partial">${tally.partial} partial</span> · <span data-verdict="miss">${tally.miss} miss</span> of ${scored} projections</p>${theorycraft?.postMortemNote ? `<p class="briefing-note">${escapeHtml(theorycraft.postMortemNote)}</p>` : ""}</div>`
+    : "";
   return `<div class="fallback-section theorycraft-view">
     <p class="status-kicker">Next season: ${escapeHtml(season.name ?? "rebalance")}</p>
     <p class="briefing-note">${escapeHtml(`${season.startsAt ?? ""} → ${season.endsAt ?? ""}`)} · Projections, not rankings — the computed re-base replaces this once the season's data ships.</p>
+    ${scorecard}
     ${leagues.map(({ league, rows }) => `<h2 class="tc-league-heading">${escapeHtml(THEORYCRAFT_LEAGUE_LABEL[league])}</h2>
-      ${rows.map((row) => `<div class="tc-card" data-call="${escapeHtml(row.call ?? "")}">
-        <div class="pvp-card-heading">${spriteHtml(row.formId, forms, row.name, forms?.[row.formId]?.primary_type)}<h3><a href="./#dex/${encodeURIComponent(row.formId)}" data-route="dex">${escapeHtml(row.name)}</a></h3><p class="tc-call">${escapeHtml(row.call ?? "")}</p></div>
+      ${rows.map((row) => `<div class="tc-card" data-call="${escapeHtml(row.call ?? "")}"${row.verdict ? ` data-verdict="${escapeHtml(row.verdict)}"` : ""}>
+        <div class="pvp-card-heading">${spriteHtml(row.formId, forms, row.name, forms?.[row.formId]?.primary_type)}<h3><a href="./#dex/${encodeURIComponent(row.formId)}" data-route="dex">${escapeHtml(row.name)}</a></h3><p class="tc-call">${escapeHtml(row.call ?? "")}${row.verdict ? ` <span class="tc-verdict" data-verdict="${escapeHtml(row.verdict)}">${escapeHtml(row.verdict)}</span>` : ""}</p></div>
         ${row.newMove ? `<p class="tc-new-move">New move: <strong>${escapeHtml(row.newMove)}</strong></p>` : ""}
         <p class="briefing-note">${escapeHtml(row.why ?? "")}</p>
         ${row.targetIvs ? `<p class="tc-ivs">Target IVs: ${escapeHtml(row.targetIvs)}</p>` : ""}
         ${theorycraftComputedLine(row, pvp)}
+        ${row.postMortem ? `<p class="tc-postmortem"><strong>Post-mortem:</strong> ${escapeHtml(row.postMortem)}</p>` : ""}
       </div>`).join("")}`).join("")}
     <h2 class="tc-league-heading">Every announced move change</h2>
     <div class="tc-move-table">
