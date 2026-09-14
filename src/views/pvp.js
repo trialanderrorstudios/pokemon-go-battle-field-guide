@@ -6,6 +6,7 @@ import { buildMyTeam, detectInstanceConflicts, instanceLeagueRank, LEAGUE_CP_CAP
 import { moveCountsFor } from "../pvp-moves.js";
 import { levelCapNote, xlPowerUpCost } from "../raid-target.js";
 import { typeChip } from "./types.js";
+import { resistancesOf, weaknessesOf } from "../type-chart.js";
 import { computeMetaCoverage } from "../meta-coverage.js";
 
 
@@ -366,6 +367,107 @@ function rankingBriefHtml(row, catalog) {
   </div>`;
 }
 
+// Trait chips (operator ask 2026-09-14: "extremely bulky, spammy, dynamic").
+// Every rule is stated in TRAIT_RULES so a chip is always explainable:
+//   Extremely bulky / Bulky — rank-1 stat product in the league's top 5% / 20%
+//   Glass — Attack share of rank-1 battle stats in the league's top 15%
+//   Spammy — fast EPT >= 4 and cheapest ranked charged move <= 35 energy
+//   Nuke — a ranked charged move >= 100 power (or pvpoke archetype Nuke)
+//   Dynamic — a ranked move carries a buff/debuff effect
+//   Coverage — ranked charged moves hit 2+ types outside its own typing
+//   Shield pressure / Consistent — that pvpoke roleScore in the league's top 20%
+export const TRAIT_RULES = Object.freeze({
+  "Extremely bulky": "rank-1 stat product in this league's top 5%",
+  "Bulky": "rank-1 stat product in this league's top 20%",
+  "Glass": "Attack-heavy: rank-1 Attack share in this league's top 15%",
+  "Spammy": "fast move ≥ 4 energy/turn and a ranked charged move ≤ 35 energy",
+  "Nuke": "a ranked charged move of 100+ power",
+  "Dynamic": "a ranked move with a buff or debuff effect",
+  "Coverage": "ranked charged moves hit 2+ types outside its own typing",
+  "Shield pressure": "pvpoke Shield Pressure score in this league's top 20%",
+  "Consistent": "pvpoke Consistency score in this league's top 20%",
+});
+
+function percentileWithin(values, value) {
+  const sorted = [...values].filter(Number.isFinite).sort((l, r) => r - l);
+  if (!sorted.length || !Number.isFinite(value)) return null;
+  return sorted.findIndex((v) => v <= value) / sorted.length; // 0 = best
+}
+
+export function traitsFor(row, leagueRows, catalog, forms) {
+  const traits = [];
+  const products = (leagueRows ?? []).map((r) => r.rankOne?.statProduct);
+  const spPct = percentileWithin(products, row.rankOne?.statProduct);
+  if (spPct !== null && spPct <= 0.05) traits.push("Extremely bulky");
+  else if (spPct !== null && spPct <= 0.2) traits.push("Bulky");
+  const atkShare = (r) => { const b = r.rankOne?.battleStats; return b && b.attack && b.defense ? b.attack / (b.attack + b.defense) : null; };
+  const shares = (leagueRows ?? []).map(atkShare);
+  const sharePct = percentileWithin(shares, atkShare(row));
+  if (sharePct !== null && sharePct <= 0.15) traits.push("Glass");
+  const fast = catalog?.[row.fastMove];
+  const charged = (row.chargedMoves ?? []).map((id) => catalog?.[id]).filter(Boolean);
+  const cheapest = charged.length ? Math.min(...charged.map((m) => m.energy || 999)) : 999;
+  if (fast && fast.turns && fast.energyGain / fast.turns >= 4 && cheapest <= 35) traits.push("Spammy");
+  if (charged.some((m) => m.power >= 100 || m.archetype === "Nuke")) traits.push("Nuke");
+  if ([fast, ...charged].some((m) => m && Array.isArray(m.buffs))) traits.push("Dynamic");
+  const own = new Set([forms?.[row.formId]?.primary_type, forms?.[row.formId]?.secondary_type].filter(Boolean).map((t) => t.toLowerCase()));
+  const offTypes = new Set(charged.map((m) => (m.type || "").toLowerCase()).filter((t) => t && !own.has(t)));
+  if (offTypes.size >= 2) traits.push("Coverage");
+  for (const [key, label] of [["Shield Pressure", "Shield pressure"], ["Consistency", "Consistent"]]) {
+    const pct = percentileWithin((leagueRows ?? []).map((r) => r.roleScores?.[key]), row.roleScores?.[key]);
+    if (pct !== null && pct <= 0.2) traits.push(label);
+  }
+  return traits;
+}
+
+function traitChipsHtml(traits) {
+  if (!traits.length) return "";
+  return `<p class="pvp-traits">${traits.map((t) => `<span class="pvp-trait" title="${escapeHtml(TRAIT_RULES[t] ?? "")}">${escapeHtml(t)}</span>`).join("")}</p>`;
+}
+
+// Fuller Details (operator ask 2026-09-14): typing with weaknesses and
+// resistances, base + rank-1 battle stats, the top spreads, and similar
+// picks from the same league (shared primary role and a shared type first,
+// then shared type).
+function typingBlockHtml(row, forms) {
+  const form = forms?.[row.formId];
+  const types = [form?.primary_type, form?.secondary_type].filter(Boolean);
+  if (!types.length) return "";
+  const weak = weaknessesOf(types); const resist = resistancesOf(types);
+  const fmt = (list) => list.map((e) => `${typeChip(e.type)}${e.multiplier >= 2.5 || e.multiplier <= 0.4 ? `<small>${escapeHtml(e.multiplier >= 2.5 ? "×2.56" : "×0.39")}</small>` : ""}`).join(" ");
+  return `<div class="pvp-typing"><p class="pvp-detail-title">Typing</p>
+    <p>${types.map(typeChip).join(" ")}${types.length > 1 ? ` <small>(${escapeHtml(types[0])} primary, ${escapeHtml(types[1])} secondary)</small>` : ""}</p>
+    <p><strong>Weak to:</strong> ${weak.length ? fmt(weak) : "nothing"}</p>
+    <p><strong>Resists:</strong> ${resist.length ? fmt(resist) : "nothing"}</p></div>`;
+}
+
+function statsBlockHtml(row, forms) {
+  const form = forms?.[row.formId]; const b = row.rankOne?.battleStats;
+  if (!form) return "";
+  return `<div class="pvp-basestats"><p class="pvp-detail-title">Stats</p>
+    <p><strong>Base:</strong> ${escapeHtml(form.base_attack)} Atk · ${escapeHtml(form.base_defense)} Def · ${escapeHtml(form.base_stamina)} Sta</p>
+    ${b ? `<p><strong>At rank-1 build:</strong> ${escapeHtml(Math.round(b.attack))} Atk · ${escapeHtml(Math.round(b.defense))} Def · ${escapeHtml(b.hp)} HP</p>` : ""}</div>`;
+}
+
+function topSpreadsHtml(row) {
+  const spreads = row.topSpreads ?? [];
+  if (!spreads.length) return "";
+  return `<div class="pvp-topspreads"><p class="pvp-detail-title">Best IV spreads</p>
+    <ol class="pvp-spread-list">${spreads.map((s) => `<li>${escapeHtml(`${s.ivs.attack}/${s.ivs.defense}/${s.ivs.stamina}`)} <small>L${escapeHtml(s.level)} · ${escapeHtml(s.cp)} CP</small></li>`).join("")}</ol></div>`;
+}
+
+function similarPicksHtml(row, leagueRows, forms) {
+  const own = new Set([forms?.[row.formId]?.primary_type, forms?.[row.formId]?.secondary_type].filter(Boolean));
+  const shareType = (r) => [forms?.[r.formId]?.primary_type, forms?.[r.formId]?.secondary_type].some((t) => t && own.has(t));
+  const others = (leagueRows ?? []).filter((r) => r.formId !== row.formId && r.formId?.split("-")[0] !== row.formId?.split("-")[0]);
+  const tier1 = others.filter((r) => r.primaryRole === row.primaryRole && shareType(r));
+  const tier2 = others.filter((r) => !tier1.includes(r) && shareType(r));
+  const picks = [...tier1, ...tier2].slice(0, 4);
+  if (!picks.length) return "";
+  return `<div class="pvp-similar"><p class="pvp-detail-title">Similar picks in this league</p>
+    <p>${picks.map((r) => `<a href="./#dex/${encodeURIComponent(r.formId)}" data-route="dex">${escapeHtml(r.pokemon)}</a> <small>#${escapeHtml(r.rank)} · ${escapeHtml(r.primaryRole)}</small>`).join(" · ")}</p></div>`;
+}
+
 // Usage share suffix for a ranked move ("83%"), silent when unknown.
 function usageTag(row, moveId, kind) {
   const share = moveUsageShare(row, moveId, kind);
@@ -377,7 +479,7 @@ function usageTag(row, moveId, kind) {
 // moveset with sim-usage shares, then the full card body behind a Details
 // disclosure. Every field the old card showed is still rendered.
 function pvpCard(row, forms, {
-  showLeague = false, publishedRank = false, trainerLevel = null, pvpMoveCatalog = {}, showMatchups = true, category = "overall",
+  showLeague = false, publishedRank = false, trainerLevel = null, pvpMoveCatalog = {}, showMatchups = true, category = "overall", leagueRows = null,
 } = {}) {
   const rankOne = row.rankOne ?? {};
   const ivs = rankOne.ivs ?? {};
@@ -393,9 +495,14 @@ function pvpCard(row, forms, {
       <p class="pvp-types">${typeChipsFor(forms, row.formId)}${row.shadow ? ` <strong>${jargonTerm("shadow", "Shadow")}</strong>` : ""}</p>
       <p class="pvp-moveset-line">${moveWithElite(row.fastMove, eliteMoves, "Fast")}${usageTag(row, row.fastMove, "Fast")} / ${(row.chargedMoves ?? []).map((move) => `${moveWithElite(move, eliteMoves, "Charged")}${usageTag(row, move, "Charged")}`).join(" + ")}</p>
       ${roleTagsHtml(row)}
+      ${traitChipsHtml(traitsFor(row, leagueRows, pvpMoveCatalog, forms))}
       ${rankingBriefHtml(row, pvpMoveCatalog)}
       <details class="pvp-card-details"><summary>Details</summary>
+      ${typingBlockHtml(row, forms)}
+      ${statsBlockHtml(row, forms)}
+      ${topSpreadsHtml(row)}
       ${moveBreakdownHtml(row, pvpMoveCatalog, eliteMoves)}
+      ${similarPicksHtml(row, leagueRows, forms)}
       <p class="pvp-types-text">${escapeHtml(typesFor(forms, row.formId))}${row.shadow ? ` · <strong>${jargonTerm("shadow", "Shadow form")}</strong>` : " · Regular form"}</p>
       <dl class="pvp-moves">
         <div><dt>${jargonTerm("fast-move", "Fast move")}</dt><dd>${moveWithElite(row.fastMove, eliteMoves, "Fast")}</dd></div>
@@ -471,7 +578,7 @@ function rankingsView(pvp, forms, state, trainerLevel = null, pvpMoveCatalog = {
     ${state.antiMeta === "countersMeta" ? `<p class="pvp-antimeta-teach">Showing Top 50 picks with a favorable PvPoke matchup against ${jargonTerm("meta-leaders", "the meta")} (top ${META_LEADER_COUNT} by rank in this league).</p>` : ""}
     ${leaguesShown.map((league) => metaPressureSection(league, pvp, forms)).join("")}
     ${rows.length
-      ? `<ol class="pvp-card-list">${rows.map((row) => pvpCard(row, forms, { showLeague: state.league === "all", trainerLevel, pvpMoveCatalog, showMatchups, category: state.category })).join("")}</ol>${backToTop()}`
+      ? `<ol class="pvp-card-list">${rows.map((row) => pvpCard(row, forms, { showLeague: state.league === "all", trainerLevel, pvpMoveCatalog, showMatchups, category: state.category, leagueRows: pvp?.[row.league] ?? [] })).join("")}</ol>${backToTop()}`
       : `<p class="pvp-empty">No entries match these filters. Change Form, Investment, or Meta to continue.</p>`}
   </section>`;
 }

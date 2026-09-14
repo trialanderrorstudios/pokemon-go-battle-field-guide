@@ -6,6 +6,13 @@
 
 export const SHELL_CHANGELOG = Object.freeze([
   Object.freeze({
+    rev: "r180", date: "2026-09-14",
+    added: Object.freeze([
+      "Rankings rows carry trait chips \u2014 Extremely bulky, Bulky, Glass, Spammy, Nuke, Dynamic, Coverage, Shield pressure, Consistent \u2014 each with its rule on hover (bulk and pressure chips are top-of-league percentiles, move chips read the ranked moveset).",
+      "Details now open with Typing (weak to / resists), Stats (base and at the rank-1 build), the five best IV spreads with level and CP, and Similar picks from the same league, ahead of the move breakdown.",
+    ]),
+  }),
+  Object.freeze({
     rev: "r179", date: "2026-09-14",
     added: Object.freeze([
       "Rankings rows now explain themselves: PvPoke role tags with scores (Overall / Lead / Switch / Closer / Charger / Attacker / Consistency), a \"Why #N\" brief built from the row's own sim data (best roles, what it beats, its energy engine, what to watch out for), and a Move breakdown under Details \u2014 every simmed move with damage/energy/DPE, pvpoke's archetype, buff effects, and how often the sims chose it.",
