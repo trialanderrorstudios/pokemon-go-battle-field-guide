@@ -6,6 +6,12 @@
 
 export const SHELL_CHANGELOG = Object.freeze([
   Object.freeze({
+    rev: "r178", date: "2026-09-14",
+    tweaked: Object.freeze([
+      "PvP Rankings rebuilt PvPoke-style: compact rows (rank, sprite, types, score bar, ranked moveset with sim-usage %), a Category selector (Overall / Leads / Closers / Switches / Chargers / Attackers / Consistency \u2014 sorts by that role's own score), and a name search. Everything the old card showed (rank-1 IVs, CP, matchups, counters, caveats) is one tap away under Details.",
+    ]),
+  }),
+  Object.freeze({
     rev: "r177", date: "2026-09-09",
     added: Object.freeze([
       "PvP rankings and dex PvP sections show \"PvPoke's pick\" when PvPoke's recommended moveset differs from the most-used set in its sims (Altaria: Moonblast + Flamethrower vs Sky Attack; Quagsire: Stone Edge vs Mud Bomb; Umbreon: Last Resort vs Foul Play).",

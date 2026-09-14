@@ -15,6 +15,15 @@ const FORM_FILTERS = new Set(["all", "regular", "shadow"]);
 const VIEWS = new Set(["rankings", "teams", "antimeta", "theorycraft"]);
 const INVESTMENT_FILTERS = new Set(["all", "S+", "S", "A", "B", "C"]);
 const ANTI_META_FILTERS = new Set(["all", "countersMeta"]);
+// PvPoke-style ranking categories (operator ask 2026-09-14): "overall" is the
+// published rank; each role sorts by that role's own pvpoke roleScore — the
+// same numbers Anti-Meta already reads, surfaced as a first-class sort.
+export const RANKING_CATEGORIES = Object.freeze([
+  ["overall", "Overall"], ["Lead", "Leads"], ["Closer", "Closers"], ["Safe Switch", "Switches"],
+  ["Shield Pressure", "Chargers"], ["Attack Pressure", "Attackers"], ["Consistency", "Consistency"],
+]);
+const CATEGORY_FILTERS = new Set(RANKING_CATEGORIES.map(([key]) => key));
+const SEARCH_MAX = 40;
 // "Meta" proxy: top-N by published rank in a league. Not real usage/ladder
 // share (we don't have that data) — just the current rank cutoff, stated in
 // the teach copy below. Kept small (top 3, not top 50) so the filter stays
@@ -49,6 +58,8 @@ export function createPvpState({ preferences = {}, filters = {} } = {}) {
     investment: allowed(requested.investment, INVESTMENT_FILTERS, "all"),
     league: allowed(requested.league, new Set(PVP_LEAGUE_FILTERS), "all"),
     antiMeta: allowed(requested.antiMeta, ANTI_META_FILTERS, "all"),
+    category: allowed(requested.category, CATEGORY_FILTERS, "overall"),
+    q: typeof requested.q === "string" ? requested.q.trim().slice(0, SEARCH_MAX) : "",
   };
 }
 
@@ -61,6 +72,8 @@ export function pvpPreferencePayload(state = {}) {
       investment: normalized.investment,
       league: normalized.league,
       antiMeta: normalized.antiMeta,
+      category: normalized.category,
+      q: normalized.q,
     },
   };
 }
@@ -92,13 +105,42 @@ export function selectPvpRows(pvp = {}, state = createPvpState()) {
   const leagueRows = normalized.league === "all"
     ? PVP_LEAGUES.flatMap((league) => pvp?.[league] ?? [])
     : (pvp?.[normalized.league] ?? []);
-  return leagueRows.filter((row) => {
+  const needle = normalized.q.toLowerCase();
+  const filtered = leagueRows.filter((row) => {
     if (normalized.form === "shadow" && !row.shadow) return false;
     if (normalized.form === "regular" && row.shadow) return false;
     if (normalized.investment !== "all" && row.investmentTier !== normalized.investment) return false;
     if (normalized.antiMeta === "countersMeta" && !countersMeta(row, pvp)) return false;
+    if (needle && !String(row.pokemon ?? "").toLowerCase().includes(needle)) return false;
     return true;
   });
+  if (normalized.category === "overall") return filtered;
+  // Role sort: highest roleScore first; rows without that score sink to the
+  // bottom in published order rather than vanishing.
+  return [...filtered].sort((left, right) => {
+    const l = Number.isFinite(left.roleScores?.[normalized.category]) ? left.roleScores[normalized.category] : -1;
+    const r = Number.isFinite(right.roleScores?.[normalized.category]) ? right.roleScores[normalized.category] : -1;
+    return r - l || left.rank - right.rank;
+  });
+}
+
+// The number a ranking row's score bar shows: the category's roleScore, or
+// the overall meta-weighted score. Null when the row lacks it.
+export function categoryScore(row, category = "overall") {
+  if (category === "overall") return Number.isFinite(row?.score) ? row.score : null;
+  const value = row?.roleScores?.[category];
+  return Number.isFinite(value) ? value : null;
+}
+
+// "Fairy Wind 83%" — a move's share of pvpoke's sim usage within its slot
+// (fast vs charged), from the row's own moveUsage. Null when unknown.
+export function moveUsageShare(row, moveId, kind) {
+  const list = row?.moveUsage?.[kind === "Fast" ? "fastMoves" : "chargedMoves"];
+  if (!Array.isArray(list) || !list.length) return null;
+  const total = list.reduce((sum, entry) => sum + (Number.isFinite(entry?.uses) ? entry.uses : 0), 0);
+  const hit = list.find((entry) => entry?.moveId === moveId);
+  if (!total || !hit || !Number.isFinite(hit.uses)) return null;
+  return Math.round((hit.uses / total) * 100);
 }
 
 
@@ -182,9 +224,11 @@ function controls(state, view) {
   const stickyClass = view === "rankings" ? " pvp-controls-sticky" : "";
   return `<form class="pvp-controls${stickyClass}" data-pvp-filters aria-label="PvP league and ranking filters">
     ${filterSelect("league", "League", state.league, PVP_LEAGUE_FILTERS.map((league) => [league, leagueName(league)]))}
-    ${view === "rankings" ? `${filterSelect("form", "Form", state.form, [["all", "Regular + Shadow"], ["regular", "Regular only"], ["shadow", "Shadow only"]])}
+    ${view === "rankings" ? `${filterSelect("category", "Category", state.category, RANKING_CATEGORIES)}
+    ${filterSelect("form", "Form", state.form, [["all", "Regular + Shadow"], ["regular", "Regular only"], ["shadow", "Shadow only"]])}
     ${filterSelect("investment", "Investment", state.investment, [["all", "All tiers"], ["S+", "S+"], ["S", "S"], ["A", "A"], ["B", "B"], ["C", "C"]])}
-    ${filterSelect("antiMeta", "Meta", state.antiMeta, [["all", "All picks"], ["countersMeta", "Counters the meta"]])}` : ""}
+    ${filterSelect("antiMeta", "Meta", state.antiMeta, [["all", "All picks"], ["countersMeta", "Counters the meta"]])}
+    <label>Search<input type="search" name="q" data-pvp-filter="q" value="${escapeHtml(state.q ?? "")}" placeholder="Name" maxlength="${SEARCH_MAX}" autocomplete="off"></label>` : ""}
   </form>`;
 }
 
@@ -235,17 +279,34 @@ function matchupsSection(row) {
 }
 
 
-function pvpCard(row, forms, { showLeague = false, publishedRank = false, trainerLevel = null, pvpMoveCatalog = {}, showMatchups = true } = {}) {
+// Usage share suffix for a ranked move ("83%"), silent when unknown.
+function usageTag(row, moveId, kind) {
+  const share = moveUsageShare(row, moveId, kind);
+  return share === null ? "" : ` <small class="pvp-usage">${escapeHtml(share)}%</small>`;
+}
+
+// Compact PvPoke-style row (operator ask 2026-09-14): rank, sprite, name,
+// types, a native <meter> score bar (no inline styles — CSP), the ranked
+// moveset with sim-usage shares, then the full card body behind a Details
+// disclosure. Every field the old card showed is still rendered.
+function pvpCard(row, forms, {
+  showLeague = false, publishedRank = false, trainerLevel = null, pvpMoveCatalog = {}, showMatchups = true, category = "overall",
+} = {}) {
   const rankOne = row.rankOne ?? {};
   const ivs = rankOne.ivs ?? {};
   const eliteMoves = new Set(forms?.[row.formId]?.elite_moves ?? []);
   const cardId = `pvp-${row.league}-${row.rank}-${row.formId}`.replace(/[^a-z0-9-]/gi, "-").toLowerCase();
   const moveCounts = moveCountText(row.fastMove, row.chargedMoves, pvpMoveCatalog);
+  const score = categoryScore(row, category);
+  const scoreLabel = category === "overall" ? "Score" : `${category} score`;
   return `<li class="pvp-card" data-form-id="${escapeHtml(row.formId)}">
     <article aria-labelledby="${cardId}">
       ${showLeague ? `<p class="pvp-league-label">${escapeHtml(leagueName(row.league))}</p>` : ""}
-      <div class="pvp-card-heading">${spriteHtml(row.formId, forms, row.pokemon, forms?.[row.formId]?.primary_type)}<p class="pvp-rank">${publishedRank ? "Published rank " : ""}#${escapeHtml(row.rank)}</p><h3 id="${cardId}">${escapeHtml(row.pokemon)}</h3></div>
-      <p class="pvp-types">${escapeHtml(typesFor(forms, row.formId))}${row.shadow ? ` · <strong>${jargonTerm("shadow", "Shadow form")}</strong>` : " · Regular form"}</p>
+      <div class="pvp-card-heading">${spriteHtml(row.formId, forms, row.pokemon, forms?.[row.formId]?.primary_type)}<p class="pvp-rank">${publishedRank ? "Published rank " : ""}#${escapeHtml(row.rank)}</p><h3 id="${cardId}">${escapeHtml(row.pokemon)}</h3>${score === null ? "" : `<span class="pvp-score"><meter class="pvp-score-meter" min="0" max="100" value="${escapeHtml(score)}" aria-label="${escapeHtml(scoreLabel)}"></meter><b>${escapeHtml(score)}</b></span>`}</div>
+      <p class="pvp-types">${typeChipsFor(forms, row.formId)}${row.shadow ? ` <strong>${jargonTerm("shadow", "Shadow")}</strong>` : ""}</p>
+      <p class="pvp-moveset-line">${moveWithElite(row.fastMove, eliteMoves, "Fast")}${usageTag(row, row.fastMove, "Fast")} / ${(row.chargedMoves ?? []).map((move) => `${moveWithElite(move, eliteMoves, "Charged")}${usageTag(row, move, "Charged")}`).join(" + ")}</p>
+      <details class="pvp-card-details"><summary>Details</summary>
+      <p class="pvp-types-text">${escapeHtml(typesFor(forms, row.formId))}${row.shadow ? ` · <strong>${jargonTerm("shadow", "Shadow form")}</strong>` : " · Regular form"}</p>
       <dl class="pvp-moves">
         <div><dt>${jargonTerm("fast-move", "Fast move")}</dt><dd>${moveWithElite(row.fastMove, eliteMoves, "Fast")}</dd></div>
         <div><dt>${jargonTerm("charged-move", "Charged moves")}</dt><dd>${(row.chargedMoves ?? []).map((move) => moveWithElite(move, eliteMoves, "Charged")).join(" + ")}</dd></div>
@@ -276,6 +337,7 @@ function pvpCard(row, forms, { showLeague = false, publishedRank = false, traine
         <p><strong>Caveat:</strong> ${escapeHtml(row.caveat)}</p>
         <p>${escapeHtml(rankOne.ivCaveat)}</p>
         <p><strong>Sources:</strong> ${escapeHtml((row.sourceRefs ?? []).join(", "))}</p>
+      </details>
       </details>
     </article>
   </li>`;
@@ -315,11 +377,11 @@ function rankingsView(pvp, forms, state, trainerLevel = null, pvpMoveCatalog = {
   return `<section class="pvp-section" aria-labelledby="pvp-rankings-title">
     <p class="status-kicker">Open league cutoff snapshot</p>
     <h2 id="pvp-rankings-title">${escapeHtml(state.league === "all" ? "All leagues · Top 50 each" : `${leagueName(state.league)} Top 50`)}</h2>
-    <p class="pvp-summary">Showing ${rows.length} of ${allRows.length}. Regular and Shadow forms remain separate exact-form entries.</p>
+    <p class="pvp-summary">Showing ${rows.length} of ${allRows.length}. Regular and Shadow forms remain separate exact-form entries.${state.category !== "overall" ? ` Sorted by ${escapeHtml(state.category)} score (pvpoke roleScores) — # stays the published overall rank.` : ""}${state.q ? ` Search: “${escapeHtml(state.q)}”.` : ""}</p>
     ${state.antiMeta === "countersMeta" ? `<p class="pvp-antimeta-teach">Showing Top 50 picks with a favorable PvPoke matchup against ${jargonTerm("meta-leaders", "the meta")} (top ${META_LEADER_COUNT} by rank in this league).</p>` : ""}
     ${leaguesShown.map((league) => metaPressureSection(league, pvp, forms)).join("")}
     ${rows.length
-      ? `<ol class="pvp-card-list">${rows.map((row) => pvpCard(row, forms, { showLeague: state.league === "all", trainerLevel, pvpMoveCatalog, showMatchups })).join("")}</ol>${backToTop()}`
+      ? `<ol class="pvp-card-list">${rows.map((row) => pvpCard(row, forms, { showLeague: state.league === "all", trainerLevel, pvpMoveCatalog, showMatchups, category: state.category })).join("")}</ol>${backToTop()}`
       : `<p class="pvp-empty">No entries match these filters. Change Form, Investment, or Meta to continue.</p>`}
   </section>`;
 }

@@ -8434,3 +8434,13 @@ html:not([data-app-booted]) #app .fallback-section {
 .tc-computed { margin: 0.3rem 0 0; font-size: 0.8rem; }
 .pvp-recommended dd .hint, .dex-pvp-recommended { font-size: 0.8rem; color: var(--muted); }
 .dex-pvp-recommended { margin: 0.2rem 0 0; }
+
+/* PvP rankings: compact PvPoke-style rows (r178) */
+.pvp-card-heading { flex-wrap: wrap; }
+.pvp-score { display: inline-flex; align-items: center; gap: 0.35rem; margin-left: auto; font-variant-numeric: tabular-nums; }
+.pvp-score-meter { width: 6.5rem; height: 0.55rem; }
+.pvp-score b { font-size: 0.85rem; }
+.pvp-moveset-line { margin: 0.25rem 0 0.35rem; font-size: 0.88rem; }
+.pvp-usage { font-size: 0.7rem; color: var(--muted); margin-left: 0.1rem; }
+.pvp-card-details > summary { cursor: pointer; font-size: 0.8rem; color: var(--muted); margin: 0.2rem 0 0.4rem; }
+.pvp-controls input[type="search"] { min-width: 8rem; }
