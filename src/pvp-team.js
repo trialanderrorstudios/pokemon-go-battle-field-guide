@@ -16,6 +16,17 @@ export const PVP_GOOD_QUALITY_THRESHOLD = 0.95;
 const STAR_ELIGIBILITY_HEADROOM = 1.15;
 
 
+// Attack / Defense / HP at a level — the three numbers statProduct multiplies,
+// exported so views can compare builds (the free-Tinkaton baseline, r181).
+export function battleStatsAt(form, ivs, level) {
+  const cpm = cpMultiplier(level);
+  return {
+    attack: (form.base_attack + ivs.atk) * cpm,
+    defense: (form.base_defense + ivs.def) * cpm,
+    hp: Math.floor((form.base_stamina + ivs.sta) * cpm),
+  };
+}
+
 export function statProduct(form, ivs, level) {
   const cpm = cpMultiplier(level);
   const attack = (form.base_attack + ivs.atk) * cpm;

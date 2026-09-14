@@ -2,7 +2,7 @@ import { escapeHtml, whyLine } from "./home.js";
 import { jargonTerm } from "../glossary.js";
 import { spriteHtml } from "../sprites.js";
 import { displayMoveName, moveLink } from "./move-sheet.js";
-import { buildMyTeam, detectInstanceConflicts, instanceLeagueRank, LEAGUE_CP_CAP, MY_TEAM_SLOTS, myTeamOverridesFor, rankSummaryText } from "../pvp-team.js";
+import { battleStatsAt, bestLevelUnderCap, buildMyTeam, detectInstanceConflicts, instanceLeagueRank, LEAGUE_CP_CAP, MY_TEAM_SLOTS, myTeamOverridesFor, RANK_MAX_LEVEL, rankSummaryText } from "../pvp-team.js";
 import { moveCountsFor } from "../pvp-moves.js";
 import { levelCapNote, xlPowerUpCost } from "../raid-target.js";
 import { typeChip } from "./types.js";
@@ -386,7 +386,17 @@ export const TRAIT_RULES = Object.freeze({
   "Coverage": "ranked charged moves hit 2+ types outside its own typing",
   "Shield pressure": "pvpoke Shield Pressure score in this league's top 20%",
   "Consistent": "pvpoke Consistency score in this league's top 20%",
+  // Negatives (operator ask 2026-09-14) — same discipline, rendered as warnings.
+  "Frail": "rank-1 stat product in this league's bottom 20%",
+  "Slow": "longest ranked charged-move cycle is 13+ fast-move turns",
+  "Energy-starved": "fast move makes ≤ 3.5 energy per turn",
+  "Double weakness": "a ×2.56 hole in its typing",
+  "Exposed typing": "5 or more type weaknesses",
+  "One-dimensional": "both ranked charged moves share a type",
+  "Elite TM build": "the ranked moveset needs an Elite TM",
+  "XL build": "the rank-1 spread needs XL candy or Best Buddy",
 });
+export const NEGATIVE_TRAITS = new Set(["Glass", "Frail", "Slow", "Energy-starved", "Double weakness", "Exposed typing", "One-dimensional", "Elite TM build", "XL build"]);
 
 function percentileWithin(values, value) {
   const sorted = [...values].filter(Number.isFinite).sort((l, r) => r - l);
@@ -417,12 +427,54 @@ export function traitsFor(row, leagueRows, catalog, forms) {
     const pct = percentileWithin((leagueRows ?? []).map((r) => r.roleScores?.[key]), row.roleScores?.[key]);
     if (pct !== null && pct <= 0.2) traits.push(label);
   }
+  // Negatives.
+  if (spPct !== null && spPct >= 0.8) traits.push("Frail");
+  if (fast && fast.turns && charged.length) {
+    const ept = fast.energyGain / fast.turns;
+    const longest = Math.max(...charged.map((m) => m.energy || 0));
+    if (ept > 0 && longest / ept >= 13) traits.push("Slow");
+    if (ept <= 3.5) traits.push("Energy-starved");
+  }
+  const weak = weaknessesOf([...own].map((t) => t[0].toUpperCase() + t.slice(1)));
+  if (weak.some((w) => w.multiplier >= 2.5)) traits.push("Double weakness");
+  if (weak.length >= 5) traits.push("Exposed typing");
+  const chargedTypes = new Set(charged.map((m) => (m.type || "").toLowerCase()).filter(Boolean));
+  if (charged.length >= 2 && chargedTypes.size === 1) traits.push("One-dimensional");
+  if (row.eliteFastTM || row.eliteChargedTM) traits.push("Elite TM build");
+  if (row.rankOne?.xlRequired || row.rankOne?.bestBuddyRequired) traits.push("XL build");
   return traits;
+}
+
+// The one yardstick everyone owns (Twitch drop, 2026-08): a 2/7/11 Tinkaton.
+// Powered to this league's cap, its Atk/Def/HP are the baseline a row's
+// rank-1 build is compared against — stats only; the full sim matchup isn't
+// published, so no rating is claimed.
+const BASELINE = Object.freeze({ formId: "0959-normal", name: "the free Tinkaton (2/7/11)", ivs: { atk: 2, def: 7, sta: 11 } });
+
+export function baselineComparison(row, forms) {
+  const base = forms?.[BASELINE.formId]; const b = row?.rankOne?.battleStats;
+  if (!base || !b || !row?.league) return null;
+  const cap = LEAGUE_CP_CAP[row.league]; const maxLevel = RANK_MAX_LEVEL[row.league] ?? 50;
+  const level = cap === null ? maxLevel : bestLevelUnderCap(base, BASELINE.ivs, cap, maxLevel);
+  if (level === null) return null;
+  const t = battleStatsAt(base, BASELINE.ivs, level);
+  const pct = (a, c) => Math.round(((a - c) / c) * 100);
+  return {
+    level, statProductPct: Math.round((b.attack * b.defense * b.hp) / (t.attack * t.defense * t.hp) * 100),
+    attackPct: pct(b.attack, t.attack), defensePct: pct(b.defense, t.defense), hpPct: pct(b.hp, t.hp),
+  };
+}
+
+function baselineLineHtml(row, forms) {
+  const c = baselineComparison(row, forms);
+  if (!c) return "";
+  const sign = (n) => `${n > 0 ? "+" : ""}${n}%`;
+  return `<p class="pvp-baseline"><strong>vs ${escapeHtml(BASELINE.name)} @L${escapeHtml(c.level)}:</strong> ${escapeHtml(c.statProductPct)}% stat product · Atk ${escapeHtml(sign(c.attackPct))} · Def ${escapeHtml(sign(c.defensePct))} · HP ${escapeHtml(sign(c.hpPct))}</p>`;
 }
 
 function traitChipsHtml(traits) {
   if (!traits.length) return "";
-  return `<p class="pvp-traits">${traits.map((t) => `<span class="pvp-trait" title="${escapeHtml(TRAIT_RULES[t] ?? "")}">${escapeHtml(t)}</span>`).join("")}</p>`;
+  return `<p class="pvp-traits">${traits.map((t) => `<span class="pvp-trait"${NEGATIVE_TRAITS.has(t) ? ' data-negative="true"' : ""} title="${escapeHtml(TRAIT_RULES[t] ?? "")}">${escapeHtml(t)}</span>`).join("")}</p>`;
 }
 
 // Fuller Details (operator ask 2026-09-14): typing with weaknesses and
@@ -446,7 +498,8 @@ function statsBlockHtml(row, forms) {
   if (!form) return "";
   return `<div class="pvp-basestats"><p class="pvp-detail-title">Stats</p>
     <p><strong>Base:</strong> ${escapeHtml(form.base_attack)} Atk · ${escapeHtml(form.base_defense)} Def · ${escapeHtml(form.base_stamina)} Sta</p>
-    ${b ? `<p><strong>At rank-1 build:</strong> ${escapeHtml(Math.round(b.attack))} Atk · ${escapeHtml(Math.round(b.defense))} Def · ${escapeHtml(b.hp)} HP</p>` : ""}</div>`;
+    ${b ? `<p><strong>At rank-1 build:</strong> ${escapeHtml(Math.round(b.attack))} Atk · ${escapeHtml(Math.round(b.defense))} Def · ${escapeHtml(b.hp)} HP</p>` : ""}
+    ${baselineLineHtml(row, forms)}</div>`;
 }
 
 function topSpreadsHtml(row) {

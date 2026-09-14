@@ -8474,3 +8474,7 @@ html:not([data-app-booted]) #app .fallback-section {
 .pvp-detail-title { margin: 0.45rem 0 0.15rem; font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); }
 .pvp-typing p, .pvp-basestats p, .pvp-similar p { margin: 0.1rem 0; font-size: 0.84rem; }
 .pvp-spread-list { margin: 0; padding-left: 1.2rem; font-size: 0.84rem; font-variant-numeric: tabular-nums; }
+
+/* Negative trait chips + free-Tinkaton baseline (r181) */
+.pvp-trait[data-negative="true"] { background: rgba(201, 92, 92, 0.16); color: #d97a7a; }
+.pvp-baseline { font-size: 0.8rem; color: var(--muted); }

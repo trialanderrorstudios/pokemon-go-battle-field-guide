@@ -6,6 +6,13 @@
 
 export const SHELL_CHANGELOG = Object.freeze([
   Object.freeze({
+    rev: "r181", date: "2026-09-14",
+    added: Object.freeze([
+      "Negative trait chips (red): Frail, Slow, Energy-starved, Double weakness, Exposed typing, One-dimensional, Elite TM build, XL build \u2014 same rule-on-hover as the positives.",
+      "Stats block compares every rank-1 build to the yardstick everyone owns \u2014 the free 2/7/11 Tinkaton powered to that league's cap \u2014 as stat-product % and Atk / Def / HP deltas.",
+    ]),
+  }),
+  Object.freeze({
     rev: "r180", date: "2026-09-14",
     added: Object.freeze([
       "Rankings rows carry trait chips \u2014 Extremely bulky, Bulky, Glass, Spammy, Nuke, Dynamic, Coverage, Shield pressure, Consistent \u2014 each with its rule on hover (bulk and pressure chips are top-of-league percentiles, move chips read the ranked moveset).",
