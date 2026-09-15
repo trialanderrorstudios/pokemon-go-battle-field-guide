@@ -8478,3 +8478,29 @@ html:not([data-app-booted]) #app .fallback-section {
 /* Negative trait chips + free-Tinkaton baseline (r181) */
 .pvp-trait[data-negative="true"] { background: rgba(201, 92, 92, 0.16); color: #d97a7a; }
 .pvp-baseline { font-size: 0.8rem; color: var(--muted); }
+
+/* PvP rankings: compact sticky filters, tag legend, tidier Details (r182) */
+.pvp-controls-compact { display: block; padding: 0.45rem 0.6rem; }
+.pvp-filter-row { display: flex; flex-wrap: wrap; gap: 0.4rem; align-items: center; }
+.pvp-controls-compact label { display: block; gap: 0; min-width: 0; flex: 1 1 7rem; }
+.pvp-controls-compact .pvp-filter-search { flex: 2 1 9rem; }
+.pvp-filter-label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+.pvp-controls-compact select, .pvp-controls-compact input[type="search"] { width: 100%; font-size: 0.85rem; padding: 0.35rem 0.5rem; }
+.pvp-more-filters { margin-top: 0.35rem; }
+.pvp-more-filters > summary { cursor: pointer; font-size: 0.78rem; color: var(--muted); }
+.pvp-more-filters[open] > summary { margin-bottom: 0.35rem; }
+.pvp-more-filters .pvp-filter-row label { flex: 1 1 8rem; }
+.pvp-more-filters .pvp-filter-row label > select { margin-top: 0.15rem; }
+.pvp-legend { margin: 0.5rem 0 0.75rem; border: 1px solid var(--line); border-radius: 10px; padding: 0.4rem 0.7rem; }
+.pvp-legend > summary { cursor: pointer; font-size: 0.85rem; }
+.pvp-legend-list { margin: 0.2rem 0 0.4rem; display: grid; gap: 0.25rem; }
+.pvp-legend-list div { display: grid; grid-template-columns: minmax(7rem, auto) 1fr; gap: 0.5rem; align-items: baseline; font-size: 0.82rem; }
+.pvp-legend-list dt { margin: 0; } .pvp-legend-list dd { margin: 0; color: var(--muted); }
+.pvp-card-details { margin-top: 0.15rem; }
+.pvp-card-details[open] > summary { margin-bottom: 0.3rem; }
+.pvp-detail-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr)); gap: 0.4rem 1rem; }
+.pvp-card-details .pvp-moves, .pvp-card-details .pvp-stats, .pvp-card-details .pvp-guidance { display: grid; grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr)); gap: 0.25rem 0.8rem; margin: 0 0 0.3rem; }
+.pvp-card-details .pvp-moves div, .pvp-card-details .pvp-stats div, .pvp-card-details .pvp-guidance div { display: grid; gap: 0.05rem; }
+.pvp-card-details dt { font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); }
+.pvp-card-details dd { margin: 0; font-size: 0.86rem; }
+.pvp-types-text { margin: 0.35rem 0 0; font-size: 0.8rem; color: var(--muted); }

@@ -222,14 +222,29 @@ function controls(state, view) {
   // that route gets position:sticky. Scoped here rather than on the shared
   // .pvp-controls class, which Teams/Anti-Meta and home.js's view-segments
   // strip (Attacking/Defending, PvP tabs) also use — those stay static.
-  const stickyClass = view === "rankings" ? " pvp-controls-sticky" : "";
-  return `<form class="pvp-controls${stickyClass}" data-pvp-filters aria-label="PvP league and ranking filters">
+  // Rankings: the sticky strip is ONE compact row (search · category ·
+  // league) — everything else sits behind a "More filters" disclosure so
+  // the sticky bar stops eating the phone viewport (operator ask
+  // 2026-09-15). Same data-pvp-filter plumbing, no new event wiring.
+  if (view === "rankings") {
+    const active = [state.form !== "all", state.investment !== "all", state.antiMeta !== "all"].filter(Boolean).length;
+    return `<form class="pvp-controls pvp-controls-sticky pvp-controls-compact" data-pvp-filters aria-label="PvP league and ranking filters">
+    <div class="pvp-filter-row">
+      <label class="pvp-filter-search"><span class="pvp-filter-label">Search</span><input type="search" name="q" data-pvp-filter="q" value="${escapeHtml(state.q ?? "")}" placeholder="Search name" maxlength="${SEARCH_MAX}" autocomplete="off" aria-label="Search by name"></label>
+      <label><span class="pvp-filter-label">Category</span><select name="category" data-pvp-filter="category" aria-label="Category">${RANKING_CATEGORIES.map(([key, text]) => `<option value="${escapeHtml(key)}"${key === state.category ? " selected" : ""}>${escapeHtml(text)}</option>`).join("")}</select></label>
+      <label><span class="pvp-filter-label">League</span><select name="league" data-pvp-filter="league" aria-label="League">${PVP_LEAGUE_FILTERS.map((league) => `<option value="${escapeHtml(league)}"${league === state.league ? " selected" : ""}>${escapeHtml(leagueName(league))}</option>`).join("")}</select></label>
+    </div>
+    <details class="pvp-more-filters"><summary>More filters${active ? ` (${active})` : ""}</summary>
+      <div class="pvp-filter-row">
+      ${filterSelect("form", "Form", state.form, [["all", "Regular + Shadow"], ["regular", "Regular only"], ["shadow", "Shadow only"]])}
+      ${filterSelect("investment", "Investment", state.investment, [["all", "All tiers"], ["S+", "S+"], ["S", "S"], ["A", "A"], ["B", "B"], ["C", "C"]])}
+      ${filterSelect("antiMeta", "Meta", state.antiMeta, [["all", "All picks"], ["countersMeta", "Counters the meta"]])}
+      </div>
+    </details>
+  </form>`;
+  }
+  return `<form class="pvp-controls" data-pvp-filters aria-label="PvP league and ranking filters">
     ${filterSelect("league", "League", state.league, PVP_LEAGUE_FILTERS.map((league) => [league, leagueName(league)]))}
-    ${view === "rankings" ? `${filterSelect("category", "Category", state.category, RANKING_CATEGORIES)}
-    ${filterSelect("form", "Form", state.form, [["all", "Regular + Shadow"], ["regular", "Regular only"], ["shadow", "Shadow only"]])}
-    ${filterSelect("investment", "Investment", state.investment, [["all", "All tiers"], ["S+", "S+"], ["S", "S"], ["A", "A"], ["B", "B"], ["C", "C"]])}
-    ${filterSelect("antiMeta", "Meta", state.antiMeta, [["all", "All picks"], ["countersMeta", "Counters the meta"]])}
-    <label>Search<input type="search" name="q" data-pvp-filter="q" value="${escapeHtml(state.q ?? "")}" placeholder="Name" maxlength="${SEARCH_MAX}" autocomplete="off"></label>` : ""}
   </form>`;
 }
 
@@ -551,18 +566,22 @@ function pvpCard(row, forms, {
       ${traitChipsHtml(traitsFor(row, leagueRows, pvpMoveCatalog, forms))}
       ${rankingBriefHtml(row, pvpMoveCatalog)}
       <details class="pvp-card-details"><summary>Details</summary>
+      <div class="pvp-detail-grid">
       ${typingBlockHtml(row, forms)}
       ${statsBlockHtml(row, forms)}
       ${topSpreadsHtml(row)}
       ${moveBreakdownHtml(row, pvpMoveCatalog, eliteMoves)}
       ${similarPicksHtml(row, leagueRows, forms)}
+      </div>
       <p class="pvp-types-text">${escapeHtml(typesFor(forms, row.formId))}${row.shadow ? ` · <strong>${jargonTerm("shadow", "Shadow form")}</strong>` : " · Regular form"}</p>
+      <p class="pvp-detail-title">Ranked moveset</p>
       <dl class="pvp-moves">
         <div><dt>${jargonTerm("fast-move", "Fast move")}</dt><dd>${moveWithElite(row.fastMove, eliteMoves, "Fast")}</dd></div>
         <div><dt>${jargonTerm("charged-move", "Charged moves")}</dt><dd>${(row.chargedMoves ?? []).map((move) => moveWithElite(move, eliteMoves, "Charged")).join(" + ")}</dd></div>
         ${row.recommendedMoveset ? `<div class="pvp-recommended"><dt>PvPoke's pick</dt><dd>${moveWithElite(row.recommendedMoveset.fastMove, eliteMoves, "Fast")} / ${(row.recommendedMoveset.chargedMoves ?? []).map((move) => moveWithElite(move, eliteMoves, "Charged")).join(" + ")} <small class="hint">(the set above is the most-used in sims; this is PvPoke's editorial recommendation)</small></dd></div>` : ""}
       </dl>
       ${moveCounts ? `<p class="pvp-move-counts">${escapeHtml(moveCounts)}</p>` : ""}
+      <p class="pvp-detail-title">Rank-1 build</p>
       <dl class="pvp-stats" aria-label="Independently calculated rank-1 IVs">
         <div><dt>${jargonTerm("iv", "Rank-1 IVs")}</dt><dd>${escapeHtml(`${ivs.attack ?? "—"}/${ivs.defense ?? "—"}/${ivs.stamina ?? "—"}`)}</dd></div>
         <div><dt>Level</dt><dd>${escapeHtml(rankOne.level ?? "—")}</dd></div>
@@ -573,6 +592,7 @@ function pvpCard(row, forms, {
       </dl>
       ${endgamePowerUpLine(row, trainerLevel)}
       ${whyLine(row.whyRanked)}
+      <p class="pvp-detail-title">Guidance</p>
       <dl class="pvp-guidance">
         <div><dt>Role</dt><dd>${escapeHtml(row.primaryRole)} · ${escapeHtml((row.roles ?? []).join(", "))}</dd></div>
         <div><dt>Investment</dt><dd>${escapeHtml(row.investmentTier)} · ${escapeHtml(row.recommendation)}</dd></div>
@@ -618,6 +638,32 @@ function metaPressureSection(league, pvp, forms) {
 }
 
 
+// Plain-language definitions for every tag a ranking row can carry
+// (operator ask 2026-09-15 — hover titles don't exist on a phone).
+const ROLE_TAG_DEFINITIONS = Object.freeze([
+  ["Overall", "pvpoke's meta-weighted score — how well it does across the whole meta, shields and all"],
+  ["Lead", "how well it opens a match: wins the first fight or forces a switch"],
+  ["Switch", "how well it comes in on a bad matchup and turns it around (safe swap)"],
+  ["Closer", "how well it finishes with shields down"],
+  ["Charger", "shield pressure — how fast it forces the opponent to shield"],
+  ["Attacker", "raw damage output against the meta"],
+  ["Consistency", "how little the result depends on shield/energy guessing games"],
+]);
+
+function tagLegendHtml() {
+  const positives = Object.entries(TRAIT_RULES).filter(([name]) => !NEGATIVE_TRAITS.has(name));
+  const negatives = Object.entries(TRAIT_RULES).filter(([name]) => NEGATIVE_TRAITS.has(name));
+  return `<details class="pvp-legend"><summary>What the tags mean</summary>
+    <p class="pvp-detail-title">Role scores (pvpoke categories, 0–100)</p>
+    <dl class="pvp-legend-list">${ROLE_TAG_DEFINITIONS.map(([name, def]) => `<div><dt><span class="pvp-role-tag">${escapeHtml(name)}</span></dt><dd>${escapeHtml(def)}</dd></div>`).join("")}</dl>
+    <p class="pvp-detail-title">Traits</p>
+    <dl class="pvp-legend-list">${positives.map(([name, rule]) => `<div><dt><span class="pvp-trait">${escapeHtml(name)}</span></dt><dd>${escapeHtml(rule)}</dd></div>`).join("")}</dl>
+    <p class="pvp-detail-title">Warnings</p>
+    <dl class="pvp-legend-list">${negatives.map(([name, rule]) => `<div><dt><span class="pvp-trait" data-negative="true">${escapeHtml(name)}</span></dt><dd>${escapeHtml(rule)}</dd></div>`).join("")}</dl>
+    <p class="hint">Bulk/pressure traits are percentiles within this league's top 50; move traits read the ranked moveset. "% of sims" on a move is how often pvpoke's matchup sims chose it.</p>
+  </details>`;
+}
+
 function rankingsView(pvp, forms, state, trainerLevel = null, pvpMoveCatalog = {}, showMatchups = true) {
   const allRows = state.league === "all"
     ? PVP_LEAGUES.flatMap((league) => pvp?.[league] ?? [])
@@ -629,6 +675,7 @@ function rankingsView(pvp, forms, state, trainerLevel = null, pvpMoveCatalog = {
     <h2 id="pvp-rankings-title">${escapeHtml(state.league === "all" ? "All leagues · Top 50 each" : `${leagueName(state.league)} Top 50`)}</h2>
     <p class="pvp-summary">Showing ${rows.length} of ${allRows.length}. Regular and Shadow forms remain separate exact-form entries.${state.category !== "overall" ? ` Sorted by ${escapeHtml(state.category)} score (pvpoke roleScores) — # stays the published overall rank.` : ""}${state.q ? ` Search: “${escapeHtml(state.q)}”.` : ""}</p>
     ${state.antiMeta === "countersMeta" ? `<p class="pvp-antimeta-teach">Showing Top 50 picks with a favorable PvPoke matchup against ${jargonTerm("meta-leaders", "the meta")} (top ${META_LEADER_COUNT} by rank in this league).</p>` : ""}
+    ${tagLegendHtml()}
     ${leaguesShown.map((league) => metaPressureSection(league, pvp, forms)).join("")}
     ${rows.length
       ? `<ol class="pvp-card-list">${rows.map((row) => pvpCard(row, forms, { showLeague: state.league === "all", trainerLevel, pvpMoveCatalog, showMatchups, category: state.category, leagueRows: pvp?.[row.league] ?? [] })).join("")}</ol>${backToTop()}`

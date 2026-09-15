@@ -6,6 +6,14 @@
 
 export const SHELL_CHANGELOG = Object.freeze([
   Object.freeze({
+    rev: "r182", date: "2026-09-15",
+    tweaked: Object.freeze([
+      "Rankings: the sticky filter bar is now one compact row (search \u00b7 category \u00b7 league); Form / Investment / Meta sit behind \"More filters\" so the bar stops eating the screen.",
+      "Rankings: \"What the tags mean\" legend at the top defines every role score, trait, and warning chip in plain language (hover titles don't exist on a phone).",
+      "Rankings Details reformatted: consistent section titles (Typing, Stats, Best IV spreads, Move breakdown, Similar picks, Ranked moveset, Rank-1 build, Guidance), two-column fact grids, tighter type.",
+    ]),
+  }),
+  Object.freeze({
     rev: "r181", date: "2026-09-14",
     added: Object.freeze([
       "Negative trait chips (red): Frail, Slow, Energy-starved, Double weakness, Exposed typing, One-dimensional, Elite TM build, XL build \u2014 same rule-on-hover as the positives.",
