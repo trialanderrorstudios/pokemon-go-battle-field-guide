@@ -6,6 +6,15 @@
 
 export const SHELL_CHANGELOG = Object.freeze([
   Object.freeze({
+    rev: "r183", date: "2026-09-20",
+    added: Object.freeze([
+      "Dex raid-attacker sections carry a \"Model note\" when this release's raid math is behind the game \u2014 right now the five Super Max megas whose signature + moves (Mystical Fire+, Dark Pulse+, Fell Stinger+, Surf+, Seed Bomb+) aren't in the last game master. The note states what's missing, the community-simmed reality, and what clears it.",
+    ]),
+    tweaked: Object.freeze([
+      "Rotation: \"<Species> Super Mega Raid Day\" feed rows resolve (Staraptor's was parsed as species \"Staraptor Super\"); debut megas PvPoke still flags unreleased get their hundo via a curated released-overrides lane.",
+    ]),
+  }),
+  Object.freeze({
     rev: "r182", date: "2026-09-15",
     tweaked: Object.freeze([
       "Rankings: the sticky filter bar is now one compact row (search \u00b7 category \u00b7 league); Form / Investment / Meta sit behind \"More filters\" so the bar stops eating the screen.",

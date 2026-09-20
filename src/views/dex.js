@@ -247,13 +247,24 @@ function raidMoveBadge(moveId, { kind, elite, eventOnly, availabilityClass }) {
 }
 
 
-function raidAttackerSection(form, raids, raidsLoaded) {
+// A curated "model is behind the game" line for this form (raidTargetTool.
+// modelNotes) — rendered ABOVE the computed rows so a stale rank never
+// reads as the verdict (Mega Delphox showed Fire #11 while Mystical Fire+
+// made it #1, 2026-09-20).
+function raidModelNoteHtml(form, raidTargetTool) {
+  const note = raidTargetTool?.modelNotes?.[form.form_id];
+  if (!note) return "";
+  return `<p class="dex-raid-model-note"><strong>Model note:</strong> this release's raid math is missing ${escapeHtml(note.missing)}. Community sims: ${escapeHtml(note.reality)}. Clears when: ${escapeHtml(note.clearsWhen)}.</p>`;
+}
+
+function raidAttackerSection(form, raids, raidsLoaded, raidTargetTool = null) {
+  const modelNote = raidModelNoteHtml(form, raidTargetTool);
   if (!raidsLoaded) {
-    return `<section class="dex-section" aria-labelledby="dex-raid-attacker-title"><h3 id="dex-raid-attacker-title">Raid attacker</h3><p class="dex-loading">Loading…</p></section>`;
+    return `<section class="dex-section" aria-labelledby="dex-raid-attacker-title"><h3 id="dex-raid-attacker-title">Raid attacker</h3>${modelNote}<p class="dex-loading">Loading…</p></section>`;
   }
   const rows = [...(raids?.regular ?? []), ...(raids?.shadow ?? [])].filter((row) => row.formId === form.form_id);
   if (!rows.length) {
-    return `<section class="dex-section" aria-labelledby="dex-raid-attacker-title"><h3 id="dex-raid-attacker-title">Raid attacker</h3><p>Not a ranked raid attacker in this release.</p></section>`;
+    return `<section class="dex-section" aria-labelledby="dex-raid-attacker-title"><h3 id="dex-raid-attacker-title">Raid attacker</h3>${modelNote}<p>Not a ranked raid attacker in this release.</p></section>`;
   }
   const rowsHtml = rows.map((row) => {
     const cls = row.availabilityClass;
@@ -265,6 +276,7 @@ function raidAttackerSection(form, raids, raidsLoaded) {
   }).join("");
   return `<section class="dex-section" aria-labelledby="dex-raid-attacker-title">
     <h3 id="dex-raid-attacker-title">Raid attacker</h3>
+    ${modelNote}
     <ul class="dex-list">${rowsHtml}</ul>
   </section>`;
 }
@@ -1835,7 +1847,7 @@ export function renderDex({
     ${weaknessSection(form)}
     ${optimalSection(form, gym, raids, raidsLoaded, formInstancesFor(form, roster), pvp)}
     ${gymSection(form, gym)}
-    ${raidAttackerSection(form, raids, raidsLoaded)}
+    ${raidAttackerSection(form, raids, raidsLoaded, raidTargetTool)}
     ${pvpSection(form, pvp, roster, raids)}
     ${movesSection(form, moveSettings, pvp, raids)}
     ${evolutionSection(form, forms, evolutionHold, evolveChecklistData)}

@@ -8504,3 +8504,6 @@ html:not([data-app-booted]) #app .fallback-section {
 .pvp-card-details dt { font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); }
 .pvp-card-details dd { margin: 0; font-size: 0.86rem; }
 .pvp-types-text { margin: 0.35rem 0 0; font-size: 0.8rem; color: var(--muted); }
+
+/* Dex: raid model-note (r183) */
+.dex-raid-model-note { border-left: 3px solid #c9a94f; padding-left: 0.55rem; margin: 0.3rem 0 0.5rem; font-size: 0.84rem; }
