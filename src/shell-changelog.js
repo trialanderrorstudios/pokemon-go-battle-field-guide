@@ -9,6 +9,7 @@ export const SHELL_CHANGELOG = Object.freeze([
     rev: "r184", date: "2026-09-24",
     added: Object.freeze([
       "Raid Target: a \"Worth a Remote Raid Pass?\" verdict sits under \"Can we beat this?\" — skip it on an easy boss your free daily pass already covers, worth it on a Tier 5/Mega your counters can carry, risky when they can't. Shows the current pass price and daily cap. Reads your own counters, so it says \"can't call it yet\" rather than guessing on a thin roster.",
+      "Briefing: a Frustration-removal card when a Team GO Rocket Taken Over window is announced or live — the only time a Charged TM can clear Frustration. It names which of your own logged Shadows are stuck on it, and says to spend the regular Charged TM before any Elite TM. Dates come from the events feed; the bonus itself is curated with a cited source, never guessed from an event's name.",
     ]),
     tweaked: Object.freeze([
       "Scan: species names get the same cropped second-pass read CP has had since August — a name-only band, a dex-only character set, and the preprocess variant that best matches a real dex name wins instead of whatever the first pass happened to spit out. The band is positioned from the HP line's real location on your screenshot rather than a fixed percentage. Only runs when the first pass missed the name, and it never turns a failed read into a guessed species.",

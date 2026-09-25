@@ -73,6 +73,7 @@ import {
   scoreNameCandidate, speciesFromContext,
 } from "./ocr-intake.js";
 import { cpBannerRetry, nameBannerRetry } from "./ocr-worker.js";
+import { frustrationWindow, renderFrustrationWindowCard } from "./frustration-window.js";
 import { readAppraisalBars, pickCandidateByBars } from "./ocr-appraisal-bars.js";
 import { createOcrEngine as createOcrEngineDefault, OcrEngineError } from "./ocr-worker.js";
 import {
@@ -5209,7 +5210,9 @@ export function bootstrap({
       }) + renderFinaleHabitatsCard({
         finaleHabitats: state.finaleHabitats, raidTargetTool: state.raidTargetTool,
         forms: state.core.forms, pvp: state.pvp, raids: state.raids, now: new Date(),
-      });
+      }) + renderFrustrationWindowCard(frustrationWindow({
+        currentEvents: state.currentEvents, roster, forms: state.core.forms, now: new Date(),
+      }));
       // GATED on the ranking chunks (r154 fix): Home cold-boots before the
       // lazy raids/pvp/gyms chunks land, and the advisor computed with
       // missing data rendered confident wrong "no ranked role" skips
