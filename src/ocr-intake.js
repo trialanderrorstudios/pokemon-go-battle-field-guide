@@ -289,6 +289,32 @@ function matchName(rawName, forms, scannedTypes = null) {
   };
 }
 
+// How much a candidate string looks like a real dex name, 0..1. Used by
+// ocr-worker.js's nameBannerRetry to CHOOSE between preprocess variants:
+// without a score it would take the first non-empty read, which is how
+// garbage wins. Deliberately thin over matchName so there is one definition
+// of "matches the dex", not a second scoring dialect that can disagree with
+// the parse that follows.
+//   1.0  exact dex name (or a unique form family / region-first alias)
+//   0.6  within edit distance 2 of exactly one name — a real OCR near-miss
+//   0.3  a real form family ("Zacian" -> its two forms), just not narrowed
+//   0    nothing dex-shaped
+export function scoreNameCandidate(rawName, forms) {
+  const trimmed = String(rawName ?? "").trim();
+  // Two characters cannot distinguish a dex name from noise, and matchName's
+  // edit-distance pass would happily land "Mew" on any two-letter smudge.
+  if (trimmed.length < 3) return 0;
+  const result = matchName(trimmed, forms);
+  if (result?.formId) return result.confidence === "high" ? 1 : 0.6;
+  // Only a "family" candidate list counts as dex-shaped. matchName returns
+  // "closest" edit-distance guesses for ANY input — it says so itself: a
+  // nicknamed mon's closest names are unrelated species. Scoring those would
+  // hand pure garbage ("|/\|") the same 0.3 as a real unnarrowed family and
+  // let a garbage variant beat an empty one.
+  return result?.candidatesKind === "family" ? 0.3 : 0;
+}
+
+
 // Nickname-proof species identification (operator, 2026-08-13: "a lot of
 // people nickname their pokemon"). The screen prints the SPECIES name in
 // places a nickname never touches: the candy counter ("ZACIAN CANDY") and

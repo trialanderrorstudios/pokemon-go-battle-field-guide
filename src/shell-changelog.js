@@ -6,6 +6,15 @@
 
 export const SHELL_CHANGELOG = Object.freeze([
   Object.freeze({
+    rev: "r184", date: "2026-09-24",
+    added: Object.freeze([
+      "Raid Target: a \"Worth a Remote Raid Pass?\" verdict sits under \"Can we beat this?\" — skip it on an easy boss your free daily pass already covers, worth it on a Tier 5/Mega your counters can carry, risky when they can't. Shows the current pass price and daily cap. Reads your own counters, so it says \"can't call it yet\" rather than guessing on a thin roster.",
+    ]),
+    tweaked: Object.freeze([
+      "Scan: species names get the same cropped second-pass read CP has had since August — a name-only band, a dex-only character set, and the preprocess variant that best matches a real dex name wins instead of whatever the first pass happened to spit out. The band is positioned from the HP line's real location on your screenshot rather than a fixed percentage. Only runs when the first pass missed the name, and it never turns a failed read into a guessed species.",
+    ]),
+  }),
+  Object.freeze({
     rev: "r183", date: "2026-09-20",
     added: Object.freeze([
       "Dex raid-attacker sections carry a \"Model note\" when this release's raid math is behind the game \u2014 right now the five Super Max megas whose signature + moves (Mystical Fire+, Dark Pulse+, Fell Stinger+, Surf+, Seed Bomb+) aren't in the last game master. The note states what's missing, the community-simmed reality, and what clears it.",

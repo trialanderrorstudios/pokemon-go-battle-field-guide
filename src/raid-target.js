@@ -136,7 +136,7 @@ function unwrap(data) {
 // "Shadow" — same as trivial Shadow Mankey — even though they play like Tier 5.
 const HARD_TAGS = new Set(["legendary", "mythical", "ultrabeast", "wildlegendary"]);
 
-function bossDifficulty(formId, tierLabel, forms) {
+export function bossDifficulty(formId, tierLabel, forms) {
   const tags = new Set(forms?.[formId]?.tags ?? []);
   const hard = [...tags].some((tag) => HARD_TAGS.has(tag))
     || tags.has("mega")

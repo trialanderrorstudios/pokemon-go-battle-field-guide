@@ -59,6 +59,7 @@ import { eventEvolveAdvice, renderEventEvolveCard } from "./event-evolve-advisor
 import { streakChipHtml } from "./views/journal.js";
 import { simulateParty } from "./battle-sim.js";
 import { counterSimTimes, soloVerdict } from "./sim-verdicts.js";
+import { remoteRaidVerdict } from "./remote-raid-verdict.js";
 import { renderPartyPanel } from "./views/party.js";
 import { clearBuddyPlan, loadBuddyPlan, saveBuddyPlan } from "./buddy.js";
 import {
@@ -68,9 +69,10 @@ import {
 import { nextMarkState } from "./collection.js";
 import { parsePokeGenieCsv } from "./poke-genie-import.js";
 import {
-  appraisalTierFromText, baseSpeciesName, draftFromParse, extractMoves, parseMonScreenText, speciesFromContext,
+  appraisalTierFromText, baseSpeciesName, draftFromParse, extractMoves, parseMonScreenText,
+  scoreNameCandidate, speciesFromContext,
 } from "./ocr-intake.js";
-import { cpBannerRetry } from "./ocr-worker.js";
+import { cpBannerRetry, nameBannerRetry } from "./ocr-worker.js";
 import { readAppraisalBars, pickCandidateByBars } from "./ocr-appraisal-bars.js";
 import { createOcrEngine as createOcrEngineDefault, OcrEngineError } from "./ocr-worker.js";
 import {
@@ -1444,6 +1446,7 @@ export function createInteractionController({
   onRosterExport = null,
   onClipboardCopy = null,
   cpBannerRetry: cpBannerRetryOption = cpBannerRetry,
+  nameBannerRetry: nameBannerRetryOption = nameBannerRetry,
   onRosterShareCopy = null,
   onTriageCopy = null,
   onDiagnosticsCopy = null,
@@ -1791,6 +1794,7 @@ export function createInteractionController({
   const api = {
     onRosterExport,
     cpBannerRetry: cpBannerRetryOption,
+    nameBannerRetry: nameBannerRetryOption,
     onRosterShareCopy: onRosterShareCopy ?? onClipboardCopy,
     onTriageCopy: onTriageCopy ?? onClipboardCopy,
     onDiagnosticsCopy: onDiagnosticsCopy ?? onClipboardCopy,
@@ -2567,6 +2571,13 @@ export function createInteractionController({
               // Full-screen pass lost the CP banner — targeted crop retry
               // (see cpBannerRetry). Merged at low confidence; the "CP not
               // found." issue dies only when the retry actually delivers.
+              // The `hp !== null` half of the gate is load-bearing and is NOT
+              // an oversight (tried widening it to bare `cp === null`,
+              // 2026-09-24): a moves-screen fragment has neither field, and
+              // running the crop retry on one invents a CP for a screenshot
+              // that is not a mon-info screen at all — which stops it merging
+              // into its stats row. Pinned by ocr-wire.test.mjs's two-part
+              // scan tests.
               // The retry's raw output is appended EITHER WAY, so evidence
               // distinguishes "retry ran and read garbage" from "never ran".
               const banner = await api.cpBannerRetry?.(engine, file);
@@ -2580,6 +2591,36 @@ export function createInteractionController({
               } else {
                 rawText += "\n--- banner retry unavailable on this device ---";
               }
+            }
+            // Same treatment for the species name. The full-frame pass reads
+            // it as open vocabulary off a stylized font over a 3D backdrop;
+            // this re-reads just the name band with a dex-only charset and
+            // picks the preprocess variant that scores best against the dex
+            // (scoreNameCandidate). Only runs when the name is unresolved or
+            // was resolved by edit-distance guesswork ("low"), so a clean
+            // read costs nothing.
+            if (!parsed.formId || parsed.confidence.formId === "low") {
+              const named = await api.nameBannerRetry?.(engine, file, {
+                anchors: ocrWords,
+                scoreName: (candidate) => scoreNameCandidate(candidate, forms),
+              });
+              // Only take it if it beats what we already had: an exact dex
+              // hit (1) always wins, a near-miss (0.6) only replaces nothing.
+              if (named?.name && (named.score >= 1 || !parsed.formId)) {
+                const rescued = parseMonScreenText(`${named.name}\n${text}`, { forms });
+                if (rescued.formId) {
+                  parsed.formId = rescued.formId;
+                  parsed.name = named.name;
+                  parsed.candidates = rescued.candidates ?? [];
+                  parsed.candidatesKind = rescued.candidatesKind ?? null;
+                  parsed.confidence.formId = named.score >= 1 ? "high" : "low";
+                  parsed.issues = parsed.issues.filter((issue) => !/^name not in dex/.test(issue)
+                    && issue !== "Name not found.");
+                }
+              }
+              rawText += named
+                ? `\n--- name retry (${named.name ? `read ${named.name} @ ${named.score}` : "no read"}) ---\n${named.raw}`
+                : "\n--- name retry unavailable on this device ---";
             }
             const row = {
               id: crypto.randomUUID(),
@@ -4631,6 +4672,20 @@ function raidTargetSurface(state, ui, roster) {
       <p class="beatability-caveat">${escapeHtml(plan.beatability.caveat)}</p>
       ${feedbackThumbs("raid-beatability-verdict", plan.target.bossFormId ?? ui.raid.targetFormId)}
     </div>
+    ${(() => {
+    const remote = remoteRaidVerdict({
+      formId: plan.target.bossFormId ?? ui.raid.targetFormId,
+      beatability: plan.beatability,
+      forms,
+    });
+    return remote ? `<div class="remote-pass-card" data-remote-band="${escapeHtml(remote.band)}">
+      <p class="status-kicker">Worth a Remote Raid Pass?</p>
+      <p class="beatability-headline"><strong>${escapeHtml(remote.headline)}</strong></p>
+      <p>${escapeHtml(remote.detail)}</p>
+      <p class="beatability-caveat">${escapeHtml(remote.cost)}</p>
+      ${feedbackThumbs("raid-remote-pass-verdict", plan.target.bossFormId ?? ui.raid.targetFormId)}
+    </div>` : "";
+  })()}
     <div class="placement-controls" aria-label="Counter lanes">
       ${Object.entries(lanes).map(([lane, [label]]) => `<button type="button" data-counter-lane="${lane}" aria-pressed="${lane === ui.raid.counterLane}">${escapeHtml(label)}</button>`).join("")}
     </div>

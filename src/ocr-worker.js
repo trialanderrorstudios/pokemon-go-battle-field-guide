@@ -196,17 +196,21 @@ export async function createOcrEngine() {
 }
 
 
-// Second-pass CP read. Real-device evolution (all 2026-08-12): a full-screen
-// pass loses the stylized banner entirely ("me We56"); a plain 2x-upscaled
-// crop with a FIXED threshold read "- SN" — the bright gradient crosses any
-// fixed cutoff, so the whole field went black. Current shape: crop the
-// banner region (center 60% width — clock left, battery right — top 3-18%
-// of height, 2x upscale), then try three preprocess variants in order —
-// inverted contrast-stretched grayscale, Otsu adaptive binarize, fixed 190 —
-// each OCR'd with a digits-only whitelist (best-effort; proceeds unrestricted
-// if setParameters fails), stopping at the first in-range number. Null only
-// when nothing can run; the labeled raw of every attempt comes back either
-// way so the row's evidence view shows exactly what each variant saw.
+// ---- Cropped second-pass field reads ---------------------------------------
+//
+// Real-device evolution of the CP read (all 2026-08-12): a full-screen pass
+// loses the stylized banner entirely ("me We56"); a plain 2x-upscaled crop
+// with a FIXED threshold read "- SN" — the bright gradient crosses any fixed
+// cutoff, so the whole field went black. What actually works: crop to the
+// field, upscale, try several preprocess variants, OCR each with a
+// field-specific charset whitelist.
+//
+// That recipe was CP-only for a year while the primary pass stayed raw
+// full-frame (operator, 2026-09-24: the scan "has been absolutely horrible").
+// It is now generalized — readCroppedField() is the engine, and each field
+// supplies its own region, charset and extractor. Regions prefer real word
+// bboxes from recognizeDetailed() over hardcoded proportions, because a
+// percentage band is only correct for the aspect ratio it was tuned on.
 function otsuThreshold(luminances) {
   const histogram = new Array(256).fill(0);
   for (const value of luminances) histogram[value] += 1;
@@ -234,21 +238,48 @@ function otsuThreshold(luminances) {
   return best;
 }
 
-export async function cpBannerRetry(engine, file, documentObject = globalThis.document) {
+// The four preprocess passes, in the order real devices needed them. Shared
+// by every field — the failure modes are the backdrop's, not the glyphs'.
+function preprocessVariants({ minLum, maxLum, otsu }) {
+  const range = Math.max(1, maxLum - minLum);
+  return [
+    // Bright glyphs -> dark ink on a light field, full dynamic range.
+    ["inverted-grayscale", (lum) => 255 - Math.round(((lum - minLum) / range) * 255)],
+    // Sunny-weather screens (Slaking 2026-08-23): the field sits on a BRIGHT
+    // background, so text (~255) and backdrop (~200-240) land on the same
+    // side of every global threshold and the glyphs dissolve. The text is
+    // the brightest thing in the crop — keep only pixels within a whisker of
+    // maxLum as ink, everything else paper.
+    ["near-white-only", (lum) => (lum >= maxLum - 12 ? 0 : 255)],
+    ["otsu-binarized", (lum) => (lum > otsu ? 0 : 255)],
+    ["fixed-190", (lum) => (lum > 190 ? 0 : 255)],
+  ];
+}
+
+// Crop -> upscale -> per-variant preprocess -> whitelisted OCR -> extract.
+// `spec` is one field: { label, region(bitmap) -> {sx,sy,sw,sh}, scale,
+// whitelist, pick(text) -> {value, score} | null, good(score) -> boolean }.
+// `pick` returning a score (not just a value) is what lets a field keep the
+// BEST variant rather than the first non-empty one — the difference between
+// accepting "Cnarizard" and accepting "|/\|". `good` short-circuits when a
+// read is already good enough to stop burning OCR passes on.
+// Returns { value, score, raw } — raw is every attempt, labeled, so the row's
+// evidence view shows exactly what each variant saw even on a total miss.
+async function readCroppedField(engine, file, spec, documentObject = globalThis.document) {
   if (typeof createImageBitmap !== "function" || !documentObject?.createElement) return null;
   try {
     const bitmap = await createImageBitmap(file);
-    const scale = 2;
-    const sx = Math.round(bitmap.width * 0.2);
-    const sw = Math.round(bitmap.width * 0.6);
-    const sy = Math.round(bitmap.height * 0.03);
-    const sh = Math.round(bitmap.height * 0.15);
-    const canvas = documentObject.createElement("canvas");
-    canvas.width = sw * scale;
-    canvas.height = sh * scale;
-    const ctx = canvas.getContext("2d");
-    ctx.drawImage(bitmap, sx, sy, sw, sh, 0, 0, canvas.width, canvas.height);
+    const box = spec.region(bitmap);
     bitmap.close?.();
+    if (!box || box.sw <= 0 || box.sh <= 0) return null;
+    const scale = spec.scale ?? 2;
+    const source = await createImageBitmap(file);
+    const canvas = documentObject.createElement("canvas");
+    canvas.width = Math.round(box.sw * scale);
+    canvas.height = Math.round(box.sh * scale);
+    const ctx = canvas.getContext("2d");
+    ctx.drawImage(source, box.sx, box.sy, box.sw, box.sh, 0, 0, canvas.width, canvas.height);
+    source.close?.();
 
     const base = ctx.getImageData(0, 0, canvas.width, canvas.height);
     const luminances = new Uint8Array(base.data.length / 4);
@@ -261,33 +292,20 @@ export async function cpBannerRetry(engine, file, documentObject = globalThis.do
       if (lum < minLum) minLum = lum;
       if (lum > maxLum) maxLum = lum;
     }
-    const range = Math.max(1, maxLum - minLum);
-    const otsu = otsuThreshold(luminances);
-    const variants = [
-      // Bright glyphs -> dark ink on a light field, full dynamic range.
-      ["inverted-grayscale", (lum) => 255 - Math.round(((lum - minLum) / range) * 255)],
-      // Sunny-weather screens (Slaking 2026-08-23): the banner sits on a
-      // BRIGHT background, so text (~255) and backdrop (~200-240) land on
-      // the same side of every global threshold and the glyphs dissolve.
-      // The CP text is the brightest thing in the crop — keep only pixels
-      // within a whisker of maxLum as ink, everything else paper.
-      ["near-white-only", (lum) => (lum >= maxLum - 12 ? 0 : 255)],
-      ["otsu-binarized", (lum) => (lum > otsu ? 0 : 255)],
-      ["fixed-190", (lum) => (lum > 190 ? 0 : 255)],
-    ];
+    const variants = preprocessVariants({ minLum, maxLum, otsu: otsuThreshold(luminances) });
 
     let whitelisted = false;
-    try {
-      // Digit string built, not written: a literal ten-digit run trips the
-      // public safety scanner's phone-number pattern (publish gate).
-      const digits = Array.from({ length: 10 }, (_, i) => String(i)).join("");
-      await engine.setParameters?.({ tessedit_char_whitelist: `${digits}CPcp, ` });
-      whitelisted = true;
-    } catch {
-      // Unrestricted OCR still has a shot; the variants alone may carry it.
+    if (spec.whitelist) {
+      try {
+        await engine.setParameters?.({ tessedit_char_whitelist: spec.whitelist });
+        whitelisted = true;
+      } catch {
+        // Unrestricted OCR still has a shot; the variants alone may carry it.
+      }
     }
     const attempts = [];
-    let cp = null;
+    let bestValue = null;
+    let bestScore = 0;
     try {
       for (const [label, mapLuminance] of variants) {
         const out = ctx.createImageData(canvas.width, canvas.height);
@@ -303,17 +321,12 @@ export async function cpBannerRetry(engine, file, documentObject = globalThis.do
         const blob = await new Promise((resolve) => canvas.toBlob(resolve, "image/png"));
         if (!blob) continue;
         const text = String(await engine.recognize(blob)).trim();
-        attempts.push(`[${label}] ${text || "(empty)"}`);
-        // Contiguous runs of 3+ digits only (commas ok): spaced single
-        // digits are noise, not a number — "7 8 4" fabricated CP 784 on a
-        // real device (2026-08-13), and 2-digit reads were battery/junk.
-        const runs = [...text.matchAll(/\d[\d,]{2,6}/g)]
-          .map((match) => Number(match[0].replace(/\D/g, "")))
-          .filter((value) => value >= 100 && value <= 9000)
-          .sort((a, b) => String(b).length - String(a).length || b - a);
-        if (runs.length) {
-          cp = runs[0];
-          break;
+        const hit = spec.pick(text);
+        attempts.push(`[${label}] ${text || "(empty)"}${hit ? ` -> ${hit.value}` : ""}`);
+        if (hit && hit.score > bestScore) {
+          bestValue = hit.value;
+          bestScore = hit.score;
+          if (spec.good ? spec.good(hit.score) : true) break;
         }
       }
     } finally {
@@ -327,8 +340,126 @@ export async function cpBannerRetry(engine, file, documentObject = globalThis.do
         }
       }
     }
-    return { cp, raw: attempts.join("\n") };
+    return { value: bestValue, score: bestScore, raw: attempts.join("\n") };
   } catch {
     return null;
   }
+}
+
+// A word bbox from recognizeDetailed(), or null. `test` picks the anchor word.
+function findAnchor(anchors, test) {
+  for (const word of anchors ?? []) {
+    const bbox = word?.bbox;
+    if (!bbox || !Number.isFinite(bbox.y0) || !Number.isFinite(bbox.y1)) continue;
+    if (test(String(word.text ?? ""))) return bbox;
+  }
+  return null;
+}
+
+// Contiguous runs of 3+ digits only (commas ok): spaced single digits are
+// noise, not a number — "7 8 4" fabricated CP 784 on a real device
+// (2026-08-13), and 2-digit reads were battery/junk.
+function pickCpDigits(text) {
+  const runs = [...String(text).matchAll(/\d[\d,]{2,6}/g)]
+    .map((match) => Number(match[0].replace(/\D/g, "")))
+    .filter((value) => value >= 100 && value <= 9000)
+    .sort((a, b) => String(b).length - String(a).length || b - a);
+  return runs.length ? { value: runs[0], score: 1 } : null;
+}
+
+// Digit string built, not written: a literal ten-digit run trips the public
+// safety scanner's phone-number pattern (publish gate).
+const DIGITS = Array.from({ length: 10 }, (_, i) => String(i)).join("");
+
+// Second-pass CP read. Region: the banner, center 60% width (clock left,
+// battery right), top 3-18% of height. Kept proportional rather than
+// anchor-derived — the anchor for CP would be the CP word itself, and this
+// path only runs when the full-frame pass failed to find it.
+export async function cpBannerRetry(engine, file, documentObject = globalThis.document) {
+  const result = await readCroppedField(engine, file, {
+    label: "cp",
+    region: (bitmap) => ({
+      sx: Math.round(bitmap.width * 0.2),
+      sw: Math.round(bitmap.width * 0.6),
+      sy: Math.round(bitmap.height * 0.03),
+      sh: Math.round(bitmap.height * 0.15),
+    }),
+    scale: 2,
+    whitelist: `${DIGITS}CPcp, `,
+    pick: pickCpDigits,
+  }, documentObject);
+  // Shape preserved for existing callers/tests: { cp, raw }, null when
+  // nothing could run.
+  return result ? { cp: result.value, raw: result.raw } : null;
+}
+
+// The species name band. The game puts the name directly ABOVE the HP line
+// (the same positional fact ocr-intake.js's extractNameLine relies on), so
+// when the full-frame pass found an HP word we take a band immediately above
+// its real bbox. That beats a hardcoded percentage, which is only ever
+// correct for the aspect ratio it was tuned on. Falls back to the CP word
+// (name sits below it), then to proportions when neither anchor exists.
+export function nameRegionFromAnchors(anchors, width, height) {
+  const hp = findAnchor(anchors, (text) => /^hp$/i.test(text.trim()));
+  if (hp) {
+    const lineHeight = Math.max(1, hp.y1 - hp.y0);
+    const sy = Math.max(0, Math.round(hp.y0 - lineHeight * 2.6));
+    return {
+      sx: Math.round(width * 0.1),
+      sw: Math.round(width * 0.8),
+      sy,
+      sh: Math.max(1, Math.round(hp.y0 - lineHeight * 0.3) - sy),
+    };
+  }
+  const cp = findAnchor(anchors, (text) => /^[^a-z0-9]{0,2}[a-z]?p\.?$/i.test(text.trim()));
+  if (cp) {
+    const lineHeight = Math.max(1, cp.y1 - cp.y0);
+    return {
+      sx: Math.round(width * 0.1),
+      sw: Math.round(width * 0.8),
+      sy: Math.round(cp.y1 + lineHeight * 0.4),
+      sh: Math.round(lineHeight * 2.2),
+    };
+  }
+  return {
+    sx: Math.round(width * 0.1),
+    sw: Math.round(width * 0.8),
+    sy: Math.round(height * 0.17),
+    sh: Math.round(height * 0.12),
+  };
+}
+
+// Second-pass species-name read. Two things the full-frame pass can't do:
+// the charset is constrained to what dex names actually contain (no digits
+// to confuse O/0, no punctuation soup), and every variant is SCORED against
+// the dex via the injected `scoreName` instead of taking the first non-empty
+// line. Scoring is what makes the dictionary a constraint rather than a
+// post-hoc repair — a variant reading a near-miss beats one reading garbage,
+// and neither is accepted if nothing resembles a real name.
+// `scoreName(text) -> 0..1` is injected so this module stays data-free.
+export async function nameBannerRetry(engine, file, { anchors = [], scoreName } = {}, documentObject = globalThis.document) {
+  if (typeof scoreName !== "function") return null;
+  const result = await readCroppedField(engine, file, {
+    label: "name",
+    region: (bitmap) => nameRegionFromAnchors(anchors, bitmap.width, bitmap.height),
+    scale: 3,
+    // Dex names: letters, space, the gender glyphs (Nidoran), and the few
+    // punctuation marks that appear (Mr. Mime, Farfetch'd, Ho-Oh, parens).
+    whitelist: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz '.-()2♀♂",
+    pick: (text) => {
+      // The band can catch a stray line; score each line, keep the best.
+      let best = null;
+      for (const line of String(text).split(/\r?\n/)) {
+        const candidate = line.trim();
+        if (!candidate) continue;
+        const score = scoreName(candidate);
+        if (score > 0 && (!best || score > best.score)) best = { value: candidate, score };
+      }
+      return best;
+    },
+    // An exact dex hit is as good as it gets — stop rather than run three
+    // more OCR passes for a score that cannot improve.
+    good: (score) => score >= 1,
+  }, documentObject);
+  return result ? { name: result.value, score: result.score, raw: result.raw } : null;
 }
