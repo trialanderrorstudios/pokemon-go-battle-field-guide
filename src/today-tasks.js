@@ -90,7 +90,7 @@ function rotationEndingRow({ currentBosses, forms, now }) {
 // Operator-curated Max Battle boss leaving soon — data/curated/max-battles.json
 // (currentMaxBattles), the same feed home.js's liveMaxBosses/"Now in Max
 // Battle spots" note reads.
-function maxBossEndingRow({ currentMaxBattles, forms, now }) {
+function maxBossEndingRow({ currentMaxBattles, forms, raidTargetTool, now }) {
   const candidates = (currentMaxBattles?.bosses ?? [])
     // Feed-derived future Max Monday rows carry startsAt — not a today task.
     .filter((boss) => !(typeof boss.startsAt === "string" && (() => {
@@ -104,9 +104,12 @@ function maxBossEndingRow({ currentMaxBattles, forms, now }) {
   const pick = candidates[0];
   if (!pick) return null;
   const name = forms?.[pick.boss.formId]?.name ?? pick.boss.formId;
+  // Catch hundo rides along, same as the raid countdown chips (boss-countdown.js):
+  // operator report 2026-10-05, Dynamax Sizzlipede's row had no CP.
+  const hundoCP = (raidTargetTool?.targets ?? []).find((target) => target.bossFormId === pick.boss.formId)?.normal?.hundoCP;
   return {
     id: `today-maxboss-${pick.boss.formId}`,
-    text: `${name} leaves Max spots ${pick.label}`,
+    text: `${name} leaves Max spots ${pick.label}${hundoCP ? ` · hundo ${hundoCP}` : ""}`,
     href: `./#dex/${encodeURIComponent(pick.boss.formId)}`,
     kind: "max-boss",
   };
@@ -169,12 +172,12 @@ const MAX_TASKS = 5;
 
 export function buildTodayTasks({
   currentBosses = null, currentMaxBattles = null, currentEvents = null, roster = null, forms = {},
-  collectionProgress = null, now = new Date(),
+  collectionProgress = null, raidTargetTool = null, now = new Date(),
 } = {}) {
   const rows = [
     maxEventRow({ currentEvents, roster, now }),
     rotationEndingRow({ currentBosses, forms, now }),
-    maxBossEndingRow({ currentMaxBattles, forms, now }),
+    maxBossEndingRow({ currentMaxBattles, forms, raidTargetTool, now }),
     collectionCompletionRow({ collectionProgress }),
     showcaseRow({ currentEvents, roster, now }),
     scanNudgeRow({ roster }),

@@ -109,7 +109,7 @@ function shinyBoostItem(shinyOdds, events, now) {
 }
 
 
-function hourEventItem(event, forms, now) {
+function hourEventItem(event, forms, now, raidTargetTool = null) {
   const fromName = event.name.replace(HOUR_EVENT_SUFFIX[event.kind] ?? "", "");
   const name = KEEP_EVENT_NAME_KINDS.has(event.kind)
     ? fromName
@@ -117,9 +117,17 @@ function hourEventItem(event, forms, now) {
   return {
     id: `event-${event.eventId}`,
     title: `${HOUR_EVENT_LABEL[event.kind] ?? "Event"}: ${name}`,
-    detail: `${todayWhen(event.startsAt, event.endsAt, now)}${event.action ? ` — ${event.action}` : ""}`,
+    detail: `${todayWhen(event.startsAt, event.endsAt, now)}${event.action ? ` — ${event.action}` : ""}${catchHundoText(event.formId, raidTargetTool)}`,
     href: `./?boss=${encodeURIComponent(event.formId)}#raids`,
   };
+}
+
+// Raid Hour / Max Monday bosses catch at the raid target tool's fixed level-20
+// band; its hundo rides on the row (operator report 2026-10-05: Dynamax
+// Sizzlipede's Today row had no CP while the Max card beside it did).
+function catchHundoText(formId, raidTargetTool) {
+  const normal = (raidTargetTool?.targets ?? []).find((target) => target.bossFormId === formId)?.normal;
+  return normal?.hundoCP ? ` Hundo ${normal.hundoCP} CP at the level-${Math.round(normal.level)} catch.` : "";
 }
 
 // null (not an empty-array item) when nothing's in rotation, so an empty
@@ -231,7 +239,7 @@ export function buildTodayItems({
   const shinyBoost = shinyBoostItem(data?.shinyOdds, data?.currentEvents?.events, now);
   const items = [
     ...(shinyBoost ? [shinyBoost] : []),
-    ...todaysHourEvents(data?.currentEvents?.events, now).map((event) => hourEventItem(event, forms, now)),
+    ...todaysHourEvents(data?.currentEvents?.events, now).map((event) => hourEventItem(event, forms, now, data?.raidTargetTool)),
     ...(cdToday ? [cdToday] : []),
     ...(pass ? [pass] : []),
     ...gymStatusItems(defenseLog, now),

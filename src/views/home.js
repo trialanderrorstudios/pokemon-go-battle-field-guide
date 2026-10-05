@@ -1284,7 +1284,20 @@ function timelineDetails(event, verdictClass) {
   </details>`;
 }
 
-function timelineCard(event, forms, { badgeClass, badgeText }) {
+// Raid Hour / Max bosses catch at the raid target tool's fixed level-20 band,
+// so their timeline entries carry the hundo too (operator report 2026-10-05:
+// Dynamax Sizzlipede's timeline card had no CP). Spotlight / Community Day
+// are wild catches with no fixed level, so they get nothing here.
+const RAID_CATCH_EVENT_KINDS = new Set(["raid-hour", "max-mondays", "max-battles"]);
+function eventHundoNote(event, raidTargetTool, className) {
+  if (!RAID_CATCH_EVENT_KINDS.has(event.kind) || !event.formId) return "";
+  const normal = (raidTargetTool?.targets ?? []).find((target) => target.bossFormId === event.formId)?.normal;
+  return normal?.hundoCP
+    ? `<p class="${className}">Hundo ${escapeHtml(normal.hundoCP)} CP at the level-${escapeHtml(Math.round(normal.level))} catch</p>`
+    : "";
+}
+
+function timelineCard(event, forms, { badgeClass, badgeText }, raidTargetTool = null) {
   const name = forms?.[event.formId]?.name ?? event.name;
   const sprite = event.formId
     ? spriteHtml(event.formId, forms, name, forms?.[event.formId]?.primary_type)
@@ -1296,7 +1309,8 @@ function timelineCard(event, forms, { badgeClass, badgeText }) {
         <h3>${escapeHtml(name)}</h3>
       </div>
     </div>
-    ${event.action ? `<p class="tl-verdict">${escapeHtml(event.action)}</p>` : ""}`;
+    ${event.action ? `<p class="tl-verdict">${escapeHtml(event.action)}</p>` : ""}
+    ${eventHundoNote(event, raidTargetTool, "tl-verdict")}`;
   if (event.formId) {
     return `<a class="${cardClass}" href="./?boss=${encodeURIComponent(event.formId)}#raids">${body}</a>`;
   }
@@ -1307,12 +1321,13 @@ function timelineCard(event, forms, { badgeClass, badgeText }) {
 // carry): { [formId]: { headline, href } } for a boss this roster has no
 // strong counter for. Threaded through so the timeline keeps the one gap
 // teaser Home had — it doesn't invent a new one.
-function timelineRow(event, forms, now, gapByFormId) {
+function timelineRow(event, forms, now, gapByFormId, raidTargetTool = null) {
   const name = forms?.[event.formId]?.name ?? event.name;
   const when = formatEventWhen(event.startsAt, event.endsAt, now);
   const gap = event.formId ? gapByFormId?.[event.formId] ?? null : null;
   const body = `<p class="tl-row-title">${when ? `<span class="tl-row-time">${escapeHtml(when)}</span>` : ""}<strong>${escapeHtml(name)}</strong></p>
-    ${event.action ? `<p class="tl-row-note">${escapeHtml(event.action)}</p>` : ""}`;
+    ${event.action ? `<p class="tl-row-note">${escapeHtml(event.action)}</p>` : ""}
+    ${eventHundoNote(event, raidTargetTool, "tl-row-note")}`;
   // gap note is a sibling after the row, never inside it — nesting it inside
   // the boss row's own <a class="tl-row"> would put an <a> inside an <a>,
   // which the parser force-closes (dropping the note out of the row box).
@@ -1380,9 +1395,10 @@ function todayStripRow(task, done) {
 }
 
 export function renderTodayStrip({
-  currentBosses, currentMaxBattles, currentEvents, roster, forms, storage, now = new Date(),
+  currentBosses, currentMaxBattles, currentEvents, roster, forms, storage, raidTargetTool = null, now = new Date(),
 } = {}) {
   const tasks = buildTodayTasks({
+    raidTargetTool,
     currentBosses,
     currentMaxBattles,
     currentEvents,
@@ -1433,7 +1449,7 @@ export function renderFieldTimeline({
     now,
     render: (event, formsArg, nowArg) => timelineCard(event, formsArg, {
       badgeClass: "is-ending", badgeText: `Ends · ${formatEventWhen(event.startsAt, event.endsAt, nowArg)}`,
-    }),
+    }, raidTargetTool),
   }));
   items.push(timelineBucket({
     label: "Starting tonight",
@@ -1442,7 +1458,7 @@ export function renderFieldTimeline({
     stateClass: "is-soon",
     forms,
     now,
-    render: (event, formsArg, nowArg) => timelineRow(event, formsArg, nowArg, gapByFormId),
+    render: (event, formsArg, nowArg) => timelineRow(event, formsArg, nowArg, gapByFormId, raidTargetTool),
   }));
   items.push(timelineBucket({
     label: "Active now · no scheduled end",
@@ -1451,7 +1467,7 @@ export function renderFieldTimeline({
     stateClass: "is-open",
     forms,
     now,
-    render: (event, formsArg, nowArg) => timelineRow(event, formsArg, nowArg, gapByFormId),
+    render: (event, formsArg, nowArg) => timelineRow(event, formsArg, nowArg, gapByFormId, raidTargetTool),
   }));
   items.push(timelineBucket({
     label: "This week",
@@ -1459,7 +1475,7 @@ export function renderFieldTimeline({
     limit: THIS_WEEK_DISPLAY_LIMIT,
     forms,
     now,
-    render: (event, formsArg, nowArg) => timelineRow(event, formsArg, nowArg, gapByFormId),
+    render: (event, formsArg, nowArg) => timelineRow(event, formsArg, nowArg, gapByFormId, raidTargetTool),
   }));
 
   const nowLabel = now.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
@@ -1469,7 +1485,7 @@ export function renderFieldTimeline({
     currentEvents, forms, roster, now,
   });
   const todayStripHtml = renderTodayStrip({
-    currentBosses, currentMaxBattles: data?.currentMaxBattles, currentEvents, roster, forms, storage, now,
+    currentBosses, currentMaxBattles: data?.currentMaxBattles, currentEvents, roster, forms, storage, raidTargetTool, now,
   });
   return `<div class="tl-now"><span class="tl-now-chip"><span class="tl-now-dot" aria-hidden="true"></span>NOW · ${escapeHtml(nowLabel)}</span></div>
   ${showcaseLine}

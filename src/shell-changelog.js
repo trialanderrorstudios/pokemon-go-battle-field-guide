@@ -6,6 +6,12 @@
 
 export const SHELL_CHANGELOG = Object.freeze([
   Object.freeze({
+    rev: "r189", date: "2026-10-05",
+    tweaked: Object.freeze([
+      "Max Monday and Raid Hour bosses now show their hundo catch CP everywhere they appear on Home: the timeline card, upcoming rows, the Today checklist and the \"leaves Max spots\" task, not just the Max card.",
+    ]),
+  }),
+  Object.freeze({
     rev: "r188", date: "2026-10-05",
     tweaked: Object.freeze([
       "Scanning a screenshot with the appraisal open now reads the Attack / Defense / HP bars off that same screenshot and settles the IVs, even when CP and HP alone fit many spreads (a fresh shadow Deino fit nine). The row says when the bars did it.",
