@@ -97,13 +97,14 @@ export function spriteHtml(formId, forms, name, primaryType, { shiny = false } =
 }
 
 
-// Tap-to-toggle affordance for the dex identity header: a button that flips
-// the header sprite between normal and shiny art. Wiring its click (swapping
-// the adjacent .sprite img's src via spritePath(..., { shiny: true }), e.g.
-// in bindInteractions) is the dex.js + app.js consumption — this only ships
-// the render capability, not the toggle behavior.
-export function shinyToggleHtml() {
-  return `<button type="button" class="sprite-shiny-toggle" data-action="toggle-shiny-sprite" aria-pressed="false" aria-label="Toggle shiny sprite">✨</button>`;
+// Tap-to-toggle affordance for the dex identity header. The click flips
+// ui.dexShinySprite in app.js ("toggle-shiny-sprite") and the dex re-renders
+// with shiny art. Until 2026-10-05 dex.js rendered its own copy of this
+// button and this helper sat unused — one source now, so the CSP test below
+// covers the button people actually tap.
+export function shinyToggleHtml(pressed = false) {
+  const state = pressed ? "true" : "false";
+  return `<button type="button" class="sprite-shiny-toggle" data-action="toggle-shiny-sprite" aria-pressed="${state}" aria-label="Toggle shiny sprite" title="Toggle shiny artwork">✨</button>`;
 }
 
 

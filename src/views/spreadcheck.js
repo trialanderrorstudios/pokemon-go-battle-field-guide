@@ -50,9 +50,16 @@ function ivSelectHtml(stat, label, value) {
   </label>`;
 }
 
-function ivFormHtml(ivs) {
+// CP is optional. Without it the verdict answers "best build of these IVs";
+// with it, the level is fixed and leagues the catch has already outgrown are
+// called closed (a Koffing at 828 is a 1604 Weezing the moment it evolves).
+function ivFormHtml(ivs, cp) {
   const fields = IV_FIELDS.map(([stat, label]) => ivSelectHtml(stat, label, ivs?.[stat] ?? 0)).join("");
-  return `<div class="spreadcheck-ivs">${fields}</div>`;
+  return `<div class="spreadcheck-ivs">${fields}
+    <label class="spreadcheck-cp">CP (optional)
+      <input type="number" inputmode="numeric" min="10" max="9999" data-spreadcheck-cp value="${cp ? escapeHtml(cp) : ""}">
+    </label>
+  </div>`;
 }
 
 function leagueLineHtml(entry) {
@@ -115,14 +122,15 @@ function resultHtml(result) {
 // ui state ({formId, query, ivs: {atk, def, sta}} — see this file's WIRING
 // CONTRACT below); result is checkSpread()'s return value (null before a
 // species is picked).
-export function renderSpreadCheckView({ state = {}, result = null, forms = {} }) {
+export function renderSpreadCheckView({ state = {}, result = null, forms = {}, verdictHtml = "", loading = false }) {
   const form = forms[state.formId] ?? null;
   const guidance = !form ? "<p>Pick a species to check its spread.</p>" : "";
   return `<section class="spreadcheck-view" aria-labelledby="spreadcheck-title">
     <h2 id="spreadcheck-title">Spread Checker</h2>
     ${pickerHtml(form, state.query, forms)}
-    ${form ? ivFormHtml(state.ivs ?? {}) : ""}
+    ${form ? ivFormHtml(state.ivs ?? {}, state.cp) : ""}
     ${guidance}
+    ${form && loading ? `<p class="dex-loading">Loading rankings…</p>` : verdictHtml}
     ${resultHtml(result)}
   </section>`;
 }

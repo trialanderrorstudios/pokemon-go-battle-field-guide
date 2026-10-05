@@ -26,7 +26,10 @@ const REQUIRED_PAYLOAD_FIELDS = new Set(["roster", "defenseLog", "textSize", "th
 // shipped. Optional so older exported backups (which predate drillStats/
 // feedback) still restore cleanly — loadDrillStats/loadFeedback already
 // default missing/malformed input to empty stats.
-const KNOWN_PAYLOAD_FIELDS = new Set([...REQUIRED_PAYLOAD_FIELDS, "drillStats", "feedback"]);
+// `profiles` (2026-10-05) carries every other profile's roster plus which one
+// was active at export; `roster` stays the active profile's, so an app that
+// predates profiles still restores the roster it would have before.
+const KNOWN_PAYLOAD_FIELDS = new Set([...REQUIRED_PAYLOAD_FIELDS, "drillStats", "feedback", "profiles"]);
 const TEXT_SIZE_SET = new Set(TEXT_SIZES);
 const THEME_SET = new Set(THEMES);
 
@@ -51,15 +54,30 @@ export class BackupImportError extends Error {
 // imported file is preserved opaquely (see parseBackupEnvelope's `extra`).
 export function buildBackupEnvelope({
   roster, defenseLog, textSize, theme, appShellRevision,
-  drillStats = { currentStreak: 0, bestStreak: 0 }, feedback = [],
+  drillStats = { currentStreak: 0, bestStreak: 0 }, feedback = [], profiles = null,
   now = () => new Date().toISOString(),
 }) {
+  const payload = { roster, defenseLog, textSize, theme, drillStats, feedback };
+  if (profiles) payload.profiles = profiles;
   return {
     formatVersion: BACKUP_FORMAT_VERSION,
     exportedAt: now(),
     appShellRevision: appShellRevision ?? null,
-    payload: { roster, defenseLog, textSize, theme, drillStats, feedback },
+    payload,
   };
+}
+
+// Every profile's roster keyed by profile id, from a parsed payload. A backup
+// without a profiles block maps its one roster to `fallbackActiveId` — the
+// profile on screen at restore time, which is exactly how such a backup
+// restored before profiles existed.
+export function backupRostersByProfile(payload, fallbackActiveId) {
+  const activeId = payload.profiles?.index?.activeId ?? fallbackActiveId;
+  return { activeId, index: payload.profiles?.index ?? null, rosters: { ...(payload.profiles?.rosters ?? {}), [activeId]: payload.roster } };
+}
+
+export function mergeProfileRoster(current, imported) {
+  return mergeRoster(current, imported);
 }
 
 
@@ -121,6 +139,22 @@ export async function parseBackupEnvelope(text, validFormIds) {
   // before these stores were added). loadDrillStats/loadFeedback already
   // default missing or malformed input to empty stats, so absence here is
   // never an error — just treated as "no drill/feedback history in this file".
+  let profiles = null;
+  if (raw.payload.profiles !== undefined) {
+    const block = raw.payload.profiles;
+    if (!isPlainObject(block) || !isPlainObject(block.index) || !Array.isArray(block.index.profiles) || !isPlainObject(block.rosters)) {
+      throw new BackupImportError("Backup profiles block is malformed.", "invalid_profiles");
+    }
+    const rosters = {};
+    for (const [id, value] of Object.entries(block.rosters)) {
+      try {
+        rosters[id] = await importRoster(value, validFormIds, { async replace() {} });
+      } catch (error) {
+        throw new BackupImportError(`Backup roster for profile ${id} is invalid: ${error.message}`, "invalid_profiles");
+      }
+    }
+    profiles = { index: block.index, rosters };
+  }
   const drillStats = loadDrillStats({ getItem: () => JSON.stringify(raw.payload.drillStats ?? null) });
   const feedback = loadFeedback({ getItem: () => JSON.stringify(raw.payload.feedback ?? []) });
   // Anything beyond the known fields is a future store this build of the app
@@ -140,7 +174,10 @@ export async function parseBackupEnvelope(text, validFormIds) {
     formatVersion: raw.formatVersion,
     exportedAt: raw.exportedAt,
     appShellRevision: raw.appShellRevision ?? null,
-    payload: { roster, defenseLog, textSize: raw.payload.textSize, theme: raw.payload.theme, drillStats, feedback, extra },
+    payload: {
+      roster, defenseLog, textSize: raw.payload.textSize, theme: raw.payload.theme, drillStats, feedback, extra,
+      ...(profiles ? { profiles } : {}),
+    },
   };
 }
 

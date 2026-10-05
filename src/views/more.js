@@ -21,6 +21,7 @@ import { renderXlView } from "./xl.js";
 import { renderEliteTmView } from "./elitetm.js";
 import { renderSpreadCheckView } from "./spreadcheck.js";
 import { checkSpread } from "../spread-checker.js";
+import { catchVerdict, renderCatchVerdict } from "../catch-verdict.js";
 import { renderGroupView } from "./group.js";
 import { loadGroupMembers } from "../group-store.js";
 import { luckyOwnedFormIdSet, shinyOwnedFormIdSet } from "../collection.js";
@@ -284,6 +285,46 @@ const TEXT_SIZE_LABELS = Object.freeze({ S: "Small", M: "Medium", L: "Large" });
 const THEME_LABELS = Object.freeze({ auto: "Auto", light: "Light", dark: "Dark" });
 const TEAM_LABELS = Object.freeze({ valor: "Valor", mystic: "Mystic", instinct: "Instinct" });
 
+// Profiles (C, 2026-10-05): one roster per Pokémon GO account on this device.
+function profilesSection(data) {
+  const index = data.profiles;
+  if (!index) return "";
+  const active = index.profiles.find((p) => p.id === index.activeId) ?? index.profiles[0];
+  const rows = index.profiles.map((p) => {
+    const isActive = p.id === index.activeId;
+    return `<li class="profile-row${isActive ? " is-active" : ""}">
+      <strong>${escapeHtml(p.name)}</strong>${isActive ? ` <span class="tier-pill">Active</span>` : ""}
+      ${isActive ? "" : `<button type="button" data-action="profile-switch" data-profile-id="${escapeHtml(p.id)}">Switch to ${escapeHtml(p.name)}</button>`}
+      ${isActive || p.id === "main" ? "" : `<button type="button" data-action="profile-remove" data-profile-id="${escapeHtml(p.id)}">Remove</button>`}
+    </li>`;
+  }).join("");
+  const compare = data.profileCompare;
+  let compareHtml = "";
+  if (index.profiles.length > 1) {
+    if (compare?.status === "loading") compareHtml = `<p>Comparing profiles…</p>`;
+    else if (compare?.status === "done") {
+      const names = Object.fromEntries(index.profiles.map((p) => [p.id, p.name]));
+      compareHtml = compare.suggestions.length
+        ? `<h3>Trade suggestions</h3>
+          <p>Spare copies one account has and another doesn't. Moves survive a trade and IVs re-roll, so a spare with a legacy move is worth the most.</p>
+          <ul class="profile-trades">${compare.suggestions.slice(0, 30).map((s) => `<li><strong>${escapeHtml(s.name)}</strong>: ${escapeHtml(names[s.from] ?? s.from)} → ${escapeHtml(names[s.to] ?? s.to)}${s.legacyMove ? ` — carries ${escapeHtml(s.legacyMove.toLowerCase().split("_").join(" "))}` : ""}</li>`).join("")}</ul>`
+        : `<p>No spare copies one account could send another.</p>`;
+    }
+    compareHtml = `${compareHtml}<button type="button" data-action="profile-compare">${compare?.status === "done" ? "Compare again" : "Compare profiles"}</button>`;
+  }
+  return `<section class="more-section" aria-labelledby="more-profiles-title">
+    <p class="status-kicker">One roster per account</p><h2 id="more-profiles-title">Profiles</h2>
+    <p>Viewing <strong>${escapeHtml(active.name)}</strong>. Each profile keeps its own roster on this device; switching reloads the app so nothing from the other account lingers.</p>
+    <ul class="profile-list">${rows}</ul>
+    <label class="defense-log-player-name">New profile
+      <input type="text" maxlength="24" data-profile-new-name placeholder="Alt, partner…" value="${escapeHtml(data.profileDraftName ?? "")}">
+    </label>
+    <button type="button" data-action="profile-add">Add profile</button>
+    ${data.profileMessage ? `<p class="triage-copy-status" role="status">${escapeHtml(data.profileMessage)}</p>` : ""}
+    ${compareHtml}
+  </section>`;
+}
+
 // Optional and skippable: every feature that reads this degrades to today's
 // ungated/badge-free behavior when the card is left blank.
 function trainerProfileSection(data) {
@@ -292,7 +333,7 @@ function trainerProfileSection(data) {
     <p class="status-kicker">Optional — used to gate advice to what you can reach</p><h2 id="more-trainer-title">Trainer profile</h2>
     <p>The game doesn't share this — you tell us. Skip any of it; power-up advice and team badges just stay as they are today until you fill it in.</p>
     <label class="defense-log-player-name">Trainer level
-      <input type="number" min="1" max="50" step="1" inputmode="numeric" data-trainer-level value="${escapeHtml(profile.level ?? "")}">
+      <input type="number" min="1" max="80" step="1" inputmode="numeric" data-trainer-level value="${escapeHtml(profile.level ?? "")}">
     </label>
     <h3>Team</h3>
     <div class="app-actions" role="group" aria-label="Team">
@@ -819,10 +860,19 @@ export function renderMore(data = {}) {
   })}</div>`;
   if (view === "spreadcheck") {
     const sel = data.spreadcheckSelection ?? { formId: null, query: "", ivs: { atk: 0, def: 0, sta: 0 } };
-    const result = sel.formId
+    // More only loads extras.json eagerly; rankings arrive via the deferred
+    // chunk chain. Until they land, say so — rendering checkSpread against
+    // missing pvp/raids/gym produced confident "no ranked role" answers.
+    const loading = Boolean(sel.formId) && (!data.pvp || !data.raids || !data.gym);
+    const result = sel.formId && !loading
       ? checkSpread({ formId: sel.formId, ivs: sel.ivs, forms: data.forms, pvp: data.pvp, raids: data.raids, gym: data.gym })
       : null;
-    return `<div class="more-view">${BACK_TO_MORE}${renderSpreadCheckView({ state: sel, result, forms: data.forms })}</div>`;
+    const verdictHtml = result ? renderCatchVerdict(catchVerdict({
+      formId: sel.formId, ivs: sel.ivs, cp: sel.cp ?? null, forms: data.forms, pvp: data.pvp,
+      pvpDeepRanks: data.pvpDeepRanks, raids: data.raids, gym: data.gym, roster: data.roster,
+      currentEvents: data.currentEvents,
+    })) : "";
+    return `<div class="more-view">${BACK_TO_MORE}${renderSpreadCheckView({ state: sel, result, forms: data.forms, verdictHtml, loading })}</div>`;
   }
   if (view === "elitetm") return `<div class="more-view">${BACK_TO_MORE}${renderEliteTmView({
     roster: data.roster, forms: data.forms, raidRows: data.raids,
@@ -873,6 +923,7 @@ export function renderMore(data = {}) {
   if (view === "settings") {
     return `<div class="more-view">
       ${BACK_TO_MORE}
+      ${profilesSection(data)}
       ${trainerProfileSection(data)}
       ${displaySection(data)}
       ${pushSection(data)}

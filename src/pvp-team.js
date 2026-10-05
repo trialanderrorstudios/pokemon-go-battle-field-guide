@@ -74,15 +74,22 @@ export const RANK_MAX_LEVEL = Object.freeze({ great: 51, ultra: 51, master: 50 }
 // build time. CP is monotonic non-decreasing in level for fixed IVs (see
 // instances.js solveLevel), so the first level that exceeds the cap means
 // every higher level does too — safe to stop there.
+// Binary search over half-levels (2026-10-05): CP is non-decreasing in
+// level, so the highest level whose CP fits is found in ~7 CP evaluations
+// instead of up to 100. Same answer as the linear scan it replaced (proven
+// against it in box-audit's perf work); it is the inner loop of every rank
+// table, so this is most of the speedup for a whole-box audit.
 export function bestLevelUnderCap(form, ivs, cap, maxLevel) {
   if (cap === null) return maxLevel;
-  let best = null;
-  for (let doubled = 2; doubled <= maxLevel * 2; doubled += 1) {
-    const level = doubled / 2;
-    if (calculateCp(form, ivs, level) > cap) break;
-    best = level;
+  let low = 2;
+  let high = Math.round(maxLevel * 2);
+  if (calculateCp(form, ivs, low / 2) > cap) return null;
+  while (low < high) {
+    const mid = (low + high + 1) >> 1;
+    if (calculateCp(form, ivs, mid / 2) > cap) high = mid - 1;
+    else low = mid;
   }
-  return best;
+  return low / 2;
 }
 
 // Percentile framing for a rank out of a total pool: rank 1 (the best) reads
@@ -106,6 +113,50 @@ function percentileFromRank(rank, total) {
 // instance can actually reach: bestBuddy:false caps it at the normal
 // level-50 power-up ceiling (iv.py's own level > 50 => bestBuddyRequired
 // convention) instead of assuming an unconfirmed Best Buddy level 51.
+// Sorted (descending) stat products of every eligible spread for one
+// species-stat-line and league. The comparison pool depends only on base
+// stats, cap and max level — never on the spread being ranked — so it is
+// built once and every later rank is a binary search. Before 2026-10-05 each
+// call re-scanned all 4096 spreads (~2.5ms), which made a whole-box audit of a
+// 2,700-mon roster take tens of seconds. Bounded so a phone never holds more
+// than RANK_TABLE_LIMIT tables (~32KB each).
+// ponytail: FIFO eviction, not true LRU — a box audit walks forms in order,
+// so recency tracking would buy nothing measurable.
+const RANK_TABLE_LIMIT = 300;
+const rankTables = new Map();
+
+function rankTable(form, cap, maxLevel) {
+  const key = `${form.base_attack}/${form.base_defense}/${form.base_stamina}|${cap}|${maxLevel}`;
+  const cached = rankTables.get(key);
+  if (cached) return cached;
+  const products = [];
+  for (let atk = 0; atk < 16; atk += 1) {
+    for (let def = 0; def < 16; def += 1) {
+      for (let sta = 0; sta < 16; sta += 1) {
+        const candidateLevel = bestLevelUnderCap(form, { atk, def, sta }, cap, maxLevel);
+        if (candidateLevel === null) continue;
+        products.push(statProduct(form, { atk, def, sta }, candidateLevel));
+      }
+    }
+  }
+  const table = Float64Array.from(products).sort().reverse();
+  if (rankTables.size >= RANK_TABLE_LIMIT) rankTables.delete(rankTables.keys().next().value);
+  rankTables.set(key, table);
+  return table;
+}
+
+// Count of entries strictly greater than target in a descending table.
+function countGreater(table, target) {
+  let low = 0;
+  let high = table.length;
+  while (low < high) {
+    const mid = (low + high) >> 1;
+    if (table[mid] > target) low = mid + 1;
+    else high = mid;
+  }
+  return low;
+}
+
 export function rankIvSpread(form, ivs, league, { bestBuddy = true } = {}) {
   const cap = LEAGUE_CP_CAP[league];
   const maxLevel = RANK_MAX_LEVEL[league];
@@ -113,16 +164,7 @@ export function rankIvSpread(form, ivs, league, { bestBuddy = true } = {}) {
   const level = bestLevelUnderCap(form, ivs, cap, targetMaxLevel);
   if (level === null) return null;
   const target = statProduct(form, ivs, level);
-  let better = 0;
-  for (let atk = 0; atk < 16; atk += 1) {
-    for (let def = 0; def < 16; def += 1) {
-      for (let sta = 0; sta < 16; sta += 1) {
-        const candidateLevel = bestLevelUnderCap(form, { atk, def, sta }, cap, maxLevel);
-        if (candidateLevel === null) continue;
-        if (statProduct(form, { atk, def, sta }, candidateLevel) > target) better += 1;
-      }
-    }
-  }
+  const better = countGreater(rankTable(form, cap, maxLevel), target);
   const rank = better + 1;
   return {
     level, cp: calculateCp(form, ivs, level), statProduct: target,

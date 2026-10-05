@@ -6,6 +6,32 @@
 
 export const SHELL_CHANGELOG = Object.freeze([
   Object.freeze({
+    rev: "r186", date: "2026-10-05",
+    added: Object.freeze([
+      "Catch Verdict: one Pokédex-style answer per Pokémon — build it and for which league, raid attacker, gym defender, purify or transfer. It catches a great roll on the wrong Pokémon, leagues a catch has already outgrown at its CP, shadow pre-evolutions (judged as their shadow final form), the cheaper no-XL league, Elite TMs the ranked moves need, when purifying would make the spread worse, the next Frustration window, and when you already own a better copy. In Spread Checker (now with an optional CP) and on every scanned row.",
+      "Cups tab under PvP: the live or next GO Battle League cup's rules, the legal field, and your best three from your own box with any shared weakness called out. Mega Color, Little, Fantasy and Mega Halloween Cup are in; rotations without verified rules are named instead of guessed.",
+      "Box audit on Triage: run the verdict over your whole box, see what each Pokémon is for, get a purify-for-medal search list, and a warning for anything Triage would transfer that the verdict says to keep.",
+      "Dex: Pokémon outside the top 50 now show their full PvP rank (e.g. #212 of 1146) instead of nothing.",
+      "Type Mastery opens with your two weakest attacking types and what to build for each. Raid Group cards say which member leads.",
+      "Profiles: keep a separate roster for each account (main, alt, partner) under Settings. Switching reloads so nothing from the other account lingers; Triage and Home show which profile you're on, and Compare profiles suggests trades — spare copies one account has and another doesn't, legacy-move carriers first. Backups now carry every profile.",
+      "Home: add the next 30 days of Raid Hours, Spotlight Hours (with their bonus), Rocket windows and cup changes to your phone calendar, each with a 30-minute reminder.",
+    ]),
+    tweaked: Object.freeze([
+      "PvP ranking is about 17× faster, which is what makes a whole-box audit practical on a phone.",
+      "Spread Checker and the scan review now wait for rankings to load instead of briefly reporting no role for everything.",
+      "Trainer level now goes to 80 — it was capped at 50 from before the level 51–80 expansion.",
+    ]),
+  }),
+  Object.freeze({
+    rev: "r185", date: "2026-10-05",
+    added: Object.freeze([
+      "Home: a Spotlight Hour banner that leads with the BONUS \u2014 \"2\u00d7 Catch Candy\" in the headline slot, not buried at the end of a sentence in a timeline row. The bonus now comes through from the feed as its own field instead of being folded into prose.",
+    ]),
+    tweaked: Object.freeze([
+      "Home: the Raid Hour banner now actually renders. It was written, styled and tested but never placed on the page \u2014 so a Raid Hour only ever showed up as a timeline row. Both hour banners sit together under the field briefing.",
+    ]),
+  }),
+  Object.freeze({
     rev: "r184", date: "2026-09-24",
     added: Object.freeze([
       "Raid Target: a \"Worth a Remote Raid Pass?\" verdict sits under \"Can we beat this?\" — skip it on an easy boss your free daily pass already covers, worth it on a Tier 5/Mega your counters can carry, risky when they can't. Shows the current pass price and daily cap. Reads your own counters, so it says \"can't call it yet\" rather than guessing on a thin roster.",

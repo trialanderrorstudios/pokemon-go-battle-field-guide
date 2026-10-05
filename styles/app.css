@@ -935,6 +935,34 @@ h1 {
   font-size: 0.85rem;
 }
 
+/* Spotlight Hour banner — sibling of the Raid Hour banner above, tinted with
+   the lens-blue token instead of yellow so the two never read as the same event
+   at a glance. .raid-hour-detail is reused as-is for the species line. */
+.spotlight-hour-banner {
+  background: linear-gradient(90deg, rgba(53, 196, 255, 0.16), rgba(53, 196, 255, 0.05));
+  border-color: rgba(53, 196, 255, 0.45);
+}
+
+.spotlight-hour-kicker {
+  margin: 0 0 0.2rem;
+  /* --dx-lens-blue, not a raw hex: it carries a light-theme override (#0a6f9c)
+     the way --dx-warn does for the Raid Hour kicker above, so the kicker stays
+     readable on a light screen background. */
+  color: var(--dx-lens-blue);
+  font-size: 0.8rem;
+  font-weight: 800;
+  letter-spacing: 0.03em;
+}
+
+/* The bonus is the decision, so it gets the size the species name usually
+   would — "2x Catch Candy" is what you plan an evening around. */
+.spotlight-hour-bonus {
+  margin: 0 0 0.15rem;
+  color: var(--text);
+  font-size: 1.05rem;
+  font-weight: 800;
+}
+
 .home-event-section {
   width: 100%;
   margin-top: 0.5rem;
@@ -8507,3 +8535,75 @@ html:not([data-app-booted]) #app .fallback-section {
 
 /* Dex: raid model-note (r183) */
 .dex-raid-model-note { border-left: 3px solid #c9a94f; padding-left: 0.55rem; margin: 0.3rem 0 0.5rem; font-size: 0.84rem; }
+
+/* Catch Verdict (P1, 2026-10-05) — a Pokedex scan readout, not a stats table.
+   Kicker reads like a dex header (No. 131 · LAPRAS · SHADOW), the call is the
+   headline, the lines are the scan. Left rule color carries the call so a
+   column of scanned rows sorts itself by eye. Tokens only. */
+.catch-verdict {
+  margin: 0.5rem 0;
+  padding: 0.55rem 0.75rem;
+  border: 1px solid var(--line);
+  border-left: 4px solid var(--dx-muted);
+  border-radius: 8px;
+  background: var(--panel-raised);
+}
+.catch-verdict[data-call="build"] { border-left-color: var(--dx-good); }
+.catch-verdict[data-call="raid"],
+.catch-verdict[data-call="situational"] { border-left-color: var(--dx-lens-blue); }
+.catch-verdict[data-call="gym"] { border-left-color: var(--dx-warn); }
+.catch-verdict[data-call="purify"],
+.catch-verdict[data-call="transfer"] { border-left-color: var(--dx-bad); }
+.cv-kicker {
+  margin: 0;
+  font-family: var(--dx-mono, monospace);
+  font-size: 0.7rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  color: var(--dx-lens-blue);
+}
+.cv-read {
+  margin: 0.1rem 0 0.3rem;
+  font-family: var(--dx-mono, monospace);
+  font-size: 0.78rem;
+  color: var(--muted);
+}
+.cv-call {
+  margin: 0 0 0.25rem;
+  font-size: 1rem;
+  font-weight: 800;
+  color: var(--text);
+}
+.cv-lines {
+  margin: 0;
+  padding-left: 1.1rem;
+  font-size: 0.83rem;
+  color: var(--text);
+}
+.cv-lines li + li { margin-top: 0.15rem; }
+.spreadcheck-cp { display: flex; flex-direction: column; gap: 0.2rem; font-size: 0.8rem; }
+
+/* Cup view (#pvp/cup, P3 2026-10-05). */
+.cup-section summary { cursor: pointer; }
+.cup-rules { margin: 0.35rem 0; font-family: var(--dx-mono, monospace); font-size: 0.78rem; color: var(--dx-lens-blue); }
+.cup-team, .cup-meta { margin: 0.25rem 0 0.5rem; padding-left: 1.2rem; font-size: 0.85rem; }
+.cup-team li + li, .cup-meta li + li { margin-top: 0.15rem; }
+.cup-role { display: inline-block; min-width: 4.8rem; font-size: 0.7rem; font-weight: 800; letter-spacing: 0.04em; text-transform: uppercase; color: var(--muted); }
+.cup-warnings { margin: 0.2rem 0 0.4rem; padding-left: 1.1rem; font-size: 0.82rem; color: var(--dx-warn); }
+
+/* Box audit on Triage (B, 2026-10-05). */
+.triage-verdict { margin: 0.2rem 0 0; font-size: 0.82rem; font-weight: 700; color: var(--dx-lens-blue); }
+.triage-verdict[data-call="purify"], .triage-verdict[data-call="transfer"] { color: var(--muted); }
+.triage-audit-counts { display: flex; flex-wrap: wrap; gap: 0.4rem 0.9rem; list-style: none; margin: 0.4rem 0; padding: 0; font-size: 0.85rem; }
+.triage-audit-counts strong { font-variant-numeric: tabular-nums; }
+.triage-audit-warn { border-left: 4px solid var(--dx-warn); padding-left: 0.6rem; margin: 0.5rem 0; font-size: 0.85rem; }
+
+/* Profiles (C, 2026-10-05). */
+.profile-chip { margin: 0.3rem 0; font-size: 0.8rem; color: var(--muted); }
+.profile-chip strong { color: var(--dx-lens-blue); }
+.profile-list { list-style: none; padding: 0; margin: 0.4rem 0; display: grid; gap: 0.35rem; }
+.profile-row { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; }
+.profile-trades { padding-left: 1.1rem; font-size: 0.85rem; }
+
+/* Calendar export (D, 2026-10-05). */
+.calendar-export button { font-weight: 700; }

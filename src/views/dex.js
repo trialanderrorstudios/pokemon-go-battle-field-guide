@@ -6,9 +6,10 @@
 // never a blank — see §7 of the spec.
 import { escapeHtml, ownedStarButton } from "./home.js";
 import { renderEvolveChecklistCard } from "../evolve-checklist.js";
-import { dexPvpOptimal } from "../dex-pvp-optimal.js";
+import { dexPvpOptimal, dexPvpRankLine } from "../dex-pvp-optimal.js";
+import { scanRowVerdictHtml } from "../catch-verdict.js";
 import { moveLink, displayMoveName } from "./move-sheet.js";
-import { spriteHtml } from "../sprites.js";
+import { shinyToggleHtml, spriteHtml } from "../sprites.js";
 import { typeChip } from "./types.js";
 import { candidateIvsForTier, instanceLevel, legalMoves, solveLevel } from "../instances.js";
 import { instanceLeagueRank } from "../pvp-team.js";
@@ -45,7 +46,7 @@ function tagsLine(form) {
 function identitySection(form, forms, shinySprite = false) {
   return `<header class="dex-identity dex-identity-sticky">
     ${spriteHtml(form.form_id, forms, form.name, form.primary_type, { shiny: shinySprite })}
-    <button type="button" class="sprite-shiny-toggle" data-action="toggle-shiny-sprite" aria-pressed="${shinySprite}" title="Toggle shiny artwork">✨</button>
+    ${shinyToggleHtml(shinySprite)}
     <div>
       <h2>${escapeHtml(form.name)}</h2>
       <p class="dex-identity-meta">#${escapeHtml(form.dex)}${form.category ? ` · ${escapeHtml(form.category)}` : ""} · ${typeChips(form)}</p>
@@ -379,14 +380,14 @@ function pvpInstanceRankHtml(form, instance, league, row) {
 // pvp-team.js's own stat-product math — same model, not a second one), so
 // every species answers "what IVs do I want for this league" (operator ask
 // 2026-08-22).
-function pvpLeagueCardHtml(form, league, label, row, raids, formInstances) {
+function pvpLeagueCardHtml(form, league, label, row, raids, formInstances, deepRanks = null) {
   if (!row) {
     const { optimal, note } = dexPvpOptimal(form, league);
     const buildHtml = optimal
       ? `<p class="dex-pvp-target">Optimal build: ${escapeHtml(optimal.ivs.atk)}/${escapeHtml(optimal.ivs.def)}/${escapeHtml(optimal.ivs.sta)} IVs — CP ${escapeHtml(optimal.cp)} @ Level ${escapeHtml(optimal.level)}</p>`
       : "";
     return `<li class="dex-pvp-card dex-pvp-unranked"><h4>${escapeHtml(label)}</h4>
-    <p class="dex-pvp-rank">Outside the shipped top-150 league rankings.</p>
+    <p class="dex-pvp-rank">${escapeHtml(dexPvpRankLine(form, league, row, deepRanks?.ranks?.[form.form_id], deepRanks?.totals))}</p>
     ${buildHtml}
     <p class="dex-pvp-caveat">${escapeHtml(note)}</p></li>`;
   }
@@ -412,12 +413,12 @@ function pvpLeagueCardHtml(form, league, label, row, raids, formInstances) {
 }
 
 
-function pvpSection(form, pvp, roster, raids) {
+function pvpSection(form, pvp, roster, raids, deepRanks = null) {
   if (!pvp) return `<section class="dex-section" aria-labelledby="dex-pvp-title"><h3 id="dex-pvp-title">PvP</h3><p class="dex-loading">Loading…</p></section>`;
   const formInstances = formInstancesFor(form, roster);
   const cards = Object.entries(LEAGUE_NAMES).map(([league, label]) => {
     const row = (pvp[league] ?? []).find((entry) => entry.formId === form.form_id);
-    return pvpLeagueCardHtml(form, league, label, row, raids, formInstances);
+    return pvpLeagueCardHtml(form, league, label, row, raids, formInstances, deepRanks);
   }).join("");
   return `<section class="dex-section" aria-labelledby="dex-pvp-title">
     <h3 id="dex-pvp-title">PvP</h3>
@@ -1574,7 +1575,7 @@ function ocrRowIssuesHtml(issues) {
 // when parsing came back with nothing to anchor a draft on: no matched
 // species and no CP. Partial reads (e.g. CP but no name) still show the
 // parsed-fields grid so the operator can see what DID come through.
-function ocrIntakeRowHtml(row) {
+function ocrIntakeRowHtml(row, verdictFor = null) {
   const parsed = row.parsed ?? null;
   const unreadable = !parsed || (!parsed.name && parsed.cp == null);
   const classes = `ocr-intake-row${row.accepted ? " is-accepted" : ""}${unreadable ? " is-unreadable" : ""}`;
@@ -1625,6 +1626,7 @@ function ocrIntakeRowHtml(row) {
     ${solvedLine}
     ${movesReadLine}
     ${ivChips}
+    ${verdictFor ? verdictFor(row) : ""}
     ${ocrRowIssuesHtml(row.issues)}
     ${actions}
     ${row.rawText ? `<details class="ocr-row-raw"><summary>What the scanner saw</summary><button type="button" class="ocr-row-copy-raw" data-action="ocr-copy-raw" data-ocr-raw-row-id="${escapeHtml(row.id)}">Copy raw text</button><pre>${escapeHtml(row.rawText)}</pre></details>` : ""}
@@ -1655,7 +1657,7 @@ function ocrScanSummaryHtml(rows) {
   return `<p class="ocr-scan-summary">${escapeHtml(line)}</p>`;
 }
 
-function ocrIntakeBodyHtml(state) {
+function ocrIntakeBodyHtml(state, verdictFor = null) {
   if (state.status === "idle") return ocrScanEntryHtml();
   if (state.status === "loading-engine") {
     return `<p class="ocr-intake-status">Downloading the OCR engine…${ocrProgressHtml(state.progress)}</p>`;
@@ -1669,7 +1671,7 @@ function ocrIntakeBodyHtml(state) {
     // reload — reviewer catch, 2026-08-12. Error status stays reset-free by
     // design (no retry loop); review is a completed pass, so returning to
     // idle for another batch is the normal flow, not a retry.
-    return `${ocrScanSummaryHtml(rows)}<ul class="ocr-intake-rows">${rows.map(ocrIntakeRowHtml).join("")}</ul>
+    return `${ocrScanSummaryHtml(rows)}<ul class="ocr-intake-rows">${rows.map((row) => ocrIntakeRowHtml(row, verdictFor)).join("")}</ul>
       <button type="button" class="ocr-scan-done-btn" data-action="ocr-scan-done">Done — scan more</button>`;
   }
   // 'error': the same-session fallback notice, pointing at the manual
@@ -1684,9 +1686,11 @@ function ocrIntakeBodyHtml(state) {
 // Render entry point for the whole I3 surface — called from yourRosterSection
 // next to the existing (I2) quick-add card. `state` is owned by the caller;
 // see blankOcrIntakeState() above for its shape and default.
-export function ocrIntakeSectionHtml(state) {
+// `verdictFor(row) -> html` is optional: callers that hold rankings pass it so
+// each scanned row shows its catch verdict inline (P2, 2026-10-05).
+export function ocrIntakeSectionHtml(state, verdictFor = null) {
   const s = state ?? blankOcrIntakeState();
-  return `<div class="ocr-intake-section" data-ocr-status="${escapeHtml(s.status)}">${ocrIntakeBodyHtml(s)}</div>`;
+  return `<div class="ocr-intake-section" data-ocr-status="${escapeHtml(s.status)}">${ocrIntakeBodyHtml(s, verdictFor)}</div>`;
 }
 
 
@@ -1694,7 +1698,7 @@ export function ocrIntakeSectionHtml(state) {
 // Renamed from rosterSection (spec item 5 reorder split the Optimal block
 // out into its own top-level optimalSection() above, which used to open
 // this same section).
-function yourRosterSection(form, roster, quickAdd, raids, raidsLoaded, gym, forms, ocrIntake, pvp) {
+function yourRosterSection(form, roster, quickAdd, raids, raidsLoaded, gym, forms, ocrIntake, pvp, pvpDeepRanks = null) {
   const owned = new Set(roster.ownedFormIds ?? []);
   const isOwned = owned.has(form.form_id);
   const formInstances = formInstancesFor(form, roster);
@@ -1718,7 +1722,9 @@ function yourRosterSection(form, roster, quickAdd, raids, raidsLoaded, gym, form
     <p>${ownedStarButton({ formId: form.form_id, name: form.name, owned: isOwned, route: "dex" })}</p>
     <p class="roster-summary"><span class="roster-star">★</span> ${escapeHtml(formInstances.length)} instance${formInstances.length === 1 ? "" : "s"} logged</p>
     <ul class="instance-list">${formInstances.map((instance) => quickAddInstanceRowHtml(form, instance, draft.editingId, draft.stamp, copyVerdictContext)).join("")}</ul>
-    ${ocrIntakeSectionHtml(ocrIntake)}
+    ${ocrIntakeSectionHtml(ocrIntake, (row) => scanRowVerdictHtml(row, {
+    forms, pvp, pvpDeepRanks, raids: raidsLoaded ? raids : null, gym, roster, currentEvents: null,
+  }))}
     <div class="quickadd-card${draft.editingId !== null ? " is-editing-card" : ""}">
       ${quickAddTitleHtml(form, formInstances, draft.editingId)}
       ${quickAddBodyHtml(form, draft, offensePairs, defensePair, forms)}
@@ -1806,6 +1812,7 @@ export function renderDex({
   forms = {},
   gym = null,
   pvp = null,
+  pvpDeepRanks = null,
   raidTargetTool = null,
   raids = null,
   raidsLoaded = false,
@@ -1848,12 +1855,12 @@ export function renderDex({
     ${optimalSection(form, gym, raids, raidsLoaded, formInstancesFor(form, roster), pvp)}
     ${gymSection(form, gym)}
     ${raidAttackerSection(form, raids, raidsLoaded, raidTargetTool)}
-    ${pvpSection(form, pvp, roster, raids)}
+    ${pvpSection(form, pvp, roster, raids, pvpDeepRanks)}
     ${movesSection(form, moveSettings, pvp, raids)}
     ${evolutionSection(form, forms, evolutionHold, evolveChecklistData)}
     ${acquisitionSection(form, acquisitionGuide, forms)}
     ${availabilitySection(form, currentEggs)}
-    ${yourRosterSection(form, roster, quickAdd, raids, raidsLoaded, gym, forms, ocrIntake, pvp)}
+    ${yourRosterSection(form, roster, quickAdd, raids, raidsLoaded, gym, forms, ocrIntake, pvp, pvpDeepRanks)}
   </div>`;
   if (!twoPanel) return entryHtml;
   // The Back-to-Collection link (dex-back-link, above) is hidden by CSS only

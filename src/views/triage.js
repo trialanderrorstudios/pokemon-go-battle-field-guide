@@ -113,7 +113,14 @@ function powerUpLine(entry) {
 }
 
 
-function entryRow(entry, forms) {
+// One-line catch verdict under Triage's own reason (box audit, 2026-10-05).
+// Triage answers "safe to transfer?"; the verdict answers "what is it for?".
+function verdictLine(verdict) {
+  if (!verdict) return "";
+  return `<p class="triage-verdict" data-call="${escapeHtml(verdict.call)}">Verdict: ${escapeHtml(verdict.headline)}</p>`;
+}
+
+function entryRow(entry, forms, verdictFor = null) {
   const form = entry.form ?? forms?.[entry.formId] ?? {};
   const name = entry.name ?? form.name ?? entry.formId;
   const nickname = entry.instance?.nickname?.trim();
@@ -128,6 +135,7 @@ function entryRow(entry, forms) {
       </button>
       ${entry.assumedStats ? '<p class="triage-assumed">Assumed stats · add CP and appraisal details for an exact verdict.</p>' : ""}
       <p class="triage-because">${wrapJargon(entry.because)}</p>
+      ${verdictFor ? verdictLine(verdictFor(entry)) : ""}
       ${powerUpLine(entry)}
     </article>
   </li>`;
@@ -275,9 +283,53 @@ function keepPvpSearchSection(result, state) {
 }
 
 
+const AUDIT_CALL_LABEL = Object.freeze({
+  build: "Build", situational: "Playable", raid: "Raid", gym: "Gym", purify: "Purify", transfer: "Transfer",
+});
+
+// Whole-box audit. Idle -> a button; running -> progress; done -> counts,
+// the CANDY-vs-keeper warnings, and the purify search lists.
+function boxAuditSection(audit, state) {
+  if (!audit || audit.status === "idle") {
+    return `<section class="triage-audit card" aria-labelledby="triage-audit-title">
+      <h3 id="triage-audit-title">Box audit</h3>
+      <p>Run the catch verdict on every logged Pokémon: what each one is for, what to purify, and anything Triage would transfer that the verdict says to keep.</p>
+      <button type="button" data-action="run-box-audit">Audit whole box</button>
+    </section>`;
+  }
+  if (audit.status === "running") {
+    const p = audit.progress;
+    return `<section class="triage-audit card" aria-live="polite"><h3>Box audit</h3><p>Auditing… ${p ? `${p.done} of ${p.total}` : ""}</p></section>`;
+  }
+  const summary = audit.summary;
+  const counts = Object.entries(AUDIT_CALL_LABEL)
+    .map(([call, label]) => `<li data-call="${call}"><strong>${escapeHtml(summary.counts[call] ?? 0)}</strong> ${label}</li>`).join("");
+  const warn = summary.disagreements.length
+    ? `<div class="triage-audit-warn"><p><strong>${summary.disagreements.length} marked CANDY that the verdict says to keep:</strong></p>
+      <ul>${summary.disagreements.slice(0, 20).map((d) => `<li>${escapeHtml(d.name)}${d.cp ? ` (CP ${escapeHtml(d.cp)})` : ""} — ${escapeHtml(d.headline)}</li>`).join("")}</ul></div>`
+    : `<p>Nothing in CANDY conflicts with the verdict.</p>`;
+  const purify = summary.purifyChunks.length
+    ? `<h4>Purify for medal progress</h4>
+      <p>Shadows with no role in raids, PvP or gyms. Paste into the in-game search, check the list, then purify by hand.</p>
+      ${summary.purifyExcluded ? `<p class="triage-invest-cost">${summary.purifyExcluded} not included — their names aren't verified to match in-game.</p>` : ""}
+      ${searchChunkButtons(summary.purifyChunks, "purify", state)}`
+    : "";
+  return `<section class="triage-audit card" aria-labelledby="triage-audit-title">
+    <h3 id="triage-audit-title">Box audit · ${escapeHtml(summary.judged)} judged</h3>
+    <ul class="triage-audit-counts">${counts}</ul>
+    ${warn}
+    ${purify}
+    <button type="button" data-action="run-box-audit">Run again</button>
+  </section>`;
+}
+
 export function renderTriage({
-  result = {}, forms = {}, state: rawState, showGuide = false, weakLaneCount = 0,
+  result = {}, forms = {}, state: rawState, showGuide = false, weakLaneCount = 0, verdictFor = null, boxAudit = null,
+  profileName = null,
 } = {}) {
+  // With more than one profile, transfer and purify lists must say whose box
+  // they are — acting on the wrong account is the mistake profiles introduce.
+  const profileChip = profileName ? `<p class="profile-chip" data-profile-chip>Profile: <strong>${escapeHtml(profileName)}</strong></p>` : "";
   const state = createTriageViewState(rawState);
   const allEntries = result.entries ?? [];
   if (!allEntries.length) {
@@ -305,18 +357,20 @@ export function renderTriage({
         : "";
   return `<section class="triage-view" aria-labelledby="triage-title">
     <p class="status-kicker">Your box, one decision at a time</p><h2 id="triage-title">Triage My Box</h2>
+    ${profileChip}
     ${guideCard(showGuide)}
     ${weakLaneCount > 0 ? `<p class="triage-gap-teaser"><a class="safe-escape" href="./#triage/gaps" data-route="triage" data-view="gaps">${weakLaneCount} attacking type${weakLaneCount === 1 ? "" : "s"} your box doesn't cover well &rarr; Roster Gaps</a></p>` : ""}
     <div class="triage-filters" role="group" aria-label="Triage result filter">
       ${TRIAGE_BUCKETS.map((bucket) => `<button type="button" data-triage-filter="${bucket}" aria-pressed="${state.filter === bucket}">${bucket} <span>${escapeHtml(counts[bucket] ?? 0)}</span></button>`).join("")}
     </div>
     ${shareCard ? `<button type="button" class="triage-share-card" data-action="share-triage-summary-card">Share my triage card</button>${shareStatus}` : ""}
+    ${verdictFor ? boxAuditSection(boxAudit, state) : ""}
     ${state.filter === "CANDY" ? candyTools(result, state) : ""}
     ${state.filter === "CANDY" ? candySearchSection(result, state) : ""}
     ${state.filter === "KEEP" || state.filter === "PVP" ? keepPvpSearchSection(result, state) : ""}
     ${state.filter === "KEEP" || state.filter === "PVP" ? renameTools(result, state) : ""}
     <p class="triage-window-status">Showing ${visible.length ? `${rangeStart}–${rangeEnd}` : "0"} of ${matches.length}</p>
-    <ul class="triage-list">${visible.map((entry) => entryRow(entry, forms)).join("")}</ul>
+    <ul class="triage-list">${visible.map((entry) => entryRow(entry, forms, verdictFor)).join("")}</ul>
     ${hasPrevious ? '<button type="button" class="triage-show-more" data-triage-previous>Previous 60</button>' : ""}
     ${hasNext ? '<button type="button" class="triage-show-more" data-triage-show-more>Next 60</button>' : ""}
     ${!matches.length ? '<p class="triage-no-matches card">No Pokémon are in this bucket.</p>' : ""}

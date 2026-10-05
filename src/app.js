@@ -74,6 +74,12 @@ import {
 } from "./ocr-intake.js";
 import { cpBannerRetry, nameBannerRetry } from "./ocr-worker.js";
 import { frustrationWindow, renderFrustrationWindowCard } from "./frustration-window.js";
+import { renderCupView } from "./views/cup.js";
+import { auditBox, verdictForEntry } from "./box-audit.js";
+import { buildIcs, calendarEvents } from "./calendar-export.js";
+import {
+  addProfile, loadProfiles, removeProfile, rosterRecordKey, saveProfiles, setActiveProfile, tradeSuggestions,
+} from "./profiles.js";
 import { readAppraisalBars, pickCandidateByBars } from "./ocr-appraisal-bars.js";
 import { createOcrEngine as createOcrEngineDefault, OcrEngineError } from "./ocr-worker.js";
 import {
@@ -130,6 +136,8 @@ import {
   buildBackupEnvelope,
   mergeBackupPayload,
   parseBackupEnvelope,
+  backupRostersByProfile,
+  mergeProfileRoster,
   recordBackupNow,
   replaceBackupPayload,
   shouldShowBackupNudge,
@@ -241,7 +249,9 @@ export const ROUTE_CHUNKS = Object.freeze({
   // The drop-form's Placement Coach prefill reads the same ranked defenders
   // the Gyms page does; undeclared, a cold deep-link silently loses it.
   leaderboard: ["gyms.json"],
-  pvp: ["pvp.json"],
+  // current-events.json carries the GBL rotations and their curated cup
+  // rules (#pvp/cup); small, and already cached by every Home visit.
+  pvp: ["pvp.json", "current-events.json"],
   // gyms.json: ranked defenders are a KEEP signal — without it triage marks
   // Blissey-class walls as transfer candy (operator-reported 2026-07-23).
   // current-bosses/current-events belong to the Roster Gaps sub-view, which
@@ -296,7 +306,7 @@ const CHUNK_FIELDS = Object.freeze({
   "raids-shadow.json": ["raids"],
   "raid-targets.json": ["raidTargetTool"],
   "gyms.json": ["gym", "placement"],
-  "pvp.json": ["pvp", "pvpTeams", "pvpAlternatives", "pvpTheorycraft"],
+  "pvp.json": ["pvp", "pvpTeams", "pvpAlternatives", "pvpTheorycraft", "pvpDeepRanks"],
   "extras.json": ["budgets", "megasPrimals", "futureProof", "coveragePlanner", "moveSettings"],
   "acquisition.json": ["acquisitionGuide", "shinyOdds"],
   "current-bosses.json": ["currentBosses", "currentMaxBattles"],
@@ -1005,9 +1015,10 @@ function replaceObject(target, value) {
 }
 
 
-function downloadFile(filename, payload, { documentObject, windowObject }) {
+function downloadFile(filename, payload, { documentObject, windowObject, type = "application/json" }) {
   if (!documentObject?.createElement || !windowObject?.URL?.createObjectURL || typeof Blob === "undefined") return;
-  const url = windowObject.URL.createObjectURL(new Blob([payload], { type: "application/json" }));
+  // text/calendar for .ics: it's what makes a phone offer "Add to Calendar".
+  const url = windowObject.URL.createObjectURL(new Blob([payload], { type }));
   const link = documentObject.createElement("a");
   link.href = url;
   link.download = filename;
@@ -1384,6 +1395,7 @@ export function createInteractionState({
     bulkRemove: { pattern: "", error: "", matches: null },
     compare: { formIdA: null, formIdB: null, queryA: "", queryB: "" },
     spreadcheck: { formId: null, query: "", ivs: { atk: 0, def: 0, sta: 0 } },
+    boxAudit: { status: "idle", progress: null, summary: null },
     dexShinySprite: false,
     groupMemberName: "",
     groupMessage: "",
@@ -1391,6 +1403,10 @@ export function createInteractionState({
     textSize: loadTextSize(storage),
     theme: loadTheme(storage),
     trainerProfile: loadTrainerProfile(storage),
+    profiles: loadProfiles(storage),
+    profileDraftName: "",
+    profileMessage: "",
+    profileCompare: null,
     friendCodeInput: loadMyFriendCode(storage),
     friendCodeError: "",
     friendCodesMessage: "",
@@ -1454,8 +1470,18 @@ export function createInteractionController({
   onConfirm = () => true,
   onFeedbackExport = null,
   onBackupExport = null,
+  onCalendarExport = null,
+  // Event feed for the calendar export — controller scope rule: injected,
+  // never read off app state.
+  getCurrentEvents = () => null,
   onShareCard = null,
   getTriageResult = () => ({ entries: [] }),
+  // Box audit needs rankings the controller must not read off app state
+  // directly (controller scope rule) — injected like getTriageResult.
+  getVerdictContext = () => null,
+  // Opens another profile's roster record (compare / remove). Injectable so
+  // tests never touch IndexedDB.
+  createProfileStore = (recordKey) => createIndexedDbAdapter({ recordKey }),
   getRaidPlanCardData = () => null,
   getRotationPackCardData = () => null,
   getCurrentBosses = () => null,
@@ -1805,6 +1831,9 @@ export function createInteractionController({
     onBackupExport,
     onShareCard,
     getTriageResult,
+    getVerdictContext,
+    getCurrentEvents,
+    onCalendarExport,
     getRaidPlanCardData,
     getRotationPackCardData,
     getCurrentBosses,
@@ -2031,6 +2060,13 @@ export function createInteractionController({
       const target = event?.target;
       // I2 quick-add IV/move selects — native <select> (picker wheel), fires
       // "change" on commit, not "input".
+      const spreadcheckCp = target?.closest?.("[data-spreadcheck-cp]");
+      if (spreadcheckCp) {
+        const cp = Math.round(Number(spreadcheckCp.value));
+        ui.spreadcheck.cp = Number.isFinite(cp) && cp >= 10 ? cp : null;
+        rerenderCurrent();
+        return;
+      }
       const spreadcheckIv = target?.closest?.("[data-spreadcheck-iv]");
       if (spreadcheckIv) {
         const stat = spreadcheckIv.dataset.spreadcheckIv;
@@ -2253,6 +2289,11 @@ export function createInteractionController({
       if (defenseLogStart) {
         ui.defenseLogDraft.startedAt = defenseLogStart.value;
         rerender("leaderboard");
+        return;
+      }
+      const profileNameInput = target?.closest?.("[data-profile-new-name]");
+      if (profileNameInput) {
+        ui.profileDraftName = String(profileNameInput.value ?? "").slice(0, 24);
         return;
       }
       const trainerLevelControl = target?.closest?.("[data-trainer-level]");
@@ -3700,6 +3741,72 @@ export function createInteractionController({
         const copied = Boolean(payload) && await api.onTriageCopy?.(payload);
         ui.triage.copyStatus = copied ? "success" : "failure";
         rerender("triage");
+      } else if (action === "profile-add") {
+        // The field commits on "change"; tapping Add straight after typing can
+        // beat that, so read the live field as a fallback.
+        const typed = ui.profileDraftName
+          || controllerWindow()?.document?.querySelector?.("[data-profile-new-name]")?.value || "";
+        const { index, error } = addProfile(ui.profiles, typed);
+        if (error) {
+          ui.profileMessage = error;
+        } else {
+          ui.profiles = index;
+          saveProfiles(storage, index);
+          ui.profileDraftName = "";
+          ui.profileMessage = "Profile added — switch to it to start its roster.";
+        }
+        rerender("more");
+      } else if (action === "profile-switch") {
+        const next = setActiveProfile(ui.profiles, actionEl.dataset.profileId);
+        if (next.activeId === ui.profiles.activeId) return;
+        saveProfiles(storage, next);
+        // Reload rather than hot-swap: every view re-reads the new account's
+        // roster from boot, so nothing from the previous one lingers.
+        controllerWindow()?.location?.reload?.();
+      } else if (action === "profile-remove") {
+        const id = actionEl.dataset.profileId;
+        const name = ui.profiles.profiles.find((p) => p.id === id)?.name ?? id;
+        if (!api.onConfirm?.(`Remove the ${name} profile and its roster from this device? This can't be undone unless you have a backup.`)) return;
+        const { index, error } = removeProfile(ui.profiles, id);
+        if (error) {
+          ui.profileMessage = error;
+        } else {
+          await createProfileStore(rosterRecordKey(id)).remove?.();
+          ui.profiles = index;
+          saveProfiles(storage, index);
+          ui.profileMessage = `Removed ${name}.`;
+          ui.profileCompare = null;
+        }
+        rerender("more");
+      } else if (action === "profile-compare") {
+        ui.profileCompare = { status: "loading", suggestions: [] };
+        rerender("more");
+        const rosters = {};
+        for (const profile of ui.profiles.profiles) {
+          rosters[profile.id] = profile.id === ui.profiles.activeId
+            ? roster
+            : await loadRoster(createProfileStore(rosterRecordKey(profile.id)));
+        }
+        ui.profileCompare = { status: "done", suggestions: tradeSuggestions(rosters, forms) };
+        rerender("more");
+      } else if (action === "calendar-export") {
+        const payload = buildIcs(api.getCurrentEvents?.());
+        (api.onCalendarExport ?? onCalendarExport)?.(payload);
+        ui.calendarMessage = "Calendar file downloaded — open it to add the events.";
+        rerenderCurrent();
+      } else if (action === "run-box-audit") {
+        const ctx = api.getVerdictContext?.();
+        if (!ctx || ui.boxAudit.status === "running") return;
+        ui.boxAudit = { status: "running", progress: null, summary: null };
+        rerender("triage");
+        const summary = await auditBox(api.getTriageResult?.().entries ?? [], ctx, {
+          onProgress: (progress) => { ui.boxAudit.progress = progress; rerender("triage"); },
+          // Yield to the browser between batches so a 2,700-mon box never
+          // freezes the page.
+          yieldFn: () => new Promise((resolve) => { setTimeout(resolve, 0); }),
+        });
+        ui.boxAudit = { status: "done", progress: null, summary };
+        rerender("triage");
       } else if (action === "copy-triage-search-chunk") {
         const payload = actionEl.dataset.searchChunkPayload;
         const copied = Boolean(payload) && await api.onTriageCopy?.(payload);
@@ -4022,7 +4129,19 @@ export function createInteractionController({
         }
         rerenderCurrent();
       } else if (action === "backup-export") {
+        // Every other profile's roster rides along (C4); the active one stays
+        // in `roster` so an older app still restores it.
+        let profilesBlock = null;
+        if (ui.profiles.profiles.length > 1) {
+          const rosters = {};
+          for (const profile of ui.profiles.profiles) {
+            if (profile.id === ui.profiles.activeId) continue;
+            rosters[profile.id] = await loadRoster(createProfileStore(rosterRecordKey(profile.id)));
+          }
+          profilesBlock = { index: structuredClone(ui.profiles), rosters };
+        }
         const envelope = buildBackupEnvelope({
+          profiles: profilesBlock,
           roster: structuredClone(roster),
           defenseLog: structuredClone(ui.defenseLog),
           textSize: ui.textSize,
@@ -4055,7 +4174,36 @@ export function createInteractionController({
           ? mergeBackupPayload(current, preview.envelope.payload)
           : replaceBackupPayload(preview.envelope.payload);
         failureRoute = "more";
-        await mutateRoster(() => restored.roster);
+        // Each roster returns to the profile it was exported from (C4). The
+        // one on screen goes through mutateRoster as before; the rest are
+        // written to their own records, and missing profiles are recreated.
+        const fromBackup = backupRostersByProfile(preview.envelope.payload, ui.profiles.activeId);
+        let profileIndex = ui.profiles;
+        for (const entry of fromBackup.index?.profiles ?? []) {
+          if (!profileIndex.profiles.some((p) => p.id === entry.id)) {
+            profileIndex = { ...profileIndex, profiles: [...profileIndex.profiles, { id: entry.id, name: entry.name }] };
+          }
+        }
+        for (const [id, backupRoster] of Object.entries(fromBackup.rosters)) {
+          if (id === ui.profiles.activeId || !profileIndex.profiles.some((p) => p.id === id)) continue;
+          const profileStore = createProfileStore(rosterRecordKey(id));
+          const next = mode === "merge" ? mergeProfileRoster(await loadRoster(profileStore), backupRoster) : backupRoster;
+          await profileStore.replace(next);
+        }
+        if (profileIndex !== ui.profiles) {
+          ui.profiles = profileIndex;
+          saveProfiles(storage, profileIndex);
+        }
+        // A pre-profiles backup restores exactly as it always did. A profiles
+        // backup only touches the open profile if it carries that profile —
+        // never drops another account's roster into it.
+        const activeFromBackup = fromBackup.rosters[ui.profiles.activeId];
+        let nextActive = restored.roster;
+        if (fromBackup.index) {
+          nextActive = !activeFromBackup ? structuredClone(roster)
+            : mode === "merge" ? mergeProfileRoster(structuredClone(roster), activeFromBackup) : activeFromBackup;
+        }
+        await mutateRoster(() => nextActive);
         ui.defenseLog = saveDefenseLog(storage, restored.defenseLog);
         ui.textSize = saveTextSize(storage, restored.textSize);
         applyTextSize(rootElement, ui.textSize);
@@ -5126,10 +5274,16 @@ export function bootstrap({
         gym: state.gym,
         compareSelection: ui.compare,
         spreadcheckSelection: ui.spreadcheck,
+        pvpDeepRanks: state.pvpDeepRanks,
+        currentEvents: state.currentEvents,
         currentBosses: state.currentBosses ?? state.core?.currentBosses,
         textSize: ui.textSize,
         theme: ui.theme,
         trainerProfile: ui.trainerProfile,
+        profiles: ui.profiles,
+        profileDraftName: ui.profileDraftName,
+        profileMessage: ui.profileMessage,
+        profileCompare: ui.profileCompare,
         friendCodeInput: ui.friendCodeInput,
         friendCodeError: ui.friendCodeError,
         friendCodesMessage: ui.friendCodesMessage,
@@ -5235,6 +5389,8 @@ export function bootstrap({
             : "";
         })();
       app.innerHTML = interactionNotice(ui) + renderHome({
+        profileName: ui.profiles.profiles.length > 1 ? (ui.profiles.profiles.find((p) => p.id === ui.profiles.activeId)?.name ?? null) : null,
+        calendarMessage: ui.calendarMessage ?? "",
         questsCardHtml,
         countdownChipsHtml,
         evolutionHoldsCardHtml,
@@ -5349,6 +5505,7 @@ export function bootstrap({
         forms: state.core.forms,
         gym: state.gym,
         pvp: state.pvp,
+        pvpDeepRanks: state.pvpDeepRanks,
         raidTargetTool: state.raidTargetTool,
         raids: state.raids,
         raidsLoaded: loadedChunkPaths.has("raids-regular.json") && loadedChunkPaths.has("raids-shadow.json"),
@@ -5516,7 +5673,17 @@ export function bootstrap({
         ["antimeta", "Anti-Meta"],
         ["swap", "Battle Swap"],
         ["theorycraft", "Next Season"],
+        ["cup", "Cups"],
       ], view);
+      if (view === "cup") {
+        app.innerHTML = interactionNotice(ui) + tabs + (state.pvp && state.currentEvents
+          ? renderCupView({
+            currentEvents: state.currentEvents, forms: state.core.forms, pvp: state.pvp,
+            pvpDeepRanks: state.pvpDeepRanks, roster, now: new Date(),
+          })
+          : chunkNotice("pvp", "Cups"));
+        return;
+      }
       if (view === "swap") {
         app.innerHTML = interactionNotice(ui) + tabs + (state.pvp
           ? renderSwap({
@@ -5593,6 +5760,12 @@ export function bootstrap({
           state: ui.triage,
           showGuide: showTriageGuide(storage),
           weakLaneCount: weakLanes(typeCoverage({ raids: state.raids, roster })).length,
+          verdictFor: (entry) => verdictForEntry(entry, {
+            forms: state.core.forms, pvp: state.pvp, pvpDeepRanks: state.pvpDeepRanks, raids: state.raids,
+            gym: state.gym, roster, currentEvents: state.currentEvents ?? null,
+          }),
+          boxAudit: ui.boxAudit,
+          profileName: ui.profiles.profiles.length > 1 ? (ui.profiles.profiles.find((p) => p.id === ui.profiles.activeId)?.name ?? null) : null,
         })
         : chunkNotice("triage", "Triage"));
     },
@@ -5644,7 +5817,10 @@ export function bootstrap({
       // so its ~1MB parse never competes with the chunks the route's actual
       // first-quality render depends on. Promise.resolve tolerates
       // onRouteVisit being undefined or a test stub that returns nothing.
-      if (route === "home" || route === "dex") {
+      // More hosts Spread Checker and the scan review, both of which judge a
+      // catch against raids/pvp/gyms — same deferred chain, so light More
+      // pages (settings, glossary) are never blocked on ~2MB of rankings.
+      if (route === "home" || route === "dex" || route === "more") {
         Promise.resolve(chunkVisit).then(() => onRouteVisit?.(HOME_DEFERRED_CHUNK_KEY));
       }
       // Prepend into #app so the guide scrolls with the view instead of
@@ -5735,6 +5911,9 @@ export function bootstrap({
     onBackupExport(payload) {
       downloadFile("pokemon-go-field-guide-backup.json", payload, { documentObject, windowObject });
     },
+    onCalendarExport(payload) {
+      downloadFile("pokemon-go-events.ics", payload, { documentObject, windowObject, type: "text/calendar" });
+    },
     onShareCard(type, data) {
       return shareOrDownloadCard(type, data, { documentObject, windowObject, navigatorObject: windowObject.navigator });
     },
@@ -5759,11 +5938,20 @@ export function bootstrap({
       windowObject.location.hash = `dex/${formId}`;
     },
     getTriageResult,
+    getCurrentEvents: () => state.currentEvents ?? null,
+    getVerdictContext: () => (state.pvp && state.raids && state.gym ? {
+      forms: state.core.forms, pvp: state.pvp, pvpDeepRanks: state.pvpDeepRanks, raids: state.raids,
+      gym: state.gym, roster, currentEvents: state.currentEvents ?? null,
+    } : null),
     getRaidPlanCardData,
     getRotationPackCardData,
     getCurrentBosses,
     getGymLineupCardData,
-    onRosterChanged() { triageResult = null; },
+    onRosterChanged() {
+      triageResult = null;
+      // A changed roster makes any finished audit stale; re-run on demand.
+      ui.boxAudit = { status: "idle", progress: null, summary: null };
+    },
     searchRefresh: () => searchRefresh(),
     rerenderCurrent: () => renderers[currentRoute]?.(),
     isCurrentRoute: (route) => currentRoute === route,
@@ -5910,7 +6098,9 @@ export async function startFieldGuide({
   if (!releaseState?.data) void attemptSelfRepair({ windowObject });
   if (releaseState.data) {
     try {
-      store = store ?? createIndexedDbAdapter();
+      store = store ?? createIndexedDbAdapter({
+        recordKey: rosterRecordKey(loadProfiles(windowObject?.localStorage ?? null).activeId),
+      });
       roster = await loadRoster(store);
       const gymDefenderForms = gymEligibleDefenderForms(releaseState.data.forms ?? {});
       const validFormIds = new Set(Object.keys(releaseState.data.forms ?? {}));

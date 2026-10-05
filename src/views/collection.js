@@ -1,5 +1,6 @@
 import { escapeHtml, shinyLuckyBadges } from "./home.js";
 import { ocrIntakeSectionHtml } from "./dex.js";
+import { scanRowVerdictHtml } from "../catch-verdict.js";
 import { spriteHtml } from "../sprites.js";
 import {
   collectionProgress, collectionSuggestions, livingDexRows, randomUncaughtFormId, speciesMarkState,
@@ -233,7 +234,10 @@ export function renderCollectionView(data = {}, random = Math.random) {
     <p>Tracks only what you've marked owned, shiny, or lucky on this device — there's no shiny-odds or availability data here.</p>
     ${surpriseBlock(forms, roster, random)}
     ${modeBar(markMode, tally, markType)}
-    ${ocrIntakeSectionHtml(data.ocrIntake)}
+    ${ocrIntakeSectionHtml(data.ocrIntake, (row) => scanRowVerdictHtml(row, {
+    forms, pvp: data.pvp, pvpDeepRanks: data.pvpDeepRanks, raids: data.raids, gym: data.gym,
+    roster, currentEvents: data.currentEvents ?? null,
+  }))}
     <div class="i1-overall-head">
       ${completionRing(progress.overall.caught, progress.overall.total)}
       <p class="collection-overall"><strong>${progress.overall.caught}/${progress.overall.total} caught</strong> · ${progress.overall.shiny} shiny · ${progress.overall.lucky} lucky${progress.overall.total > 0 && progress.overall.caught === progress.overall.total ? ' <span class="i1-milestone-stamp">COMPLETE</span>' : ""}</p>

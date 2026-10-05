@@ -15,7 +15,7 @@
 // that rename happens locally below, at the one call site that needs it.
 import { escapeHtml, whyLine } from "./home.js";
 import { spriteHtml } from "../sprites.js";
-import { groupBossCoverage } from "../group-analysis.js";
+import { assignmentAdvice, groupBossCoverage } from "../group-analysis.js";
 import { groupSummary } from "../group-store.js";
 
 function daysAgoLabel(iso, now) {
@@ -145,7 +145,17 @@ function bestEntryCardHtml(entry, forms) {
   </li>`;
 }
 
-function bossRollupCardHtml(boss, forms, coverage) {
+// Who should bring what (assignmentAdvice — written alongside the coverage
+// rollup and never rendered until 2026-10-05). The rollup says what the group
+// owns; this says who leads and where two members would duplicate a pick.
+function assignmentHtml(advice) {
+  if (!advice?.topPick) return "";
+  const pick = advice.topPick;
+  return `<p class="group-assignment"><strong>${escapeHtml(pick.memberName)}</strong> leads with ${escapeHtml(pick.form?.name ?? "")}.</p>
+    ${advice.overlapNotes.length ? `<ul class="group-overlap">${advice.overlapNotes.map((note) => `<li>${escapeHtml(note)}</li>`).join("")}</ul>` : ""}`;
+}
+
+function bossRollupCardHtml(boss, forms, coverage, advice = null) {
   const name = forms?.[boss.formId]?.name ?? boss.formId;
   return `<div class="more-section group-boss-card" data-group-boss-id="${escapeHtml(boss.formId)}">
     <div class="briefing-boss-head">
@@ -156,6 +166,7 @@ function bossRollupCardHtml(boss, forms, coverage) {
       </div>
     </div>
     ${groupEstimateHtml(coverage.groupEstimate)}
+    ${assignmentHtml(advice)}
     ${coverage.best.length ? `<p class="briefing-bring-label">Best 6, attributed</p>
     <ul class="party-slot-list group-best-list" aria-label="Group's best attackers for ${escapeHtml(name)}">
       ${coverage.best.map((entry) => bestEntryCardHtml(entry, forms)).join("")}
@@ -184,6 +195,9 @@ function answersSectionHtml({
   const allMembers = (roster?.instances?.length ?? 0) > 0
     ? [...groupMembers, { name: memberName || "You", roster }]
     : groupMembers;
+  const adviceByForm = new Map(assignmentAdvice({
+    members: allMembers, forms, raids, currentBosses: bosses, data,
+  }).map((entry) => [entry.formId, entry]));
   const cards = bosses
     .map((boss) => {
       const coverage = groupBossCoverage({
@@ -191,7 +205,7 @@ function answersSectionHtml({
       });
       // Unknown boss form (not in `forms`) — group-analysis.js's own
       // "can't honestly score this" contract; skip the card, don't crash.
-      return coverage ? bossRollupCardHtml(boss, forms, coverage) : "";
+      return coverage ? bossRollupCardHtml(boss, forms, coverage, adviceByForm.get(boss.formId)) : "";
     })
     .join("");
   return `<div class="group-answers">

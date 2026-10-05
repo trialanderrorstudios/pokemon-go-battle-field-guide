@@ -18,7 +18,11 @@ const TRAINER_PROFILE_STORAGE_KEY = "pogo-trainer-profile";
 export const TEAMS = Object.freeze(["valor", "mystic", "instinct"]);
 export const TEAM_SET = new Set(TEAMS);
 const MIN_TRAINER_LEVEL = 1;
-const MAX_TRAINER_LEVEL = 50; // Trainer level cap: Bulbapedia's "Trainer level" article.
+// Trainer level cap: 80 since the level 51-80 expansion (Pokémon GO Hub level
+// 1-80 guide, verified 2026-10-05). Was 50, which silently refused the
+// operator's real level 74. Pokémon level caps are unaffected —
+// raid-target.js reachableLevelCap clamps to 50 regardless.
+const MAX_TRAINER_LEVEL = 80;
 const MAX_TRAINER_NAME_LENGTH = 40;
 
 function validTrainerLevel(value) {
@@ -554,6 +558,10 @@ export function createIndexedDbAdapter({
   indexedDBObject = globalThis.indexedDB,
   databaseName = "pokemon-go-field-guide",
   storeName = "local-state",
+  // Which record holds this roster. "roster" is the original single-roster
+  // key and stays the Main profile's key forever (profiles.js), so devices
+  // from before profiles existed need no migration.
+  recordKey = "roster",
 } = {}) {
   if (!indexedDBObject || typeof indexedDBObject.open !== "function") {
     throw new Error("IndexedDB is unavailable in this browser.");
@@ -578,7 +586,7 @@ export function createIndexedDbAdapter({
       const database = await open();
       try {
         const transaction = database.transaction(storeName, "readonly");
-        return await requestResult(transaction.objectStore(storeName).get("roster"));
+        return await requestResult(transaction.objectStore(storeName).get(recordKey));
       } finally {
         database.close();
       }
@@ -591,7 +599,22 @@ export function createIndexedDbAdapter({
           transaction.oncomplete = () => resolve();
           transaction.onerror = () => reject(transaction.error ?? new Error("Unable to save local roster."));
           transaction.onabort = () => reject(transaction.error ?? new Error("Local roster save was aborted."));
-          transaction.objectStore(storeName).put(structuredClone(state), "roster");
+          transaction.objectStore(storeName).put(structuredClone(state), recordKey);
+        });
+      } finally {
+        database.close();
+      }
+    },
+    // Removes this profile's roster record (profile deletion). Never called
+    // for Main — profiles.js refuses to remove it.
+    async remove() {
+      const database = await open();
+      try {
+        await new Promise((resolve, reject) => {
+          const transaction = database.transaction(storeName, "readwrite");
+          transaction.oncomplete = () => resolve();
+          transaction.onerror = () => reject(transaction.error ?? new Error("Unable to remove local roster."));
+          transaction.objectStore(storeName).delete(recordKey);
         });
       } finally {
         database.close();

@@ -76,12 +76,23 @@ export function dexPvpOptimal(form, league) {
   };
 }
 
-// "Yours"-style rank line for the served top-50 row. pvpLeagueCardHtml
-// already renders "Rank N · tier" whenever row exists (views/dex.js), so
-// this returns "" there rather than saying the same thing twice — the view
-// stays the single source for that line. It only has something to say when
-// row is absent, i.e. the species didn't make the shipped rankings.
-export function dexPvpRankLine(form, league, row) {
+// Rank line for a form OUTSIDE the shipped top-50 rows. pvpLeagueCardHtml
+// renders "Rank N · tier" whenever a row exists, so this returns "" there
+// rather than saying the same thing twice.
+//
+// `deep` is this form's entry from pvpDeepRanks ([great, ultra, master] full
+// PvPoke positions) and `totals` the league sizes. Written early and then
+// never called; wired 2026-10-05 alongside the deep-rank map so the dex
+// answers "how is X in GBL" with "#212 of 1146" instead of going silent —
+// the question asked about a dozen sub-top-50 mons in one session.
+const LEAGUE_INDEX = { great: 0, ultra: 1, master: 2 };
+
+export function dexPvpRankLine(form, league, row, deep = null, totals = null) {
   if (row) return "";
-  return "Outside the current top 50";
+  const rank = deep?.[LEAGUE_INDEX[league]];
+  const total = totals?.[league];
+  if (Number.isInteger(rank) && Number.isInteger(total)) {
+    return `#${rank} of ${total} — outside the top 50`;
+  }
+  return "Not in this league's PvPoke rankings at all";
 }

@@ -1,4 +1,5 @@
 import { ATTACK_TYPES, buildRaidPlan, effectiveness } from "../raid-target.js";
+import { calendarEvents } from "../calendar-export.js";
 import { spriteHtml } from "../sprites.js";
 import { intersectRosterChanges, releaseDiffDismissedKey } from "../release-diff.js";
 import { renderCommunityDayBriefCard } from "../cd-brief.js";
@@ -350,6 +351,55 @@ export function raidHourBanner({ currentEvents, forms, now = new Date() } = {}) 
   return `<a class="fallback-section raid-hour-banner" href="./?boss=${encodeURIComponent(event.formId)}#raids" data-event-id="${escapeHtml(event.eventId)}">
     <p class="raid-hour-kicker">⏰ RAID HOUR${when ? ` · ${escapeHtml(when)}` : ""}</p>
     <p class="raid-hour-detail"><strong>${escapeHtml(bossName)}</strong> — ${escapeHtml(event.action)}</p>
+    ${stale ? `<p class="boss-stale">May be outdated — check in-game.</p>` : ""}
+  </a>`;
+}
+
+
+// Spotlight Hour banner — the weekly hour where the BONUS is the whole
+// decision (2x Catch Candy is worth clearing an evening for; 2x Catch XP
+// usually isn't). Until r185 the bonus only ever appeared inside the prose
+// action line, buried in a timeline row and the Today list, which made the
+// one fact you plan around the hardest one to find (operator, 2026-10-05).
+//
+// `spotlightBonus` is the feed's own clean string, carried through by
+// sync-rotation.mjs rather than regex'd back out of the action sentence here.
+// No bonus in the feed = the banner still renders with the species and time,
+// it just has nothing to lead with.
+// Calendar export (D): the phone's calendar is the alert system — no server.
+// Only offered when there's something in the next 30 days worth a slot.
+function calendarExportHtml(currentEvents, now, message) {
+  const count = calendarEvents(currentEvents, { now }).length;
+  if (!count) return "";
+  return `<div class="fallback-section calendar-export">
+    <button type="button" data-action="calendar-export">Add the next 30 days to my calendar (${count} event${count === 1 ? "" : "s"})</button>
+    <p class="briefing-note">Raid Hours, Spotlight Hours with their bonus, Rocket windows and cup changes — each with a reminder 30 minutes before.</p>
+    ${message ? `<p class="briefing-note" role="status">${escapeHtml(message)}</p>` : ""}
+  </div>`;
+}
+
+export function nextSpotlightHour(events, now = new Date()) {
+  const hours = (events ?? []).filter((event) => event.kind === "pokemon-spotlight-hour");
+  if (!hours.length) return null;
+  const upcoming = hours.filter((event) => new Date(event.endsAt) >= now);
+  const pool = upcoming.length ? upcoming : hours;
+  return [...pool].sort((left, right) => new Date(left.startsAt) - new Date(right.startsAt))[0];
+}
+
+
+export function spotlightHourBanner({ currentEvents, forms, now = new Date() } = {}) {
+  const event = nextSpotlightHour(currentEvents?.events, now);
+  if (!event) return "";
+  const name = forms?.[event.formId]?.name ?? event.name.replace(/ Spotlight Hour$/, "");
+  const when = formatRaidHourWhen(event.startsAt, event.endsAt, now);
+  const stale = new Date(event.endsAt) < now;
+  // Links to the species, not a raid target: the decision here is "do I want
+  // to farm this one", which is a dex question.
+  const href = event.formId ? `./?form=${encodeURIComponent(event.formId)}#dex` : "./#dex";
+  return `<a class="fallback-section spotlight-hour-banner" href="${href}" data-event-id="${escapeHtml(event.eventId)}">
+    <p class="spotlight-hour-kicker">✨ SPOTLIGHT HOUR${when ? ` · ${escapeHtml(when)}` : ""}</p>
+    <p class="spotlight-hour-bonus">${event.spotlightBonus ? escapeHtml(event.spotlightBonus) : "Bonus not published"}</p>
+    <p class="raid-hour-detail"><strong>${escapeHtml(name)}</strong></p>
     ${stale ? `<p class="boss-stale">May be outdated — check in-game.</p>` : ""}
   </a>`;
 }
@@ -1566,6 +1616,8 @@ export function renderHome({
   eventEvolveCardHtml = "",
   researchEncountersCardHtml = "",
   streakChipHtml = "",
+  profileName = null,
+  calendarMessage = "",
 } = {}) {
   const continueRoute = CONTINUE_ROUTES.has(continueTask?.route)
     ? continueTask.route
@@ -1584,11 +1636,15 @@ export function renderHome({
       <div class="search-recents" data-search-recents></div>
       <div data-search-results></div>
     </form>
+    ${profileName ? `<p class="profile-chip" data-profile-chip>Profile: <strong>${escapeHtml(profileName)}</strong></p>` : ""}
     ${streakChipHtml}
     ${countdownChipsHtml}
     ${renderFieldTimeline({
     currentBosses, currentEvents, raidTargetTool, forms, roster, data, storage, trainerLevel, gapByFormId, now, briefingShareMessage,
   })}
+    ${raidHourBanner({ currentEvents, forms, now })}
+    ${spotlightHourBanner({ currentEvents, forms, now })}
+    ${calendarExportHtml(currentEvents, now, calendarMessage)}
     ${questsCardHtml}
     ${evolutionHoldsCardHtml}
     ${eventEvolveCardHtml}
