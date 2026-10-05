@@ -1147,6 +1147,45 @@ h1 {
   box-shadow: 0 1px 0 rgba(0, 0, 0, 0.45), inset 0 1px 0 rgba(255, 255, 255, 0.15);
 }
 
+/* Hub strip (A4): one scrolling row of the current tab's pages, on the chassis
+   just above the tab bar where a thumb already is. */
+.hub-strip {
+  flex: none;
+  display: flex;
+  gap: 0.4rem;
+  overflow-x: auto;
+  padding: 0.4rem max(0.5rem, env(safe-area-inset-right, 0px)) 0 max(0.5rem, env(safe-area-inset-left, 0px));
+  scrollbar-width: none;
+}
+
+.hub-chip {
+  flex: none;
+  min-height: 32px;
+  display: inline-flex;
+  align-items: center;
+  padding: 0 0.75rem;
+  border-radius: 999px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  color: var(--text);
+  font-family: var(--dx-display);
+  font-size: 0.75rem;
+  font-weight: 700;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.hub-chip[aria-current="page"] {
+  background: var(--dx-led-yellow);
+  border-color: #8a6d00;
+  color: #23252e;
+}
+
+.hub-chip:focus-visible {
+  outline: 3px solid var(--focus);
+  outline-offset: 1px;
+}
+
 .raid-method-note,
 .raid-ready-note,
 .raid-card details,

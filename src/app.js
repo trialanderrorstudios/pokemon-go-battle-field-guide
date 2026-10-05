@@ -615,7 +615,7 @@ function renderSearchResults(results, forms, roster, rawQuery = "", raidData = {
         <a class="safe-escape search-suggestion" href="./#${escapeHtml(result.route)}${result.view ? `/${escapeHtml(result.view)}` : ""}" data-route="${escapeHtml(result.route)}" data-view="${escapeHtml(result.view ?? "")}">
           <span class="search-suggestion-body">
             <strong>${highlightMatch(result.name, rawQuery)}</strong>
-            <span class="search-suggestion-meta">Reference — how it works</span>
+            <span class="search-suggestion-meta">${result.label ? escapeHtml(result.label) : "Reference — how it works"}</span>
           </span>
         </a>
       </li>`;

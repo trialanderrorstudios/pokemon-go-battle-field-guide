@@ -6,6 +6,15 @@
 
 export const SHELL_CHANGELOG = Object.freeze([
   Object.freeze({
+    rev: "r187", date: "2026-10-05",
+    added: Object.freeze([
+      "Search finds features too: type cup, purge, spread, backup, calendar, Giovanni or XL and jump straight to that page.",
+    ]),
+    tweaked: Object.freeze([
+      "New tab bar: Today · Box · Dex · Battle · Raids · Me. Your box finally has its own tab; Gyms, Rocket and the Leaderboard live under Battle; Learn lives under Dex. A row of chips above the tabs lists every page in the section you're in, so nothing hides behind More any more. Old links and bookmarks still work.",
+    ]),
+  }),
+  Object.freeze({
     rev: "r186", date: "2026-10-05",
     added: Object.freeze([
       "Catch Verdict: one Pokédex-style answer per Pokémon — build it and for which league, raid attacker, gym defender, purify or transfer. It catches a great roll on the wrong Pokémon, leagues a catch has already outgrown at its CP, shadow pre-evolutions (judged as their shadow final form), the cheaper no-XL league, Elite TMs the ranked moves need, when purifying would make the spread worse, the next Frustration window, and when you already own a better copy. In Spread Checker (now with an optional CP) and on every scanned row.",

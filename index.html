@@ -81,10 +81,10 @@
           <h2 id="raids-title">Hundo CP and practical counters</h2>
           <p>Compare regular, Mega, Primal, Super Mega, Shadow, and owned attackers with optimal raid moves.</p>
         </section>
-        <section id="gyms" class="fallback-section" aria-labelledby="gyms-title">
-          <p class="status-kicker">Gyms</p>
-          <h2 id="gyms-title">Solo, stagger, and placement plans</h2>
-          <p>Build low-resource offense teams and avoid adjacent defenders that share an easy weakness.</p>
+        <section id="triage" class="fallback-section" aria-labelledby="triage-title">
+          <p class="status-kicker">Box</p>
+          <h2 id="triage-title">Keep, build, or transfer</h2>
+          <p>Judge every Pokémon you own: what to build, what to purify, and the search strings to clean out the rest.</p>
         </section>
         <section id="pvp" class="fallback-section" aria-labelledby="pvp-title">
           <p class="status-kicker">PvP</p>
@@ -118,13 +118,16 @@
          another lane). An empty <div> costs no layout in the meantime. -->
     <div id="app-status" role="status"></div>
 
+    <!-- Hub strip (A4): the current tab's other pages, filled by src/router.js. -->
+    <div class="hub-strip" role="navigation" aria-label="In this section" data-hub-strip hidden></div>
+
     <nav class="tab-bar" aria-label="Primary">
-      <a class="tab-link" href="./#home" data-route="home"><span class="tab-glyph" aria-hidden="true">⌂</span><span>Home</span></a>
-      <a class="tab-link" href="./#raids" data-route="raids"><span class="tab-glyph" aria-hidden="true">⚡</span><span>Raids</span></a>
-      <a class="tab-link" href="./#gyms" data-route="gyms"><span class="tab-glyph" aria-hidden="true">▲</span><span>Gyms</span></a>
-      <a class="tab-link" href="./#pvp" data-route="pvp"><span class="tab-glyph" aria-hidden="true">◆</span><span>PvP</span></a>
-      <a class="tab-link" href="./#dex" data-route="dex"><span class="tab-glyph" aria-hidden="true">▤</span><span>Dex</span></a>
-      <a class="tab-link" href="./#more" data-route="more"><span class="tab-glyph" aria-hidden="true">•••</span><span>More</span></a>
+      <a class="tab-link" href="./#home" data-route="home" data-hub="today"><span class="tab-glyph" aria-hidden="true">⌂</span><span>Today</span></a>
+      <a class="tab-link" href="./#triage" data-route="triage" data-hub="box"><span class="tab-glyph" aria-hidden="true">▦</span><span>Box</span></a>
+      <a class="tab-link" href="./#dex" data-route="dex" data-hub="dex"><span class="tab-glyph" aria-hidden="true">▤</span><span>Dex</span></a>
+      <a class="tab-link" href="./#pvp" data-route="pvp" data-hub="battle"><span class="tab-glyph" aria-hidden="true">◆</span><span>Battle</span></a>
+      <a class="tab-link" href="./#raids" data-route="raids" data-hub="raids"><span class="tab-glyph" aria-hidden="true">⚡</span><span>Raids</span></a>
+      <a class="tab-link" href="./#more" data-route="more" data-hub="me"><span class="tab-glyph" aria-hidden="true">●</span><span>Me</span></a>
     </nav>
   </div>
 </body>

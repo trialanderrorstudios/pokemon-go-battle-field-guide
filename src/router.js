@@ -31,6 +31,48 @@ const ROUTE_VIEWS = Object.freeze({
 // Routes retired by the 23 -> 10 consolidation, and where their content lives
 // now. Bookmarks and Home Screen shortcuts to these hashes are in the wild, so
 // they resolve valid (route = the destination) instead of collapsing to home.
+// Six hubs (A4, operator-approved 2026-10-05 from the six-hub mockup): the tab
+// bar groups every route by what you came to do — Today, Box, Dex, Battle,
+// Raids, Me. Hashes are unchanged (bookmarks keep working); hubs only decide
+// which tab lights up and what the hub strip above the tab bar offers.
+// [route, view, label]; view "" is the route's bare page.
+const HUBS = Object.freeze([
+  { id: "today", items: [["home", "", "Today"], ["eggs", "", "Eggs"], ["more", "journal", "Journal"], ["more", "delta", "What changed"], ["more", "changelog", "Versions"]] },
+  { id: "box", items: [
+    ["triage", "", "My Box"], ["triage", "gaps", "Build next"], ["triage", "candy", "Candy"], ["more", "spreadcheck", "Spread Checker"],
+    ["more", "purge", "Purge"], ["more", "dupes", "Dupes"], ["more", "powerup", "Power-up"], ["more", "xladvisor", "XL"],
+    ["more", "elitetm", "Elite TM"], ["more", "budget", "Budget"], ["more", "future", "Future-proof"], ["more", "buddyplanner", "Buddy"],
+    ["more", "trophy", "Hundo Wall"], ["more", "shopguide", "Shop"], ["more", "roster", "Roster"],
+  ] },
+  { id: "dex", items: [["dex", "", "Pokédex"], ["more", "collection", "Living Dex"], ["more", "megas", "Megas"], ["more", "compare", "Compare"], ["basics", "", "Learn"]] },
+  { id: "battle", items: [
+    ["pvp", "", "PvP"], ["pvp", "cup", "Cups"], ["gyms", "", "Gyms"], ["rocket", "", "Rocket"], ["leaderboard", "", "Leaderboard"],
+    ["more", "mastery", "Mastery"], ["more", "coverage", "Coverage"],
+  ] },
+  { id: "raids", items: [["raids", "", "Raids"], ["raids", "hundo", "Hundos"], ["more", "group", "Raid Group"]] },
+  { id: "me", items: [
+    ["more", "", "All features"], ["more", "settings", "Settings & profiles"], ["more", "tradeplanner", "Trade Planner"], ["more", "trades", "Trades"],
+    ["more", "capabilities", "What it can do"], ["more", "about", "About"],
+  ] },
+]);
+
+// Exact route+view first, then the route's bare page (pvp/rankings -> Battle,
+// basics/max -> Dex). Anything unlisted falls to Today, like the router's own
+// unknown-route fallback.
+export function hubFor(route, view = "") {
+  const exact = HUBS.find((hub) => hub.items.some(([r, v]) => r === route && v === view));
+  return (exact ?? HUBS.find((hub) => hub.items.some(([r, v]) => r === route && v === "")) ?? HUBS[0]).id;
+}
+
+function hubStripHtml(hubId) {
+  const hub = HUBS.find((h) => h.id === hubId);
+  if (!hub || hub.items.length < 2) return "";
+  return hub.items.map(([route, view, label]) => (
+    `<a class="hub-chip" href="./#${route}${view ? `/${view}` : ""}" data-route="${route}" data-view="${view}">${label}</a>`
+  )).join("");
+}
+
+
 const RETIRED_ROUTES = Object.freeze({
   today: "home",
   // No anchor: coach became two Home sections with no view of its own, so it
@@ -190,7 +232,12 @@ export function createRouter({
   // anywhere inside its route.
   function markCurrent(route, view) {
     if (!documentObject?.querySelectorAll) return;
-    for (const link of documentObject.querySelectorAll("[data-route]")) {
+    const hub = hubFor(route, view);
+    for (const link of documentObject.querySelectorAll("[data-hub]")) {
+      if (link.dataset.hub === hub) link.setAttribute("aria-current", "page");
+      else link.removeAttribute("aria-current");
+    }
+    for (const link of documentObject.querySelectorAll("[data-route]:not([data-hub])")) {
       const linkView = link.dataset.view;
       if (link.dataset.route === route && (linkView === undefined || linkView === view)) {
         link.setAttribute("aria-current", "page");
@@ -219,7 +266,13 @@ export function createRouter({
     // Read the view back off the location: a renderer may canonicalize the URL
     // itself (?boss=X#raids folds into #raids/target), and marking the view we
     // came in with would light the wrong segment of the strip it just drew.
-    markCurrent(route, resolveRoute(windowObject.location.href, safeBase).view || view);
+    const currentView = resolveRoute(windowObject.location.href, safeBase).view || view;
+    const strip = documentObject?.querySelector?.("[data-hub-strip]");
+    if (strip) {
+      strip.innerHTML = hubStripHtml(hubFor(route, currentView));
+      strip.hidden = !strip.innerHTML;
+    }
+    markCurrent(route, currentView);
     // Tells src/boot-watchdog.js the app is alive. Set on a real render, not
     // on script load: a module that parses and then throws while rendering is
     // just as dead to the user as one that never loaded.
@@ -352,4 +405,4 @@ export function createRouter({
 }
 
 
-export { ROUTES, ROUTE_VIEWS, RETIRED_ROUTES };
+export { ROUTES, ROUTE_VIEWS, RETIRED_ROUTES, HUBS };
