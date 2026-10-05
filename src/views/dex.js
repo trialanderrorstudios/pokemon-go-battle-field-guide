@@ -1592,7 +1592,7 @@ function ocrIntakeRowHtml(row, verdictFor = null) {
   // CP+HP solve results (app.js applyOcrIvSolve): a unique spread renders as
   // fact with its derivation named; 2-8 spreads render as one-tap chips.
   const solvedLine = row.solvedIvs
-    ? `<p class="ocr-row-solved">IVs ${escapeHtml(row.solvedIvs.ivs.atk)}/${escapeHtml(row.solvedIvs.ivs.def)}/${escapeHtml(row.solvedIvs.ivs.sta)}${row.solvedIvs.level ? ` · Level ${escapeHtml(row.solvedIvs.level)}` : ""} — solved from CP + HP</p>`
+    ? `<p class="ocr-row-solved">IVs ${escapeHtml(row.solvedIvs.ivs.atk)}/${escapeHtml(row.solvedIvs.ivs.def)}/${escapeHtml(row.solvedIvs.ivs.sta)}${row.solvedIvs.level ? ` · Level ${escapeHtml(row.solvedIvs.level)}` : ""} — solved from CP + HP${row.solvedIvs.source === "bars" ? " + appraisal bars" : ""}</p>`
     : "";
   const readCharged = Array.isArray(row.draft?.chargedMoves) ? row.draft.chargedMoves.filter(Boolean) : [];
   const movesReadLine = row.draft?.fastMove && readCharged.length

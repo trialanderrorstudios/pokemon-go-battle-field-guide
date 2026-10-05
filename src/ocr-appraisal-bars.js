@@ -133,11 +133,83 @@ function proportionalRows(width, height) {
   };
 }
 
+// Colour-detected rows (2026-10-05): the appraisal panel is not always the
+// full-screen card the proportional guess assumes. It also pops up over the
+// mon-info screen (bottom-left, behind the team leader), and Tesseract can
+// miss the Attack/Defense/HP labels there, so there are no anchors either.
+// The bars themselves are unmistakable: three equal-width horizontal runs of
+// orange/pink fill + mid-grey track, stacked top to bottom. Finds them by
+// colour. White card background is excluded here (the plain classifier calls
+// it "track"), or the whole card would read as one giant bar.
+function isBarPixel(r, g, b) {
+  const kind = classifyBarPixel(r, g, b);
+  return kind === "filled" || (kind === "track" && Math.max(r, g, b) <= 245);
+}
+
+export function detectBarRows({ data, width, height }) {
+  const bands = [];
+  let current = null;
+  // A bar row's segment gaps are a few px; anything wider ends the run (the
+  // team leader standing beside the panel is bar-coloured too).
+  const maxGap = Math.max(2, Math.round(width * 0.01));
+  for (let y = 0; y < height; y += 1) {
+    let best = null;
+    let run = null;
+    for (let x = 0; x < width; x += 1) {
+      const i = (y * width + x) * 4;
+      if (!isBarPixel(data[i], data[i + 1], data[i + 2])) continue;
+      if (run && x - run.x1 <= maxGap) {
+        run.x1 = x;
+        run.count += 1;
+      } else {
+        run = { x0: x, x1: x, count: 1 };
+      }
+      if (!best || run.count > best.count) best = run;
+    }
+    const x0 = best?.x0 ?? -1;
+    const x1 = best?.x1 ?? -1;
+    const extent = x1 - x0 + 1;
+    // A bar row: one long, dense run that stops well short of full width
+    // (full-width grey strips are dialog/panel backgrounds, not bars).
+    const isBarRow = Boolean(best) && best.count >= width * 0.15 && extent <= width * 0.8 && best.count >= extent * 0.85;
+    if (!isBarRow) {
+      current = null;
+      continue;
+    }
+    if (current && y === current.y1 + 1 && Math.abs(x0 - current.x0) <= width * 0.02) {
+      current.y1 = y;
+      current.x1 = Math.max(current.x1, x1);
+    } else {
+      current = { y0: y, y1: y, x0, x1 };
+      bands.push(current);
+    }
+  }
+  // Three bars share a left edge, a width and a thickness; take the first
+  // such triple, top to bottom = Attack / Defense / HP. Not necessarily
+  // adjacent bands: anything bar-coloured beside the panel (the team leader)
+  // forms its own bands in between.
+  const real = bands.filter((band) => band.y1 - band.y0 >= height * 0.004);
+  const near = (a, b, tolerance) => Math.abs(a - b) <= tolerance;
+  // The bars are the widest such trio on screen.
+  let bestTrio = null;
+  for (const [i, a] of real.entries()) {
+    const thickness = a.y1 - a.y0;
+    const trio = [a, ...real.slice(i + 1).filter((band) => near(band.x0, a.x0, width * 0.02)
+      && near(band.x1, a.x1, width * 0.02) && near(band.y1 - band.y0, thickness, Math.max(3, thickness * 0.5)))].slice(0, 3);
+    if (trio.length === 3 && (!bestTrio || a.x1 - a.x0 > bestTrio[0].x1 - bestTrio[0].x0)) bestTrio = trio;
+  }
+  if (bestTrio) {
+    const [atk, def, sta] = bestTrio.map((band) => ({ y: Math.round((band.y0 + band.y1) / 2), x0: band.x0, x1: band.x1 + 1 }));
+    return { atk, def, sta };
+  }
+  return null;
+}
+
 // Appraisal screen order, top to bottom, is Attack / Defense / HP — same
 // order the in-game screen and this repo's own STAR_TIER_RANGES narrowing
 // assume elsewhere (instances.js). "sta" is this repo's field name for the
 // HP/Stamina IV throughout (ivCandidatesFromCpHp, buildInstance).
-function barRowGeometry(width, height, anchors) {
+function barRowGeometry(width, height, anchors, pixels = null) {
   const atkBbox = findAnchorBbox(anchors, ["attack"]);
   const defBbox = findAnchorBbox(anchors, ["defense", "defence"]);
   const staBbox = findAnchorBbox(anchors, ["hp", "stamina"]);
@@ -149,6 +221,8 @@ function barRowGeometry(width, height, anchors) {
       sta: rowFromBbox(staBbox, width),
     };
   }
+  const detected = pixels ? detectBarRows(pixels) : null;
+  if (detected) return { mode: "detected", ...detected };
   return { mode: "proportional", ...proportionalRows(width, height) };
 }
 
@@ -185,9 +259,11 @@ export async function readAppraisalBars(file, { anchors = null, documentObject =
     ctx.drawImage(bitmap, 0, 0);
     bitmap.close?.();
 
-    const geometry = barRowGeometry(canvas.width, canvas.height, anchors);
+    const geometry = barRowGeometry(canvas.width, canvas.height, anchors, ctx.getImageData(0, 0, canvas.width, canvas.height));
     const evidence = [];
-    if (geometry.mode === "proportional") {
+    if (geometry.mode === "detected") {
+      evidence.push("geometry: no complete label anchors — bars found by colour");
+    } else if (geometry.mode === "proportional") {
       evidence.push("geometry: no complete label anchors supplied — using proportional card-layout fallback (not exact)");
     }
     const ivs = {};

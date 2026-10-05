@@ -80,7 +80,7 @@ export function maxHp(form, staIv, level) {
   return Math.max(10, Math.floor(cpMultiplier(level) * (form.base_stamina + staIv)));
 }
 
-export function ivCandidatesFromCpHp(form, cp, hp, { maxLevel = MAX_LEVEL } = {}) {
+export function ivCandidatesFromCpHp(form, cp, hp, { maxLevel = MAX_LEVEL, limit = 8 } = {}) {
   if (!form || !Number.isInteger(cp) || !Number.isInteger(hp)) return [];
   const levels = maxLevel > MAX_LEVEL ? SUPER_MEGA_LEVELS : ALL_LEVELS;
   const out = [];
@@ -97,7 +97,7 @@ export function ivCandidatesFromCpHp(form, cp, hp, { maxLevel = MAX_LEVEL } = {}
           if (!seen.has(key)) {
             seen.add(key);
             out.push({ ivs, level });
-            if (out.length > 8) return out; // caller treats >8 as "too many"
+            if (out.length > limit) return out; // caller treats >limit as "too many"
           }
         }
       }

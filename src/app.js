@@ -2681,6 +2681,28 @@ export function createInteractionController({
               accepted: false,
             };
             applyOcrIvSolve(row);
+            // Same-screen appraisal (operator, 2026-10-05: shadow Deino CP351
+            // HP74 fits 9+ spreads, appraisal open over the stats). CP+HP
+            // alone can't settle it, so read the bars off THIS screenshot and
+            // keep only an exact hit on a CP/HP-solved spread. Checked against
+            // the full candidate list, not the 8-row tappable cap.
+            if (!row.solvedIvs && Number.isInteger(parsed.cp) && Number.isInteger(parsed.hp) && forms[parsed.formId]) {
+              const wide = ivCandidatesFromCpHp(forms[parsed.formId], parsed.cp, parsed.hp, {
+                ...(parsed.formId.includes("-mega") ? { maxLevel: 53 } : {}), limit: 4096,
+              });
+              if (wide.length > 1) {
+                try {
+                  const bars = await readAppraisalBars(file, { anchors: ocrWords, documentObject: controllerWindow()?.document });
+                  const picked = bars?.ivs ? pickCandidateByBars(wide, bars.ivs) : null;
+                  if (bars?.evidence?.length) row.rawText += `\n--- appraisal bars (same screen) ---\n${bars.evidence.join("\n")}`;
+                  if (picked) {
+                    row.draft = { ...row.draft, ivs: { ...picked.ivs } };
+                    row.solvedIvs = { ...picked, source: "bars" };
+                    row.ivCandidates = null;
+                  }
+                } catch { /* best-effort; the row keeps its CP/HP state */ }
+              }
+            }
             // Two-part scans (operator, 2026-08-13): a moves-screen or
             // appraisal-screen photo has no CP and no HP — it is a FRAGMENT
             // of some other mon in this batch, not its own. Shuffled photo
@@ -2733,7 +2755,7 @@ export function createInteractionController({
                 const picked = bars?.ivs ? pickCandidateByBars(mergeTarget.ivCandidates, bars.ivs) : null;
                 if (picked) {
                   mergeTarget.draft = { ...mergeTarget.draft, ivs: { ...picked.ivs } };
-                  mergeTarget.solvedIvs = picked;
+                  mergeTarget.solvedIvs = { ...picked, source: "bars" };
                   mergeTarget.ivCandidates = null;
                   mergedParts.push("appraisal bars (exact)");
                   barsResolved = true;

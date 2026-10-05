@@ -6,6 +6,12 @@
 
 export const SHELL_CHANGELOG = Object.freeze([
   Object.freeze({
+    rev: "r188", date: "2026-10-05",
+    tweaked: Object.freeze([
+      "Scanning a screenshot with the appraisal open now reads the Attack / Defense / HP bars off that same screenshot and settles the IVs, even when CP and HP alone fit many spreads (a fresh shadow Deino fit nine). The row says when the bars did it.",
+    ]),
+  }),
+  Object.freeze({
     rev: "r187", date: "2026-10-05",
     added: Object.freeze([
       "Search finds features too: type cup, purge, spread, backup, calendar, Giovanni or XL and jump straight to that page.",
