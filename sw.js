@@ -90,6 +90,7 @@ const SHELL_CODE_FILES = Object.freeze([
   "./src/guide.js",
   "./src/placement.js",
   "./src/pvp-moves.js",
+  "./src/pvp-sim.js",
   "./src/pvp-team.js",
   "./src/raid-target.js",
   "./src/release-diff.js",

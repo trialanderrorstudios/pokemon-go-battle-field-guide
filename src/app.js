@@ -5950,7 +5950,7 @@ export function bootstrap({
         app.innerHTML = interactionNotice(ui) + tabs + (state.pvp && state.currentEvents
           ? renderCupView({
             currentEvents: state.currentEvents, forms: state.core.forms, pvp: state.pvp,
-            pvpDeepRanks: state.pvpDeepRanks, roster, now: new Date(),
+            pvpDeepRanks: state.pvpDeepRanks, roster, moveCatalog: pvpMoveCatalog, now: new Date(),
           })
           : chunkNotice("pvp", "Cups"));
         return;

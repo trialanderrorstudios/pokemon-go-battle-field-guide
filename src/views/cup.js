@@ -2,7 +2,8 @@
 // its rules, the legal field, and the best trio from your own box. Props in,
 // HTML out; cup-team.js does the work.
 import { escapeHtml } from "./home.js";
-import { bestCupTeam, cupCalendar, cupMeta, ownedCupPool } from "../cup-team.js";
+import { bestCupTeam, cupCalendar, cupMeta, ownedCupPool, simulateVsMeta } from "../cup-team.js";
+import { MEASURED_AGREEMENT_PCT } from "../pvp-sim.js";
 
 function day(value) {
   return new Date(value).toLocaleDateString(undefined, { month: "short", day: "numeric" });
@@ -30,7 +31,30 @@ function metaHtml(meta) {
     <ol class="cup-meta">${rows}</ol>`;
 }
 
-function teamHtml(team, pool, cupName = "") {
+// H2: compact W/L/T per member against the cup meta's top 8, via the real
+// turn-by-turn simulator (simulateVsMeta) — distinct from the sim/ H1 line
+// above, which is PvPoke's own precomputed keyMatchups coverage.
+function vsMetaHtml(vsMeta) {
+  if (!vsMeta?.length) return "";
+  const rows = vsMeta.map((member) => {
+    if (member.noData) return `<li><strong>${escapeHtml(member.name)}</strong>: no build to simulate.</li>`;
+    // Name is printed next to the mark, not only in a title/hover — a
+    // phone has no hover, so the mark alone would be unreadable there.
+    const marks = member.results
+      .map((r) => `<span class="cup-sim-mark cup-sim-${r.result.toLowerCase()}" aria-label="${r.result} vs ${escapeHtml(r.name)}">${r.result} ${escapeHtml(r.name)}</span>`)
+      .join(" ");
+    const note = member.assumedRankOne ? " <small>(assumes rank-1 IVs and recommended moves)</small>" : "";
+    return `<li><strong>${escapeHtml(member.name)}</strong>${note}: ${marks}</li>`;
+  }).join("");
+  const agreementPct = Math.round(MEASURED_AGREEMENT_PCT);
+  return `<details class="cup-sim-section">
+    <summary>Simulate your team vs the cup meta</summary>
+    <p class="briefing-note">Approximate: this app's simple simulator agrees with PvPoke's published winner in about ${agreementPct}% of tested matchups. 1-1 shields, no shield baiting, opponents at rank-1 IVs with recommended moves.</p>
+    <ul class="cup-sim-rows">${rows}</ul>
+  </details>`;
+}
+
+function teamHtml(team, pool, cupName = "", meta = [], ctx = null) {
   if (!pool.length) {
     return `<p class="briefing-note">Nothing in your logged box is legal here yet. Star or scan what you own and this fills in.</p>`;
   }
@@ -55,10 +79,22 @@ function teamHtml(team, pool, cupName = "") {
     warnings,
   });
   const share = cupName ? `<button type="button" data-action="share-card-payload" data-share-type="cupTeam" data-share-payload="${escapeHtml(payload)}">Share this team</button>` : "";
+  // Guarded: an instance carrying a retired/unknown move id, or no
+  // moveCatalog wired up yet, drops this optional section rather than
+  // breaking the whole cup view.
+  let vsMeta = "";
+  if (ctx?.moveCatalog && Object.keys(ctx.moveCatalog).length) {
+    try {
+      vsMeta = vsMetaHtml(simulateVsMeta(team, meta, ctx));
+    } catch {
+      vsMeta = "";
+    }
+  }
   return `${share}<ol class="cup-team">${members}</ol>${sim}
     ${warnings.length ? `<ul class="cup-warnings">${warnings.map((w) => `<li>${escapeHtml(w)}</li>`).join("")}</ul>` : `<p class="briefing-note">No shared weakness across the trio.</p>`}
     ${bench.length ? `<p class="briefing-note">Bench: ${bench.map((m) => `${escapeHtml(m.name)} (#${m.openRank})`).join(", ")}</p>` : ""}
-    <p class="briefing-note">Picked by summed open rank, penalized for weaknesses two members share — a starting point, not a simulation.</p>`;
+    <p class="briefing-note">Picked by summed open rank, penalized for weaknesses two members share — a starting point, not a simulation.</p>
+    ${vsMeta}`;
 }
 
 function littleCupHtml(pool) {
@@ -66,17 +102,18 @@ function littleCupHtml(pool) {
     ${pool.length ? `<p class="briefing-note">Eligible in your box: ${pool.map((m) => escapeHtml(m.name)).join(", ")}</p>` : `<p class="briefing-note">Nothing logged in your box is eligible.</p>`}`;
 }
 
-export function renderCupView({ currentEvents, forms = {}, pvp = {}, pvpDeepRanks = null, roster = null, now = new Date() } = {}) {
+export function renderCupView({ currentEvents, forms = {}, pvp = {}, pvpDeepRanks = null, roster = null, moveCatalog = {}, now = new Date() } = {}) {
   const { cups, uncurated } = cupCalendar(currentEvents, now);
-  const ctx = { forms, pvp, pvpDeepRanks, roster };
+  const ctx = { forms, pvp, pvpDeepRanks, roster, moveCatalog };
   if (!cups.length && !uncurated.length) {
     return `<div class="fallback-section"><p class="briefing-note">No GO Battle League cup is live or announced in the current feed.</p></div>`;
   }
   const sections = cups.map((cup, index) => {
     const pool = ownedCupPool(cup, ctx);
+    const meta = cupMeta(cup, ctx);
     const body = cup.rule === "unevolved"
       ? littleCupHtml(pool)
-      : `<h4>From your box</h4>${teamHtml(bestCupTeam(cup, ctx), pool, cup.name)}${metaHtml(cupMeta(cup, ctx))}`;
+      : `<h4>From your box</h4>${teamHtml(bestCupTeam(cup, ctx), pool, cup.name, meta, ctx)}${metaHtml(meta)}`;
     return `<details class="fallback-section cup-section"${index === 0 ? " open" : ""} data-cup-event="${escapeHtml(cup.eventId)}">
       <summary><strong>${escapeHtml(cup.name)}</strong> · ${cup.live ? `live until ${escapeHtml(day(cup.endsAt))}` : `starts ${escapeHtml(day(cup.startsAt))}`}</summary>
       <p class="cup-rules">${escapeHtml(rulesLine(cup))}</p>

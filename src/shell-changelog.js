@@ -6,6 +6,12 @@
 
 export const SHELL_CHANGELOG = Object.freeze([
   Object.freeze({
+    rev: "r193", date: "2026-10-05",
+    added: Object.freeze([
+      "Cups: \"Simulate your team vs the cup meta\" — your recommended trio battled against the cup's top 8 (1-1 shields), with each result named. It's this app's own simulator and says so: it agrees with PvPoke's published winner in about 73% of tested matchups, uses your logged IVs and moves where it can, and assumes rank-1 builds otherwise.",
+    ]),
+  }),
+  Object.freeze({
     rev: "r192", date: "2026-10-05",
     added: Object.freeze([
       "Every catch verdict has an in-game nickname to copy (league, exact IVs, species rank in 12 characters) and a \"What if…\" with the CP after evolving, the dust/candy/XL to reach its best league, and what purifying does.",

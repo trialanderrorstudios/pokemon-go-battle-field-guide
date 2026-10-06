@@ -11,7 +11,9 @@
 // Little Cup is the exception: open GL rank means nothing at 500 CP, so it
 // reports eligibility and spreads but never claims a meta order.
 import { effectivenessOf } from "./type-chart.js";
+import { solveLevel } from "./instances.js";
 import { rankIvSpread } from "./pvp-team.js";
+import { simulatePvp } from "./pvp-sim.js";
 
 const META_SIZE = 20;
 const CANDIDATE_POOL = 12;
@@ -202,4 +204,77 @@ export function bestCupTeam(cup, ctx) {
 
 export function ownedCupPool(cup, ctx) {
   return ownedCandidates(cup, ctx);
+}
+
+// A pvp.great row's own rankOne build as a simulatePvp side, or null if the
+// row doesn't carry a full build (ivs/level/fastMove/chargedMoves).
+function sideFromRankOne(row, form) {
+  if (!row?.rankOne?.ivs || !row?.rankOne?.level || !row?.fastMove || !row?.chargedMoves?.length) return null;
+  const { attack, defense, stamina } = row.rankOne.ivs;
+  return { form, ivs: { atk: attack, def: defense, sta: stamina }, level: row.rankOne.level, fastMove: row.fastMove, chargedMoves: row.chargedMoves };
+}
+
+// An instance is only usable if EVERY move it carries resolves in the
+// move catalog — a retired/renamed move id on just one of its 1-2 charged
+// moves would otherwise either crash the sim or silently fight with a
+// move missing, so instead the whole instance is rejected and
+// sideForMember falls back to the published rank-1 build.
+function instanceMovesKnown(instance, moveCatalog) {
+  return Boolean(moveCatalog?.[instance.fastMove])
+    && (instance.chargedMoves ?? []).every((id) => Boolean(moveCatalog?.[id]));
+}
+
+// H2: a team member's build for simulation — the player's own logged
+// instance (fastMove/chargedMoves/ivs, level solved from its cp) when one
+// with a full, catalog-resolvable moveset is on the roster, else the
+// species' published rank-1 build. assumedRankOne tells the view to label
+// the fallback.
+function sideForMember(member, ctx) {
+  const form = ctx.forms?.[member.formId];
+  const instance = (ctx.roster?.instances ?? []).find(
+    (i) => i.formId === member.formId && i.fastMove && (i.chargedMoves ?? []).length && i.ivs && Number.isFinite(i.cp)
+      && instanceMovesKnown(i, ctx.moveCatalog),
+  );
+  if (form && instance) {
+    const level = solveLevel(form, instance.ivs, instance.cp);
+    if (level !== null) {
+      return { side: { form, ivs: instance.ivs, level, fastMove: instance.fastMove, chargedMoves: instance.chargedMoves }, assumedRankOne: false };
+    }
+  }
+  const row = (ctx.pvp?.great ?? []).find((r) => r.formId === member.formId);
+  const side = form ? sideFromRankOne(row, form) : null;
+  return { side, assumedRankOne: true };
+}
+
+// Simulates each of a cup team's 3 members against the cup meta's top 8
+// (1-1 shields, each side at the build sideForMember resolves). Opponents
+// always use their own published rankOne build — a meta entry without one
+// is dropped rather than guessed at. Cheap (<= 3 x 8 = 24 simulatePvp
+// calls); meant for the "vs meta" disclosure in the cup view, not scoring.
+// Each matchup is simulated independently (try/catch per member/opponent
+// pair): one bad matchup is dropped from that member's results, it never
+// blanks the whole member or the whole section.
+export function simulateVsMeta(team, meta, ctx) {
+  const opponents = meta.slice(0, 8)
+    .map((m) => {
+      const row = (ctx.pvp?.great ?? []).find((r) => r.formId === m.formId);
+      const side = sideFromRankOne(row, ctx.forms?.[m.formId]);
+      return side ? { name: m.name, side } : null;
+    })
+    .filter(Boolean);
+  if (!opponents.length) return null;
+  return team.members.map((member) => {
+    const { side, assumedRankOne } = sideForMember(member, ctx);
+    if (!side) return { formId: member.formId, name: member.name, noData: true, results: [] };
+    const results = [];
+    for (const opponent of opponents) {
+      try {
+        const sim = simulatePvp(side, opponent.side, { shields: [1, 1], moveCatalog: ctx.moveCatalog ?? {} });
+        results.push({ name: opponent.name, result: sim.winner === "a" ? "W" : sim.winner === "b" ? "L" : "T" });
+      } catch {
+        // Skip just this one matchup rather than this member or the section.
+      }
+    }
+    return { formId: member.formId, name: member.name, assumedRankOne, results };
+  });
 }
