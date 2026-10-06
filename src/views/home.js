@@ -584,15 +584,20 @@ function rosterlessSkipHint(row, forms, tierByFormId) {
 
 // One line per rest-of-rotation boss — never a fabricated tier, always the
 // same real beatability() headline Today/Coach already show for it.
+// The whole row is one tap target to the boss's own card (same ?boss=
+// deep link every other boss mention on this page uses) — it used to be a
+// plain <li> with no link at all, the one dead end on the briefing rail.
 function skipRow(row, forms, tierByFormId) {
   const hint = row.band === "not-enough-data" ? rosterlessSkipHint(row, forms, tierByFormId) : "";
   return `<li class="skip-row">
-    ${spriteHtml(row.formId, forms, row.name, forms?.[row.formId]?.primary_type)}
-    <span class="skip-stamp${row.band === "not-enough-data" ? " is-low" : ""}">${escapeHtml(BRIEFING_BAND_STAMP[row.band] ?? "Check")}</span>
-    <span class="skip-row-text">
-      <p class="skip-row-title">${escapeHtml(row.name)}</p>
-      <p class="skip-row-why">${escapeHtml(row.headline)}${hint ? ` · ${escapeHtml(hint)}` : ""}</p>
-    </span>
+    <a class="skip-row-link" href="./?boss=${encodeURIComponent(row.formId)}#raids">
+      ${spriteHtml(row.formId, forms, row.name, forms?.[row.formId]?.primary_type)}
+      <span class="skip-stamp${row.band === "not-enough-data" ? " is-low" : ""}">${escapeHtml(BRIEFING_BAND_STAMP[row.band] ?? "Check")}</span>
+      <span class="skip-row-text">
+        <p class="skip-row-title">${escapeHtml(row.name)}</p>
+        <p class="skip-row-why">${escapeHtml(row.headline)}${hint ? ` · ${escapeHtml(hint)}` : ""}</p>
+      </span>
+    </a>
   </li>`;
 }
 

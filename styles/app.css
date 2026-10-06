@@ -3160,25 +3160,28 @@ h1 {
   background: #a0a29f; /* Normal, also the default for unmatched types */
 }
 
-/* Kept in sync with TYPE_COLORS in web/src/sprites.js. */
-.sprite-fallback[data-type="Bug"], .type-chip[data-type="Bug"] { background: #92bc2c; }
-.sprite-fallback[data-type="Dark"], .type-chip[data-type="Dark"] { background: #595761; }
-.sprite-fallback[data-type="Dragon"], .type-chip[data-type="Dragon"] { background: #0c69c8; }
-.sprite-fallback[data-type="Electric"], .type-chip[data-type="Electric"] { background: #f2d94e; }
-.sprite-fallback[data-type="Fairy"], .type-chip[data-type="Fairy"] { background: #ee90e6; }
-.sprite-fallback[data-type="Fighting"], .type-chip[data-type="Fighting"] { background: #d3425f; }
-.sprite-fallback[data-type="Fire"], .type-chip[data-type="Fire"] { background: #fba54c; }
-.sprite-fallback[data-type="Flying"], .type-chip[data-type="Flying"] { background: #a1bbec; }
-.sprite-fallback[data-type="Ghost"], .type-chip[data-type="Ghost"] { background: #5f6dbc; }
-.sprite-fallback[data-type="Grass"], .type-chip[data-type="Grass"] { background: #5fbd58; }
-.sprite-fallback[data-type="Ground"], .type-chip[data-type="Ground"] { background: #da7c4d; }
-.sprite-fallback[data-type="Ice"], .type-chip[data-type="Ice"] { background: #75d0c1; }
-.sprite-fallback[data-type="Poison"], .type-chip[data-type="Poison"] { background: #b763cf; }
-.sprite-fallback[data-type="Psychic"], .type-chip[data-type="Psychic"] { background: #fa8581; }
-.sprite-fallback[data-type="Rock"], .type-chip[data-type="Rock"] { background: #c9bb8a; }
-.sprite-fallback[data-type="Steel"], .type-chip[data-type="Steel"] { background: #5695a3; }
-.sprite-fallback[data-type="Water"], .type-chip[data-type="Water"] { background: #539ddf; }
-.type-chip[data-type="Normal"] { background: #a0a29f; }
+/* Kept in sync with TYPE_COLORS in web/src/sprites.js. Also colors the Raids
+   hub gallery's compact weak-to dots (.raid-gallery-weak-dot) — CSP is
+   style-src 'self', so those dots pick color up from data-type here rather
+   than an inline style="" attribute. */
+.sprite-fallback[data-type="Bug"], .type-chip[data-type="Bug"], .raid-gallery-weak-dot[data-type="Bug"] { background: #92bc2c; }
+.sprite-fallback[data-type="Dark"], .type-chip[data-type="Dark"], .raid-gallery-weak-dot[data-type="Dark"] { background: #595761; }
+.sprite-fallback[data-type="Dragon"], .type-chip[data-type="Dragon"], .raid-gallery-weak-dot[data-type="Dragon"] { background: #0c69c8; }
+.sprite-fallback[data-type="Electric"], .type-chip[data-type="Electric"], .raid-gallery-weak-dot[data-type="Electric"] { background: #f2d94e; }
+.sprite-fallback[data-type="Fairy"], .type-chip[data-type="Fairy"], .raid-gallery-weak-dot[data-type="Fairy"] { background: #ee90e6; }
+.sprite-fallback[data-type="Fighting"], .type-chip[data-type="Fighting"], .raid-gallery-weak-dot[data-type="Fighting"] { background: #d3425f; }
+.sprite-fallback[data-type="Fire"], .type-chip[data-type="Fire"], .raid-gallery-weak-dot[data-type="Fire"] { background: #fba54c; }
+.sprite-fallback[data-type="Flying"], .type-chip[data-type="Flying"], .raid-gallery-weak-dot[data-type="Flying"] { background: #a1bbec; }
+.sprite-fallback[data-type="Ghost"], .type-chip[data-type="Ghost"], .raid-gallery-weak-dot[data-type="Ghost"] { background: #5f6dbc; }
+.sprite-fallback[data-type="Grass"], .type-chip[data-type="Grass"], .raid-gallery-weak-dot[data-type="Grass"] { background: #5fbd58; }
+.sprite-fallback[data-type="Ground"], .type-chip[data-type="Ground"], .raid-gallery-weak-dot[data-type="Ground"] { background: #da7c4d; }
+.sprite-fallback[data-type="Ice"], .type-chip[data-type="Ice"], .raid-gallery-weak-dot[data-type="Ice"] { background: #75d0c1; }
+.sprite-fallback[data-type="Poison"], .type-chip[data-type="Poison"], .raid-gallery-weak-dot[data-type="Poison"] { background: #b763cf; }
+.sprite-fallback[data-type="Psychic"], .type-chip[data-type="Psychic"], .raid-gallery-weak-dot[data-type="Psychic"] { background: #fa8581; }
+.sprite-fallback[data-type="Rock"], .type-chip[data-type="Rock"], .raid-gallery-weak-dot[data-type="Rock"] { background: #c9bb8a; }
+.sprite-fallback[data-type="Steel"], .type-chip[data-type="Steel"], .raid-gallery-weak-dot[data-type="Steel"] { background: #5695a3; }
+.sprite-fallback[data-type="Water"], .type-chip[data-type="Water"], .raid-gallery-weak-dot[data-type="Water"] { background: #539ddf; }
+.type-chip[data-type="Normal"], .raid-gallery-weak-dot[data-type="Normal"] { background: #a0a29f; }
 
 /* Kept in sync with TYPE_COLORS in web/src/sprites.js. */
 .drill-chip[data-type="Bug"] { border-left-color: #92bc2c; }
@@ -6918,7 +6921,13 @@ html:not([data-app-booted]) #app .fallback-section {
 
 .skip-list { display: grid; gap: 0.45rem; margin: 0; padding: 0; list-style: none; }
 
-.skip-row {
+/* Review fix (MED a11y, 2026-10-06): the grid/border/padding box used to
+   live on the <li> (.skip-row) with the <a> inside set to
+   display: contents — which generates no box of its own, so a keyboard
+   focus on the link had nothing to draw a visible outline around. The box
+   (and the focus style) now belong to the link itself; the <li> is just a
+   list item. */
+.skip-row-link {
   display: grid;
   grid-template-columns: auto auto 1fr;
   gap: 0.55rem;
@@ -6927,9 +6936,13 @@ html:not([data-app-booted]) #app .fallback-section {
   border: 1px solid var(--line);
   border-radius: 9px;
   background: var(--screen-bg);
+  color: inherit;
+  text-decoration: none;
 }
 
-.skip-row .sprite { width: 30px; height: 30px; }
+.skip-row-link:focus-visible { outline: 2px solid var(--cyan); outline-offset: 2px; }
+
+.skip-row-link .sprite { width: 30px; height: 30px; }
 
 .skip-stamp {
   flex: none;
@@ -8140,7 +8153,7 @@ html:not([data-app-booted]) #app .fallback-section {
 }
 .party-swap-btn:hover { border-color: var(--cyan); }
 
-/* =====================================================
+/* ============================================================
    LANE group-ui — Raid Group view (web/src/views/group.js).
    New selectors only; existing .more-view/.more-section/.instance-list/
    .instance-row/.file-action/.party-slot*/.party-estimate*/.party-gaps/
@@ -8822,7 +8835,6 @@ html:not([data-app-booted]) #app .fallback-section {
 .cv-fits-list { margin: 0; padding-left: 1.1rem; font-size: 0.82rem; color: var(--text); }
 .cv-fits-list li + li { margin-top: 0.15rem; }
 .cv-fits-list a { color: var(--cyan); }
-=======
 /* Rocket leader/Giovanni card (round 17): one block per possible Pokémon in
    a lineup slot, inside the shared .boss-card/.boss-card-section shell. */
 .rocket-battler-mon {
@@ -8833,3 +8845,73 @@ html:not([data-app-booted]) #app .fallback-section {
    <summary>, so it's never literally :first-child — target the actual
    sibling relationship instead. */
 summary + .rocket-battler-mon { border-top: none; }
+
+/* Boss gallery (first thing on the Raids hub, operator ask 2026-10-06) —
+   tier groups of compact tappable tiles, each a deep link straight to that
+   boss's card. 3/row on phone, 4/row from the dex-two-panel iPad breakpoint
+   (48rem) already used elsewhere in this file. */
+.raid-boss-gallery { margin: 0 0 0.75rem; }
+.raid-gallery-group { margin: 0 0 0.6rem; }
+.raid-gallery-group > .status-kicker { margin: 0 0 0.3rem; font-size: 0.68rem; }
+.raid-gallery-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 0.4rem; }
+@media (min-width: 48rem) {
+  .raid-gallery-grid { grid-template-columns: repeat(4, 1fr); }
+}
+.raid-gallery-tile {
+  display: block;
+  min-width: 0; /* a grid item's default auto min-width uses the unwrapped (white-space: nowrap) name's full text width, overriding 1fr and collapsing 3/row to 2 */
+  color: inherit;
+  text-decoration: none;
+  text-align: center;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 0.35rem 0.25rem;
+  background: var(--panel-raised);
+}
+.raid-gallery-tile .sprite { width: 56px; height: 56px; }
+.raid-gallery-name {
+  display: block;
+  margin: 0.2rem 0 0;
+  font-weight: 700;
+  font-size: 0.74rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.raid-gallery-tier-chip {
+  display: inline-block;
+  margin: 0.15rem 0 0;
+  padding: 0.05rem 0.35rem;
+  border-radius: 999px;
+  background: var(--panel);
+  color: var(--muted);
+  font-size: 0.6rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
+.raid-gallery-weak { display: block; margin: 0.25rem 0 0; }
+.raid-gallery-weak-dot {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  margin: 0 2px;
+  border-radius: 50%;
+  background: var(--muted);
+}
+
+/* Boss card inline infographic — the canvas Share image, rendered lazily
+   into an <img> that fits phone and iPad width alike. */
+.boss-card-infographic { margin: 0.5rem 0; min-height: 2rem; }
+.boss-card-infographic-img { display: block; max-width: 100%; height: auto; margin: 0 auto; border-radius: 10px; }
+.boss-card-infographic-loading { color: var(--muted); font-size: 0.8rem; }
+
+/* Countdown chip (Home briefing) is now a whole-chip link to the boss card
+   it names — was a plain, untappable <div>. */
+.boss-countdown-chip { display: block; color: inherit; text-decoration: none; }
+
+/* Dex entry: a Pokémon currently up as a raid/Max boss gets a prominent tag
+   and CTA instead of the plain "See counters" text link. */
+.dex-boss-current { border-left: 3px solid var(--cyan); }
+.dex-boss-current-tag { margin: 0 0 0.25rem; font-weight: 700; color: var(--cyan); }
+.dex-boss-card-button { display: inline-block; font-weight: 700; }

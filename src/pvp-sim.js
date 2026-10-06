@@ -70,10 +70,15 @@ const MAX_STAGE = 4;
 // the broad-agreement regression floor (tests/web/pvp-sim.test.mjs), so the
 // two can't drift apart. Measured by scripts/pvp-sim-agreement.mjs: every
 // pvp.great keyMatchup/keyCounter pair where BOTH sides have a published
-// rankOne build, each played at that build, 1-1 shields, no shield baiting.
-// Update this when a real mechanic fix moves the number; never hand-tune
-// the simulator to chase a number written here.
-export const MEASURED_AGREEMENT_PCT = 72.9;
+// build, each played at PvPoke's own defaultIVs.cp1500 build (not this
+// repo's rankOne — see scripts/pvp-sim-agreement.mjs's header), 1-1
+// shields, no shield baiting. Truncated to 1 decimal, never rounded up
+// (383/499 = 76.7535...%, not toFixed(1)'s 76.8) — scripts/pvp-sim-
+// agreement.mjs's own console output uses the same truncate1() rule, so
+// the two never disagree with each other. Update this when a real
+// mechanic fix moves the number; never hand-tune the simulator to chase a
+// number written here.
+export const MEASURED_AGREEMENT_PCT = 76.7;
 export const AGREEMENT_FLOOR_PCT = MEASURED_AGREEMENT_PCT - 2;
 // Safety bound, not a game rule: a fight where both sides always attack as
 // soon as they're able resolves in well under this many 0.5s ticks (100s).
@@ -110,14 +115,20 @@ function resolveMove(moveId, moveCatalog) {
   return { id: moveId, ...move };
 }
 
-// Cheapest-first: makeSide sorts chargedMoves by energy cost so "the
-// cheapest charged move that's ready" is always .find()'s first match.
+// makeSide sorts chargedMoves by energy cost DESCENDING — only a stable
+// tie-break order for chooseAction's damage-aware pick below (two moves
+// computing identical damage keep picking the same one regardless of input
+// order), not itself the selection strategy. Nuke-over-cheapest, as a
+// strategy, was measured in scripts/pvp-sim-agreement.mjs to agree with
+// PvPoke's published winner more often than cheapest-first (see
+// MEASURED_AGREEMENT_PCT's header note); this sim still has no shield-bait
+// logic (it never holds a cheap move back to draw a shield).
 function makeSide(spec, moveCatalog) {
   const stats = battleStats(spec.form, spec.ivs, spec.level);
   const fast = resolveMove(spec.fastMove, moveCatalog);
   const charged = (spec.chargedMoves ?? [])
     .map((id) => resolveMove(id, moveCatalog))
-    .sort((left, right) => left.energy - right.energy);
+    .sort((left, right) => right.energy - left.energy);
   return {
     stats, fast, charged, energy: 0, cooldown: 0, hp: stats.hp, shields: 0,
     atkStage: 0, defStage: 0, pendingFast: null,
@@ -150,12 +161,49 @@ function applyBuff(move, attackerSide, defenderSide) {
   target.defStage = clampStage(target.defStage + defDelta);
 }
 
-// Picks the next action: the cheapest ready charged move (spent/cooldown
-// immediately, same as a real throw), or the side's fast move — which, per
-// the header note, only gets QUEUED here (`pendingFast`); its damage and
-// energy gain are applied later, when its cooldown completes.
-function chooseAction(side) {
-  const ready = side.charged.find((move) => side.energy >= move.energy);
+// Of every charged move this side can currently afford, the costliest one —
+// "always nuke" is still the primary rule here (measured in
+// scripts/pvp-sim-agreement.mjs to agree with PvPoke's published winner
+// more often than cheapest-first or than always picking the highest-damage
+// move outright: both of those were tried and TEST agreement dropped, see
+// MEASURED_AGREEMENT_PCT's header note and the dev log). An exact ENERGY
+// tie is broken by whichever of the tied moves does more computed damage to
+// the CURRENT opponent (effectiveness/STAB against their actual types, at
+// their actual effective Defense right now), not by array/input order.
+// Fixes a real bug: Hisuian Electrode's Wild Charge and Energy Ball cost
+// the same energy, so the old "first ready in energy order" pick always
+// threw Wild Charge even into a Ground type that resists/nullifies it,
+// where Energy Ball is the far bigger hit. This is raw pvpDamage, the same
+// number computeHit would deal if the hit lands — it does NOT look at the
+// opponent's shield count (still no shield-bait logic: this sim doesn't
+// hold a move back hoping to draw or dodge a shield), so against a
+// shielded opponent every tied move would be clipped to 1 damage the same
+// way regardless of which one gets picked here.
+function bestChargedMove(side, opponentSide) {
+  let best = null;
+  let bestDamage = -1;
+  for (const move of side.charged) {
+    if (side.energy < move.energy) continue;
+    if (best && move.energy < best.energy) continue;
+    const damage = pvpDamage(
+      effectiveAttack(side), effectiveDefense(opponentSide),
+      side.stats.types, opponentSide.stats.types, move,
+    );
+    if (!best || move.energy > best.energy || damage > bestDamage) {
+      best = move;
+      bestDamage = damage;
+    }
+  }
+  return best;
+}
+
+// Picks the next action: the best-vs-this-opponent ready charged move (see
+// bestChargedMove), spent/cooldown immediately same as a real throw, or the
+// side's fast move — which, per the header note, only gets QUEUED here
+// (`pendingFast`); its damage and energy gain are applied later, when its
+// cooldown completes.
+function chooseAction(side, opponentSide) {
+  const ready = bestChargedMove(side, opponentSide);
   if (ready) {
     side.energy -= ready.energy;
     side.cooldown = ready.turns;
@@ -255,8 +303,8 @@ export function simulatePvp(a, b, { shields = [0, 0], moveCatalog = {} } = {}) {
     const aReady = sideA.cooldown === 0;
     const bReady = sideB.cooldown === 0;
     if (!aReady && !bReady) continue;
-    const aAction = aReady ? chooseAction(sideA) : null;
-    const bAction = bReady ? chooseAction(sideB) : null;
+    const aAction = aReady ? chooseAction(sideA, sideB) : null;
+    const bAction = bReady ? chooseAction(sideB, sideA) : null;
     const aCharged = aAction?.kind === "charged" ? aAction : null;
     const bCharged = bAction?.kind === "charged" ? bAction : null;
     if (aCharged && bCharged) {

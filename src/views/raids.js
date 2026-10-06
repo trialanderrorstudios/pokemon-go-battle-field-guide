@@ -2,6 +2,12 @@ import { ATTACK_TYPES } from "../raid-target.js";
 import { escapeHtml, originLine, whyLine } from "./home.js";
 import { spriteHtml } from "../sprites.js";
 import { PVP_LEAGUES } from "./pvp.js";
+import { weaknessesOf } from "../type-chart.js";
+
+// Compact gallery tiles show at most this many weak-to type dots — a
+// legendary's full weaknessesOf() list can run 5+ types, and the whole
+// point of a dot is to stay small (operator ask 2026-10-06).
+const GALLERY_WEAK_DOT_LIMIT = 4;
 
 
 function displayMove(moveId) {
@@ -238,6 +244,118 @@ export function renderRaidRankings({ attackingType = "Bug", raids = {}, forms = 
 }
 
 
+// "Raid bosses now" gallery (operator report 2026-10-06: the boss card
+// exists, but the Raids hub opens straight on "Top 15 by type" — every boss
+// actually up this week is buried one tap into the alphabetical Raid Target
+// picker). Groups currentBosses's own tier field highest-first, same order
+// the operator asked for (5-star/Mega/Shadow/3/1), with live Max Battle
+// bosses (a different feed/system) as their own trailing group. hasStarted/
+// isLive mirror share-card.js's own liveRotationBosses (private per-module
+// copy, same convention boss-countdown.js's hasStarted already uses) — a
+// derived future-week row isn't live yet, and an expired one is gone, not
+// shown as stale.
+function hasStarted(boss, now) {
+  if (typeof boss?.startsAt !== "string" || Number.isNaN(Date.parse(boss.startsAt))) return true;
+  const [year, month, day] = boss.startsAt.split("-").map(Number);
+  return new Date(year, month - 1, day) <= now;
+}
+
+function endOfDay(dateString) {
+  const [year, month, day] = String(dateString).split("-").map(Number);
+  return new Date(year, month - 1, day, 23, 59, 59, 999);
+}
+
+// Exported for dex.js's bossSection (review fix, HIGH, 2026-10-06): a
+// rotation/Max-battle row's mere PRESENCE in currentBosses/currentMaxBattles
+// is not "currently up" — a derived future week (Mega Charizard X/Y,
+// startsAt 2026-10-21) or an already-ended entry (Beldum's Dynamax week,
+// endsAt 2026-08-16) both still sit in that array; only isLive's own
+// start/end check says whether today is actually inside the window.
+export function isLive(boss, now) {
+  return hasStarted(boss, now) && !(typeof boss?.endsAt === "string"
+    && !Number.isNaN(Date.parse(boss.endsAt)) && endOfDay(boss.endsAt) < now);
+}
+
+const GALLERY_TIER_GROUPS = Object.freeze([
+  ["Tier 5", "5-star"],
+  ["Mega", "Mega"],
+  ["Shadow", "Shadow"],
+  ["Tier 3", "3-star"],
+  ["Tier 1", "1-star"],
+]);
+
+function galleryTile(formId, tier, forms) {
+  const form = forms?.[formId];
+  const types = [form?.primary_type, form?.secondary_type].filter(Boolean);
+  return {
+    formId,
+    name: form?.name ?? formId,
+    tier,
+    weakTo: weaknessesOf(types).map((row) => row.type),
+  };
+}
+
+// [{label, tiles}], highest tier first, empty groups dropped. No rotation
+// data at all (currentBosses/currentMaxBattles both null) -> [] -> the
+// gallery renders nothing, never a fabricated/placeholder tier.
+export function raidBossGalleryData({
+  currentBosses = null, currentMaxBattles = null, forms = {}, now = new Date(),
+} = {}) {
+  const liveBosses = (currentBosses?.bosses ?? []).filter((boss) => isLive(boss, now));
+  const groups = GALLERY_TIER_GROUPS
+    .map(([tierValue, label]) => ({
+      label,
+      tiles: liveBosses.filter((boss) => boss.tier === tierValue).map((boss) => galleryTile(boss.formId, label, forms)),
+    }))
+    .filter((group) => group.tiles.length);
+  const maxTiles = (currentMaxBattles?.bosses ?? [])
+    .filter((boss) => isLive(boss, now))
+    .map((boss) => galleryTile(boss.formId, boss.kind ?? "Max Battle", forms));
+  if (maxTiles.length) groups.push({ label: "Max Battle", tiles: maxTiles });
+  return groups;
+}
+
+// Small colored dots, not a text line — compact tiles (3/row on phone)
+// have no room for "Weak to Ice, Rock, Fairy, Dragon" as prose. Color comes
+// from data-type + app.css's existing .sprite-fallback[data-type="X"]/
+// .type-chip[data-type="X"] rules (extended to match .raid-gallery-weak-dot
+// too), never an inline style="" — this app's CSP is style-src 'self', so
+// an inline style attribute is silently dropped by the browser. aria-hidden
+// on each dot (color alone carries no accessible meaning); the group's own
+// aria-label carries the real type names for assistive tech.
+function raidGalleryWeakDots(weakTo) {
+  if (!weakTo.length) return "";
+  const shown = weakTo.slice(0, GALLERY_WEAK_DOT_LIMIT);
+  return `<span class="raid-gallery-weak" aria-label="Weak to ${escapeHtml(shown.join(", "))}">${shown.map((type) => (
+    `<span class="raid-gallery-weak-dot" data-type="${escapeHtml(type)}" aria-hidden="true" title="${escapeHtml(type)}"></span>`
+  )).join("")}</span>`;
+}
+
+function raidGalleryTile(tile, forms) {
+  return `<a class="raid-gallery-tile" href="./?boss=${encodeURIComponent(tile.formId)}#raids">
+    ${spriteHtml(tile.formId, forms, tile.name, forms?.[tile.formId]?.primary_type)}
+    <span class="raid-gallery-name">${escapeHtml(tile.name)}</span>
+    <span class="raid-gallery-tier-chip">${escapeHtml(tile.tier)}</span>
+    ${raidGalleryWeakDots(tile.weakTo)}
+  </a>`;
+}
+
+export function renderRaidBossGallery(groups, forms) {
+  if (!groups?.length) return "";
+  return `<section class="raid-boss-gallery" aria-labelledby="raid-boss-gallery-title">
+    <h3 id="raid-boss-gallery-title">Raid bosses now</h3>
+    ${groups.map((group) => `<div class="raid-gallery-group">
+      <p class="status-kicker">${escapeHtml(group.label)}</p>
+      <div class="raid-gallery-grid">${group.tiles.map((tile) => raidGalleryTile(tile, forms)).join("")}</div>
+    </div>`).join("")}
+  </section>`;
+}
+
+
+// The gallery used to be composed in here, but it needs to land ahead of
+// the raids route's own guide card and view-switcher tabs (app.js prepends
+// it separately, after base(view) returns) — renderRaids stays the plain
+// Top-15 rankings view it always was.
 export function renderRaids({ attackingType = "Bug", raids = {}, forms = {}, pvp = {} } = {}) {
   return `<div class="raids-view">${renderRaidRankings({ attackingType, raids, forms, pvp })}</div>`;
 }

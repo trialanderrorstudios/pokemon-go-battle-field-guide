@@ -130,12 +130,23 @@ export function bossCountdowns({
 // Empty string when nothing's leaving soon (silence, not a placeholder).
 // `forms` is only needed for the sprite (dex/type lookup) — bossCountdowns()
 // rows already carry every other field the chip renders.
+// Operator report (2026-10-06): tapping a countdown chip (e.g. Mega
+// Victreebel, Xerneas, both "leaves today" and shown here) did nothing — the
+// chip was a plain <div>, the one boss surface in this app with no deep
+// link at all. Same ?boss=<formId>#raids destination every other boss
+// mention on Home/Today already uses (home.js's currentBossCard/featured
+// heading, daily-plan.js, today-tasks.js).
+// Review fix (MED a11y, 2026-10-06): role="listitem" on the <a> itself
+// overrode its implicit link role — a screen reader announced "list item",
+// not "link", losing the one thing that matters here (it's tappable). The
+// listitem role now sits on a wrapping <div>; the anchor inside keeps its
+// own, unoverridden link role.
 export function renderCountdownChips({ rows, forms } = {}) {
   if (!rows?.length) return "";
   return `<div class="boss-countdown-list" role="list" aria-label="Bosses leaving soon">
-    ${rows.map((row) => `<div class="boss-countdown-chip" data-urgency="${escapeHtml(row.urgency)}" role="listitem">
+    ${rows.map((row) => `<div role="listitem"><a class="boss-countdown-chip" href="./?boss=${encodeURIComponent(row.formId)}#raids" data-urgency="${escapeHtml(row.urgency)}">
       ${spriteHtml(row.formId, forms, row.name, forms?.[row.formId]?.primary_type)}
       <p class="briefing-note boss-countdown-line">${escapeHtml(row.line)}</p>
-    </div>`).join("")}
+    </a></div>`).join("")}
   </div>`;
 }

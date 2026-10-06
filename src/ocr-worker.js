@@ -211,7 +211,9 @@ export async function createOcrEngine() {
 // supplies its own region, charset and extractor. Regions prefer real word
 // bboxes from recognizeDetailed() over hardcoded proportions, because a
 // percentage band is only correct for the aspect ratio it was tuned on.
-function otsuThreshold(luminances) {
+// Exported so tests can probe digit segmentation using the real production
+// threshold set/order, not a reimplementation that could drift from it.
+export function otsuThreshold(luminances) {
   const histogram = new Array(256).fill(0);
   for (const value of luminances) histogram[value] += 1;
   const total = luminances.length;
@@ -240,7 +242,8 @@ function otsuThreshold(luminances) {
 
 // The four preprocess passes, in the order real devices needed them. Shared
 // by every field — the failure modes are the backdrop's, not the glyphs'.
-function preprocessVariants({ minLum, maxLum, otsu }) {
+// Exported for the same reason as otsuThreshold above.
+export function preprocessVariants({ minLum, maxLum, otsu }) {
   const range = Math.max(1, maxLum - minLum);
   return [
     // Bright glyphs -> dark ink on a light field, full dynamic range.
@@ -380,19 +383,290 @@ function pickCpDigits(text) {
 // safety scanner's phone-number pattern (publish gate).
 const DIGITS = Array.from({ length: 10 }, (_, i) => String(i)).join("");
 
-// Second-pass CP read. Region: the banner, center 60% width (clock left,
-// battery right), top 3-18% of height. Kept proportional rather than
-// anchor-derived — the anchor for CP would be the CP word itself, and this
-// path only runs when the full-frame pass failed to find it.
+// The vendored worker's own PSM default (createOcrEngine's initialize()
+// passes no tessedit_pageseg_mode, and the worker protocol has no getter to
+// read it back — confirmed, no GetVariable action). Tesseract's own
+// TessBaseAPI defaults tessedit_pageseg_mode to PSM_SINGLE_BLOCK ("6") when
+// never explicitly set, NOT PSM_AUTO ("3") — every CP/name/HP retry in this
+// file relies on that untouched default, so cpDigitSegmentRead's own PSM
+// override below must restore exactly this, not "3" (review, 2026-10-06:
+// resetting to "3" silently changed every later recognize() in the session).
+const PSM_DEFAULT = "6";
+
+// The CP banner crop box: the banner, center 60% width (clock left, battery
+// right), top 3-18% of height. Kept proportional rather than anchor-derived
+// — the anchor for CP would be the CP word itself, and this path only runs
+// when the full-frame pass failed to find it. Exported so the digit
+// segmentation unit test crops the exact same region cpBannerRetry does.
+export function cpBannerBox(width, height) {
+  return {
+    sx: Math.round(width * 0.3),
+    sw: Math.round(width * 0.4),
+    sy: Math.round(height * 0.03),
+    sh: Math.round(height * 0.15),
+  };
+}
+
+// Pure pixel segmentation: given an ink mask (no OCR), finds the digit
+// glyphs in the CP banner crop and drops everything else. `isInk(x, y)` is
+// caller-supplied so this works both against a binarized canvas (ink === 0,
+// see cpDigitSegmentRead below) and directly against decoded PNG luminance
+// in the unit test — no DOM/canvas needed to test the geometry.
+//
+// Column-run segmentation (vertical ink projection, then merge consecutive
+// ink columns) finds every glyph blob; three filters then narrow that down
+// to just the CP number's digits, calibrated against every CP-banner
+// fixture checked 2026-10-06 (tests/fixtures/scans/):
+//   - aspect ratio (width/height) between 0.3 and 1.0 — a digit glyph in
+//     this font is narrower than it is tall; a merged run of several
+//     un-gapped digits (low-res near-white threshold bridging them) is
+//     wider than tall and gets dropped, as does a thin status-bar icon
+//     that bleeds into the crop.
+//   - height between 8% and 40% of the crop height — drops both single-
+//     pixel compression-noise specks and a binarization gone degenerate
+//     (the whole crop, or most of it, as one "glyph" — seen when a sprite
+//     covers a hidden CP banner, Corviknight fixture).
+//   - on the glyphs that survive those two filters: keep only the ones on
+//     the same text line as the TALLEST one, and within 80% of its height
+//     — "CP" is a visibly shorter font than the digits on every fixture
+//     checked, so this drops the "C" and "P" glyphs without needing to
+//     read them.
+//   - at least 2 digits (a real CP banner is never a lone digit), and no
+//     OTHER glyph — accepted or not, a merged run, a too-thin "1" that
+//     missed the aspect-ratio cutoff, a half-bridged blob — sitting
+//     between two accepted digits. A reject to the left of the first
+//     digit is the normal "CP" label; a reject in the MIDDLE of the
+//     number means something inside the number itself got dropped or
+//     merged, so the count here can't be trusted (2026-10-06 review:
+//     probing fixtures with a degenerate mask produced exactly this —
+//     Abomasnow CP 30 and Zacian CP 5629 both collapsed to 1 "digit").
+// Returns the digit glyphs left-to-right, or null when nothing plausible
+// survives (never a guess — the caller treats null as "no read").
+export function segmentDigitGlyphs(width, height, isInk) {
+  const colHasInk = new Uint8Array(width);
+  for (let x = 0; x < width; x += 1) {
+    for (let y = 0; y < height; y += 1) {
+      if (isInk(x, y)) { colHasInk[x] = 1; break; }
+    }
+  }
+  const runs = [];
+  let start = null;
+  for (let x = 0; x <= width; x += 1) {
+    const hasInk = x < width && colHasInk[x];
+    if (hasInk && start === null) start = x;
+    if (!hasInk && start !== null) { runs.push([start, x - 1]); start = null; }
+  }
+  if (!runs.length) return null;
+  const glyphs = runs.map(([x0, x1]) => {
+    let y0 = height;
+    let y1 = -1;
+    for (let y = 0; y < height; y += 1) {
+      for (let x = x0; x <= x1; x += 1) {
+        if (isInk(x, y)) {
+          if (y < y0) y0 = y;
+          if (y > y1) y1 = y;
+          break;
+        }
+      }
+    }
+    return { x0, x1, y0, y1, w: x1 - x0 + 1, h: y1 - y0 + 1 };
+  });
+  const plausible = glyphs.filter((g) => {
+    const ratio = g.w / g.h;
+    return ratio >= 0.3 && ratio <= 1.0 && g.h >= height * 0.08 && g.h <= height * 0.4;
+  });
+  if (!plausible.length) return null;
+  const tallest = plausible.reduce((a, b) => (b.h > a.h ? b : a));
+  const sameLine = plausible.filter((g) => g.y0 <= tallest.y1 && g.y1 >= tallest.y0);
+  const minHeight = tallest.h * 0.8;
+  const digits = sameLine.filter((g) => g.h >= minHeight).sort((a, b) => a.x0 - b.x0);
+  if (digits.length < 2) return null;
+  const firstX = digits[0].x0;
+  const lastX = digits[digits.length - 1].x1;
+  const accepted = new Set(digits);
+  const tallestDigit = Math.max(...digits.map((d) => d.h));
+  const hasIntruder = glyphs.some((g) => {
+    if (accepted.has(g)) return false;
+    // Between two accepted digits: something inside the number itself got
+    // dropped or merged away.
+    if (g.x0 > firstX && g.x1 < lastX) return true;
+    // Taller than the digits themselves, wherever it sits: this font makes
+    // "CP" and any backdrop chrome strictly SHORTER than the digits (every
+    // fixture checked), so a reject this tall bridged into something else
+    // — Marill/Rolycoly, review 2026-10-06: "CP" bridged down into the
+    // species-name line below it and took a real digit ("1" of "102",
+    // "1" of "158") down with it, leaving 2 clean-looking but short digits.
+    return g.h > tallestDigit;
+  });
+  if (hasIntruder) return null;
+  return digits;
+}
+
+// Per-digit CP read (Duskull "CP 97" fixture, 2026-10-06): the whole-banner
+// pass above sometimes drops or splits a digit rather than misreading it —
+// every variant read "cp9" or "cp9 7" (an unjoined second token), so nothing
+// in pickCpDigits' regex ever matches and the whole-banner pass returns
+// nothing at all. Stitching "9" + "7" back together from that text would be
+// a guess ("94" is just as HP-consistent as "97" for this Duskull — see
+// cpBannerRetry below), so this re-reads each digit GLYPH on its own
+// instead: segment the pixels, then OCR each box alone with a digit
+// whitelist — only returns a value when EVERY box reads a single confident
+// digit, never a partial guess.
+// ponytail: only tried when the whole-banner pass found literally nothing
+// (see cpBannerRetry's gate) — never a general override of a working
+// whole-banner read, so every already-passing fixture's path is untouched.
+async function cpDigitSegmentRead(engine, file, documentObject) {
+  if (typeof createImageBitmap !== "function" || !documentObject?.createElement) return null;
+  try {
+    const bitmap = await createImageBitmap(file);
+    const box = cpBannerBox(bitmap.width, bitmap.height);
+    bitmap.close?.();
+    if (box.sw <= 0 || box.sh <= 0) return null;
+    const scale = 2;
+    const source = await createImageBitmap(file);
+    const canvas = documentObject.createElement("canvas");
+    canvas.width = Math.round(box.sw * scale);
+    canvas.height = Math.round(box.sh * scale);
+    const ctx = canvas.getContext("2d");
+    ctx.drawImage(source, box.sx, box.sy, box.sw, box.sh, 0, 0, canvas.width, canvas.height);
+    source.close?.();
+
+    const base = ctx.getImageData(0, 0, canvas.width, canvas.height);
+    const luminances = new Uint8Array(base.data.length / 4);
+    let minLum = 255;
+    let maxLum = 0;
+    for (let i = 0; i < luminances.length; i += 1) {
+      const j = i * 4;
+      const lum = Math.round(0.299 * base.data[j] + 0.587 * base.data[j + 1] + 0.114 * base.data[j + 2]);
+      luminances[i] = lum;
+      if (lum < minLum) minLum = lum;
+      if (lum > maxLum) maxLum = lum;
+    }
+    // "inverted-grayscale" is a continuous linear stretch, not a threshold
+    // — mapLuminance(lum) === 0 only for the single brightest luminance
+    // value in the whole crop, a degenerate mask that eats thin strokes and
+    // mis-splits/merges glyphs (review, 2026-10-06: probing real fixtures
+    // with it collapsed Abomasnow's "30" and Zacian's "5629" to 1 "digit").
+    // Segmentation only ever runs on the genuine 0-or-255 binary variants.
+    const binaryVariants = preprocessVariants({ minLum, maxLum, otsu: otsuThreshold(luminances) })
+      .filter(([label]) => label !== "inverted-grayscale");
+
+    // Just the geometry here — canvas is left holding the ORIGINAL (not yet
+    // binarized) upscaled crop throughout, so the per-digit read below can
+    // threshold each glyph fresh off its own local contrast rather than
+    // inheriting whichever global threshold happened to find the boxes.
+    const attempts = [];
+    let digitBoxes = null;
+    for (const [label, mapLuminance] of binaryVariants) {
+      const isInk = (x, y) => mapLuminance(luminances[y * canvas.width + x]) === 0;
+      const found = segmentDigitGlyphs(canvas.width, canvas.height, isInk);
+      attempts.push(`[${label}] ${found ? `${found.length} digit glyphs` : "no digit glyphs"}`);
+      if (found) { digitBoxes = found; break; }
+    }
+    if (!digitBoxes) return { value: null, candidates: [], raw: attempts.join("\n") };
+
+    let whitelisted = false;
+    try {
+      // PSM SINGLE_WORD ("8"), not the SINGLE_CHAR ("10") its name suggests
+      // — confirmed empirically (2026-10-06): a lone "7" glyph, cropped and
+      // isolated exactly like a "9" that already OCR's fine, reads empty
+      // under both the default AUTO layout mode and SINGLE_CHAR (Tesseract's
+      // page-layout step doesn't treat an isolated two-stroke "7" as text to
+      // begin with). SINGLE_WORD skips that layout step and reads both.
+      await engine.setParameters?.({ tessedit_char_whitelist: DIGITS, tessedit_pageseg_mode: "8" });
+      whitelisted = true;
+    } catch {
+      // Unrestricted single-char OCR still has a shot at reading one glyph.
+    }
+
+    const chars = [];
+    try {
+      for (const glyph of digitBoxes) {
+        // A couple of extra source pixels on every side: the segmented box
+        // is exactly the ink extent off a GLOBAL threshold, so a glyph whose
+        // anti-aliased edge dipped just under that cutoff (the top curl of a
+        // "9") would otherwise get clipped right at its most distinguishing
+        // stroke.
+        const srcPad = 4;
+        const gx0 = Math.max(0, glyph.x0 - srcPad);
+        const gy0 = Math.max(0, glyph.y0 - srcPad);
+        const gw = Math.min(canvas.width - gx0, glyph.w + srcPad * 2);
+        const gh = Math.min(canvas.height - gy0, glyph.h + srcPad * 2);
+        // Smooth upscale + real white margin: a tight crop resized to fill
+        // the whole target canvas leaves the glyph touching every edge,
+        // which Tesseract's classifier reliably reads as noise and returns
+        // nothing for (confirmed empirically, 2026-10-06).
+        const upscale = 4;
+        const margin = Math.round(Math.max(gw, gh) * upscale * 0.4);
+        const digitCanvas = documentObject.createElement("canvas");
+        digitCanvas.width = gw * upscale + margin * 2;
+        digitCanvas.height = gh * upscale + margin * 2;
+        const dctx = digitCanvas.getContext("2d");
+        dctx.fillStyle = "#fff";
+        dctx.fillRect(0, 0, digitCanvas.width, digitCanvas.height);
+        dctx.imageSmoothingEnabled = true;
+        dctx.drawImage(canvas, gx0, gy0, gw, gh, margin, margin, gw * upscale, gh * upscale);
+        // Fresh per-glyph threshold off this crop's OWN contrast — not the
+        // global one that found the boxes. Keeps a neighboring glyph's
+        // shape from skewing this one's binarization (duskull: "9" and "7"
+        // sharing one threshold mid-read the "9" as "7"). Scoped to the
+        // drawn glyph rect, not the white margin around it — the margin's
+        // own white would otherwise set cMax and threshold itself in as
+        // "ink", painting the whole crop black.
+        const crop = dctx.getImageData(0, 0, digitCanvas.width, digitCanvas.height);
+        const cropLum = (i) => Math.round(0.299 * crop.data[i] + 0.587 * crop.data[i + 1] + 0.114 * crop.data[i + 2]);
+        let cMin = 255;
+        let cMax = 0;
+        for (let y = margin; y < margin + gh * upscale; y += 1) {
+          for (let x = margin; x < margin + gw * upscale; x += 1) {
+            const lum = cropLum((y * digitCanvas.width + x) * 4);
+            if (lum < cMin) cMin = lum;
+            if (lum > cMax) cMax = lum;
+          }
+        }
+        const cutoff = cMax - (cMax - cMin) * 0.4;
+        for (let y = margin; y < margin + gh * upscale; y += 1) {
+          for (let x = margin; x < margin + gw * upscale; x += 1) {
+            const i = (y * digitCanvas.width + x) * 4;
+            const value = cropLum(i) >= cutoff ? 0 : 255;
+            crop.data[i] = value;
+            crop.data[i + 1] = value;
+            crop.data[i + 2] = value;
+          }
+        }
+        dctx.putImageData(crop, 0, 0);
+        const blob = await new Promise((resolve) => digitCanvas.toBlob(resolve, "image/png"));
+        const read = blob ? String(await engine.recognize(blob)).trim() : "";
+        // Anchored: the ENTIRE read must be one digit, nothing else — a
+        // digit buried in noise ("x7y") is not a confident single-glyph
+        // read even though /\d/ would have matched it.
+        const match = read.match(/^\d$/);
+        chars.push(match ? match[0] : null);
+        attempts.push(`glyph [${glyph.x0},${glyph.x1}] -> ${JSON.stringify(read)}`);
+      }
+    } finally {
+      if (whitelisted) {
+        try {
+          await engine.setParameters?.({ tessedit_char_whitelist: "", tessedit_pageseg_mode: PSM_DEFAULT });
+        } catch {
+          attempts.push("[warning] whitelist/psm reset failed — restart the scan session if later reads look digit-only");
+        }
+      }
+    }
+    const value = chars.every((char) => char !== null) ? Number(chars.join("")) : null;
+    return { value, candidates: value != null ? [value] : [], raw: attempts.join("\n") };
+  } catch {
+    return null;
+  }
+}
+
+// Second-pass CP read. See readCroppedField for the whole-banner pass this
+// runs first; falls back to per-digit segmentation (cpDigitSegmentRead)
+// only when that pass found nothing to work with at all.
 export async function cpBannerRetry(engine, file, documentObject = globalThis.document) {
   const result = await readCroppedField(engine, file, {
     label: "cp",
-    region: (bitmap) => ({
-      sx: Math.round(bitmap.width * 0.3),
-      sw: Math.round(bitmap.width * 0.4),
-      sy: Math.round(bitmap.height * 0.03),
-      sh: Math.round(bitmap.height * 0.15),
-    }),
+    region: (bitmap) => cpBannerBox(bitmap.width, bitmap.height),
     scale: 2,
     whitelist: `${DIGITS}CPcp, `,
     pick: pickCpDigits,
@@ -400,8 +674,25 @@ export async function cpBannerRetry(engine, file, documentObject = globalThis.do
     // ("cp12" before "cp102"); the caller picks the read that fits CP+HP.
     good: () => false,
   }, documentObject);
-  // { cp, raw, candidates }, null when nothing could run.
-  return result ? { cp: result.value, raw: result.raw, candidates: result.hits ?? [] } : null;
+  if (!result) return null;
+  let cp = result.value;
+  let raw = result.raw;
+  let candidates = result.hits ?? [];
+  if (!candidates.length) {
+    const segmented = await cpDigitSegmentRead(engine, file, documentObject);
+    if (segmented) {
+      raw = raw ? `${raw}\n--- digit segmentation ---\n${segmented.raw}` : `--- digit segmentation ---\n${segmented.raw}`;
+      if (segmented.candidates.length) {
+        cp = segmented.value;
+        candidates = segmented.candidates;
+      }
+    }
+  }
+  // { cp, raw, candidates }. cp is only set here when there is exactly one
+  // candidate; the caller (app.js) still re-derives cp from candidates via
+  // its own CP+HP fit check, and renders tappable chips instead of auto-
+  // picking when more than one candidate fits ("CP partly read").
+  return { cp, raw, candidates };
 }
 
 // The species name band. The game puts the name directly ABOVE the HP line

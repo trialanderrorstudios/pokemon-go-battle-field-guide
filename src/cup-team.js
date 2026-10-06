@@ -20,6 +20,11 @@ const CANDIDATE_POOL = 12;
 // Two members weak (x1.6+) to the same threat type cost a trio this many rank
 // points. Heuristic — Color Cup's Cradily problem was exactly this shape.
 const SHARED_WEAKNESS_COST = 40;
+// Which pvp.<league> list a cup's CP cap reads from — the only two capped
+// leagues this app ships rankings/builds for. A cup at any other cap (the
+// curated 500-CP cups are all Little Cup, rule "unevolved", which never
+// reaches this map) has no matching list to simulate or rank-spread against.
+const CP_CAP_LEAGUE = { 1500: "great", 2500: "ultra" };
 
 function typesOf(form) {
   return [form?.primary_type, form?.secondary_type].filter(Boolean);
@@ -116,7 +121,7 @@ function ownedCandidates(cup, { forms, pvpDeepRanks, roster }) {
     if (!isCupLegal(formId, cup, forms, evolvedTargets)) continue;
     if (Number.isFinite(instance.cp) && instance.cp > cup.cpCap) continue;
     // Spread ranks exist only for the 1500/2500 caps rankIvSpread knows.
-    const league = { 1500: "great", 2500: "ultra" }[cup.cpCap];
+    const league = CP_CAP_LEAGUE[cup.cpCap];
     const spreadRank = instance.ivs && league ? rankIvSpread(forms[formId], instance.ivs, league)?.rank ?? null : null;
     const existing = byForm.get(formId);
     if (!existing || (spreadRank && (!existing.spreadRank || spreadRank < existing.spreadRank))) {
@@ -206,12 +211,20 @@ export function ownedCupPool(cup, ctx) {
   return ownedCandidates(cup, ctx);
 }
 
-// A pvp.great row's own rankOne build as a simulatePvp side, or null if the
-// row doesn't carry a full build (ivs/level/fastMove/chargedMoves).
-function sideFromRankOne(row, form) {
-  if (!row?.rankOne?.ivs || !row?.rankOne?.level || !row?.fastMove || !row?.chargedMoves?.length) return null;
-  const { attack, defense, stamina } = row.rankOne.ivs;
-  return { form, ivs: { atk: attack, def: defense, sta: stamina }, level: row.rankOne.level, fastMove: row.fastMove, chargedMoves: row.chargedMoves };
+// A pvp.great row's own build as a simulatePvp side, or null if the row
+// doesn't carry a full build (ivs/level/fastMove/chargedMoves). Prefers
+// PvPoke's own defaultIvs over this repo's rankOne (an independent
+// exhaustive max-stat-product search) — PvPoke's published keyMatchups/
+// keyCounters rating is computed at ITS default, not at rankOne, and the two
+// can disagree on which spread wins a stat-product tie (see pvp-sim.js's
+// MEASURED_AGREEMENT_PCT header). rankOne is still the fallback for a league
+// defaultIvs doesn't cover (Master has no CP cap, so no matching PvPoke
+// default) or a row missing the field.
+export function sideFromPublishedBuild(row, form) {
+  const build = row?.defaultIvs?.ivs && row?.defaultIvs?.level ? row.defaultIvs : row?.rankOne;
+  if (!build?.ivs || !build?.level || !row?.fastMove || !row?.chargedMoves?.length) return null;
+  const { attack, defense, stamina } = build.ivs;
+  return { form, ivs: { atk: attack, def: defense, sta: stamina }, level: build.level, fastMove: row.fastMove, chargedMoves: row.chargedMoves };
 }
 
 // An instance is only usable if EVERY move it carries resolves in the
@@ -227,9 +240,10 @@ function instanceMovesKnown(instance, moveCatalog) {
 // H2: a team member's build for simulation — the player's own logged
 // instance (fastMove/chargedMoves/ivs, level solved from its cp) when one
 // with a full, catalog-resolvable moveset is on the roster, else the
-// species' published rank-1 build. assumedRankOne tells the view to label
-// the fallback.
-function sideForMember(member, ctx) {
+// species' published build (see sideFromPublishedBuild), read from the
+// `league` list that actually matches this cup's CP cap. assumedPublished
+// tells the view to label the fallback.
+function sideForMember(member, ctx, league) {
   const form = ctx.forms?.[member.formId];
   const instance = (ctx.roster?.instances ?? []).find(
     (i) => i.formId === member.formId && i.fastMove && (i.chargedMoves ?? []).length && i.ivs && Number.isFinite(i.cp)
@@ -238,33 +252,40 @@ function sideForMember(member, ctx) {
   if (form && instance) {
     const level = solveLevel(form, instance.ivs, instance.cp);
     if (level !== null) {
-      return { side: { form, ivs: instance.ivs, level, fastMove: instance.fastMove, chargedMoves: instance.chargedMoves }, assumedRankOne: false };
+      return { side: { form, ivs: instance.ivs, level, fastMove: instance.fastMove, chargedMoves: instance.chargedMoves }, assumedPublished: false };
     }
   }
-  const row = (ctx.pvp?.great ?? []).find((r) => r.formId === member.formId);
-  const side = form ? sideFromRankOne(row, form) : null;
-  return { side, assumedRankOne: true };
+  const row = (ctx.pvp?.[league] ?? []).find((r) => r.formId === member.formId);
+  const side = form ? sideFromPublishedBuild(row, form) : null;
+  return { side, assumedPublished: true };
 }
 
 // Simulates each of a cup team's 3 members against the cup meta's top 8
 // (1-1 shields, each side at the build sideForMember resolves). Opponents
-// always use their own published rankOne build — a meta entry without one
-// is dropped rather than guessed at. Cheap (<= 3 x 8 = 24 simulatePvp
-// calls); meant for the "vs meta" disclosure in the cup view, not scoring.
-// Each matchup is simulated independently (try/catch per member/opponent
-// pair): one bad matchup is dropped from that member's results, it never
-// blanks the whole member or the whole section.
-export function simulateVsMeta(team, meta, ctx) {
+// always use their own published build (sideFromPublishedBuild) — a meta
+// entry without one is dropped rather than guessed at. Cheap (<= 3 x 8 = 24
+// simulatePvp calls); meant for the "vs meta" disclosure in the cup view,
+// not scoring. Each matchup is simulated independently (try/catch per
+// member/opponent pair): one bad matchup is dropped from that member's
+// results, it never blanks the whole member or the whole section.
+//
+// Gated on CP_CAP_LEAGUE: a cup at any cap other than 1500/2500 (today,
+// that's only the Little Cup's 500 — already routed to its own view, never
+// reaching here) has no matching pvp.<league> list, so this returns null —
+// no silently-wrong Great League builds standing in for a different cap.
+export function simulateVsMeta(team, meta, ctx, cup) {
+  const league = CP_CAP_LEAGUE[cup?.cpCap];
+  if (!league) return null;
   const opponents = meta.slice(0, 8)
     .map((m) => {
-      const row = (ctx.pvp?.great ?? []).find((r) => r.formId === m.formId);
-      const side = sideFromRankOne(row, ctx.forms?.[m.formId]);
+      const row = (ctx.pvp?.[league] ?? []).find((r) => r.formId === m.formId);
+      const side = sideFromPublishedBuild(row, ctx.forms?.[m.formId]);
       return side ? { name: m.name, side } : null;
     })
     .filter(Boolean);
   if (!opponents.length) return null;
   return team.members.map((member) => {
-    const { side, assumedRankOne } = sideForMember(member, ctx);
+    const { side, assumedPublished } = sideForMember(member, ctx, league);
     if (!side) return { formId: member.formId, name: member.name, noData: true, results: [] };
     const results = [];
     for (const opponent of opponents) {
@@ -275,6 +296,6 @@ export function simulateVsMeta(team, meta, ctx) {
         // Skip just this one matchup rather than this member or the section.
       }
     }
-    return { formId: member.formId, name: member.name, assumedRankOne, results };
+    return { formId: member.formId, name: member.name, assumedPublished, results };
   });
 }

@@ -43,18 +43,18 @@ function vsMetaHtml(vsMeta) {
     const marks = member.results
       .map((r) => `<span class="cup-sim-mark cup-sim-${r.result.toLowerCase()}" aria-label="${r.result} vs ${escapeHtml(r.name)}">${r.result} ${escapeHtml(r.name)}</span>`)
       .join(" ");
-    const note = member.assumedRankOne ? " <small>(assumes rank-1 IVs and recommended moves)</small>" : "";
+    const note = member.assumedPublished ? " <small>(assumes PvPoke's default IVs and recommended moves)</small>" : "";
     return `<li><strong>${escapeHtml(member.name)}</strong>${note}: ${marks}</li>`;
   }).join("");
   const agreementPct = Math.round(MEASURED_AGREEMENT_PCT);
   return `<details class="cup-sim-section">
     <summary>Simulate your team vs the cup meta</summary>
-    <p class="briefing-note">Approximate: this app's simple simulator agrees with PvPoke's published winner in about ${agreementPct}% of tested matchups. 1-1 shields, no shield baiting, opponents at rank-1 IVs with recommended moves.</p>
+    <p class="briefing-note">Approximate: this app's simple simulator agrees with PvPoke's published winner in ~${agreementPct}% of tested Great League matchups, 1-1 shields. No shield baiting; opponents at PvPoke's own default IVs with recommended moves.</p>
     <ul class="cup-sim-rows">${rows}</ul>
   </details>`;
 }
 
-function teamHtml(team, pool, cupName = "", meta = [], ctx = null) {
+function teamHtml(team, pool, cupName = "", meta = [], ctx = null, cup = null) {
   if (!pool.length) {
     return `<p class="briefing-note">Nothing in your logged box is legal here yet. Star or scan what you own and this fills in.</p>`;
   }
@@ -85,7 +85,7 @@ function teamHtml(team, pool, cupName = "", meta = [], ctx = null) {
   let vsMeta = "";
   if (ctx?.moveCatalog && Object.keys(ctx.moveCatalog).length) {
     try {
-      vsMeta = vsMetaHtml(simulateVsMeta(team, meta, ctx));
+      vsMeta = vsMetaHtml(simulateVsMeta(team, meta, ctx, cup));
     } catch {
       vsMeta = "";
     }
@@ -113,7 +113,7 @@ export function renderCupView({ currentEvents, forms = {}, pvp = {}, pvpDeepRank
     const meta = cupMeta(cup, ctx);
     const body = cup.rule === "unevolved"
       ? littleCupHtml(pool)
-      : `<h4>From your box</h4>${teamHtml(bestCupTeam(cup, ctx), pool, cup.name, meta, ctx)}${metaHtml(meta)}`;
+      : `<h4>From your box</h4>${teamHtml(bestCupTeam(cup, ctx), pool, cup.name, meta, ctx, cup)}${metaHtml(meta)}`;
     return `<details class="fallback-section cup-section"${index === 0 ? " open" : ""} data-cup-event="${escapeHtml(cup.eventId)}">
       <summary><strong>${escapeHtml(cup.name)}</strong> · ${cup.live ? `live until ${escapeHtml(day(cup.endsAt))}` : `starts ${escapeHtml(day(cup.startsAt))}`}</summary>
       <p class="cup-rules">${escapeHtml(rulesLine(cup))}</p>

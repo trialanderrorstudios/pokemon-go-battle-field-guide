@@ -17,13 +17,14 @@
 //     spread WORSE: Shadow Lapras 0/12/13 is UL #6, purified 2/14/15 is #137),
 //     the Frustration window, and whether you already own a better copy.
 import { buildRenameString } from "./rename-string.js";
-import { rankIvSpread, LEAGUE_CP_CAP, RANK_LEAGUES } from "./pvp-team.js";
+import { rankIvSpread, LEAGUE_CP_CAP, RANK_LEAGUES, TOTAL_IV_SPREADS } from "./pvp-team.js";
 import { calculateCp, solveLevel } from "./instances.js";
 import { buildCost } from "./raid-target.js";
 import { frustrationWindow } from "./frustration-window.js";
 import { typeCoverage } from "./gap-analyzer.js";
 import { cupCalendar, isCupLegal, bestCupTeam, evolvedTargetSet } from "./cup-team.js";
-import { escapeHtml } from "./views/home.js";
+import { effectivenessOf } from "./type-chart.js";
+import { escapeHtml, liveMaxBosses } from "./views/home.js";
 
 const LEAGUE_LABEL = Object.freeze({ great: "Great League", ultra: "Ultra League", master: "Master League" });
 const LEAGUE_INDEX = Object.freeze({ great: 0, ultra: 1, master: 2 });
@@ -70,18 +71,43 @@ function walkEnds(formId, forms, seen = new Set()) {
   return edges.flatMap((edge) => walkEnds(edge.formId, forms, seen));
 }
 
+// Every stage of the chain — self, every intermediate, every final end —
+// unlike walkEnds, which only wants the leaves. Open-league fits needs this:
+// a Dusclops open-Great-League rank is a real fit for a caught Duskull, and
+// Dusclops is neither the catch itself nor a final evolution.
+function walkAllStages(formId, forms, seen = new Set()) {
+  if (seen.has(formId)) return [];
+  seen.add(formId);
+  const edges = forms[formId]?.evolves_to ?? [];
+  return [formId, ...edges.flatMap((edge) => walkAllStages(edge.formId, forms, seen))];
+}
+
+// Shared shadow quirk: a shadow pre-evolution's own walk goes nowhere (no
+// evolves_to edges in the data — see the file banner), so it re-walks the
+// regular chain instead and maps each stage back to its -shadow variant when
+// one exists.
+function shadowAwareWalk(formId, forms, walker) {
+  const form = forms[formId];
+  if (!form) return [];
+  let stages = walker(formId, forms);
+  if (form.shadow && stages.length === 1 && stages[0] === formId) {
+    stages = walker(regularIdOf(formId), forms).map((id) => (forms[`${id}-shadow`] ? `${id}-shadow` : id));
+  }
+  return [...new Set([formId, ...stages])].filter((id) => forms[id]);
+}
+
 // The picked form itself plus every final evolution. A shadow with no edges of
 // its own walks the regular chain and lands on shadow ends — evolving a shadow
 // keeps it shadow.
 export function verdictTargets(formId, forms) {
-  const form = forms[formId];
-  if (!form) return [];
-  let ends = walkEnds(formId, forms);
-  if (form.shadow && ends.length === 1 && ends[0] === formId) {
-    ends = walkEnds(regularIdOf(formId), forms)
-      .map((id) => (forms[`${id}-shadow`] ? `${id}-shadow` : id));
-  }
-  return [...new Set([formId, ...ends])].filter((id) => forms[id]);
+  return shadowAwareWalk(formId, forms, walkEnds);
+}
+
+// The picked form itself plus every evolution STAGE, final or not — open-
+// league fits' own walk. Raid/cup fits keep using verdictTargets (leaves
+// only); only a final form is a real raid role or cup-team pick.
+export function evolutionChainTargets(formId, forms) {
+  return shadowAwareWalk(formId, forms, walkAllStages);
 }
 
 function eliteMovesFor(form, row) {
@@ -241,16 +267,128 @@ export function whatIfLines({ formId, cp, level, shadow, options, best, purify }
   return lines;
 }
 
-// Where it fits (L3, 2026-10-06) — top 3 of: raid lane(s) this catch's best
-// role per attacking type (raid-target.js's ranked rows, the same ones
-// topRaidRole already walks) joins or upgrades versus the owned roster's
-// current best in that type (gap-analyzer.js's typeCoverage, no new coverage
-// math); and live cup team(s) (cup-team.js's bestCupTeam, built on its own
-// simWins/simCoverage) it would join, with the covered-threat delta over the
-// team picked without it. Nothing fabricated: every number here is read off
-// data another module already ranked. Show nothing when there's no real fit.
+// Where it fits (L3, 2026-10-06; open-league + Max added 2026-10-06) — top 3
+// of, in this priority order: live cup team(s) (cup-team.js's bestCupTeam,
+// built on its own simWins/simCoverage) it would join, with the
+// covered-threat delta over the team picked without it; open-format league
+// rank(s) (pvpDeepRanks goes far deeper than the shipped top-50 "viable"
+// lists this verdict's own `best` requires — a species just outside that,
+// with a strong IV spread for THIS catch, is real context even with no live
+// cup running that format); raid lane(s) this catch's best role per
+// attacking type (raid-target.js's ranked rows, the same ones topRaidRole
+// already walks) joins or upgrades versus the owned roster's current best in
+// that type (gap-analyzer.js's typeCoverage, no new coverage math); and a
+// live Max Battle boss its type beats (boss-card.js's own same-type check,
+// no Max-move data in this release). Nothing fabricated: every number here is
+// read off data another module already ranked. Show nothing when there's no
+// real fit.
 const CUP_FIT_CAP = 2;
 const RAID_FIT_CAP = 2;
+const OPEN_LEAGUE_FIT_CAP = 2;
+// "Sensible cutoff" for an open-format mention: looser of the top 10% of the
+// league's own total, or the top 100 (NEAR_VIABLE_RANK — the same "just
+// outside viable" bar the XL cheaper-alternative note already uses).
+const OPEN_LEAGUE_PCT = 0.1;
+
+function openLeagueCutoff(total) {
+  return Math.max(NEAR_VIABLE_RANK, Math.round((total ?? 0) * OPEN_LEAGUE_PCT));
+}
+
+// Best OTHER owned copy of this exact form/league (same instance-excluding
+// rule as ownedBetter below) — null when none owned yet.
+function bestOwnedRankFor(formId, league, ivs, roster, forms) {
+  const form = forms[formId];
+  let best = null;
+  for (const instance of roster?.instances ?? []) {
+    if (instance.formId !== formId || !instance.ivs || sameIvs(instance.ivs, ivs)) continue;
+    const rank = rankIvSpread(form, instance.ivs, league);
+    if (rank && (best === null || rank.rank < best)) best = rank.rank;
+  }
+  return best;
+}
+
+// Walks every evolution STAGE (evolutionChainTargets, not just the final
+// raid/cup targets) so an intermediate form like Dusclops or Vigoroth is
+// reachable. `finalOptions` is catchVerdict's own already-computed options for
+// the final targets, reused as-is; optionsFor only runs again for the extra
+// intermediate stages (review: 29f4267, LOW finding — no need to recompute
+// what's already in hand). Keeps the best (lowest species rank) option per
+// league, excluding only the exact form+league `best` already claims — NOT
+// every species rank at or under VIABLE_SPECIES_RANK, because `best` only
+// ever considers the final targets: an intermediate top-50 species (Vigoroth
+// Great League #22, for a Slakoth catch whose own final evolution Slaking
+// isn't viable at all) would otherwise vanish from the whole verdict (review:
+// 29f4267, HIGH finding). Skips a league entirely when a different,
+// better-IV owned copy of that same form already holds the spot.
+function openLeagueFits(chainTargets, finalOptions, best, ivs, { forms, level, pvp, deep, roster }) {
+  if (!deep) return [];
+  const optionCtx = { forms, ivs, level, pvp, deep };
+  const finalIds = new Set(finalOptions.map((option) => option.formId));
+  const allOptions = [
+    ...finalOptions,
+    ...chainTargets.filter((id) => !finalIds.has(id)).flatMap((id) => optionsFor(id, optionCtx)),
+  ];
+  const byLeague = new Map();
+  for (const option of allOptions) {
+    if (option.locked || !option.speciesRank || !option.spreadRank) continue;
+    if (best && option.formId === best.formId && option.league === best.league) continue;
+    if (option.speciesRank > openLeagueCutoff(option.speciesTotal)) continue;
+    if (option.spreadPct < GOOD_SPREAD) continue;
+    const current = byLeague.get(option.league);
+    if (!current || option.speciesRank < current.speciesRank) byLeague.set(option.league, option);
+  }
+  const fits = [];
+  for (const league of RANK_LEAGUES) {
+    const option = byLeague.get(league);
+    if (!option) continue;
+    const ownedRank = bestOwnedRankFor(option.formId, option.league, ivs, roster, forms);
+    if (ownedRank !== null && ownedRank <= option.spreadRank) continue;
+    const ownedNote = ownedRank === null ? "first one you own" : `better than the ${option.name} you own (#${ownedRank})`;
+    fits.push({
+      label: `${LEAGUE_LABEL[option.league]}: ${option.name} #${option.speciesRank} of ${option.speciesTotal.toLocaleString("en-US")} — your IVs rank #${option.spreadRank} of ${TOTAL_IV_SPREADS.toLocaleString("en-US")}; ${ownedNote}.`,
+      href: `./#dex/${encodeURIComponent(option.formId)}`, route: "dex", view: "", linkText: "Dex",
+    });
+    if (fits.length >= OPEN_LEAGUE_FIT_CAP) break;
+  }
+  return fits;
+}
+
+// Same same-type check boss-card.js's maxReadyCounters uses (no Max-move or
+// Max-specific attacker data ships this release — honesty wording matches
+// its own caveat exactly), aimed at a live boss instead of a roster scan.
+// canDynamax/canGigantamax are instance flags (round 15/17), not species
+// data: true only when the caller already knows THIS catch's own flag
+// (box-audit's logged instances do; a fresh scan can't, so it never claims a
+// Max fit). Checked stage by stage across the evolution chain, not as a
+// pre-union of every stage's types: the flag carries through evolution (an
+// Eevee flagged canDynamax stays Dynamax-ready as whichever Eeveelution it
+// becomes), but the fit is true of one specific evolved form, not "the
+// catch" as caught — an Eevee's own type (Normal) doesn't hit Tangela,
+// Flareon's Fire does, so the label names the stage that actually qualifies
+// (review: 29f4267, MED finding).
+function maxBattleFits(formId, chainTargets, { canDynamax, canGigantamax }, { forms, currentMaxBattles, now }) {
+  if (!canDynamax && !canGigantamax) return [];
+  const bosses = liveMaxBosses(currentMaxBattles, now ?? new Date());
+  if (!bosses.length) return [];
+  for (const boss of bosses) {
+    const bossForm = forms[boss.formId];
+    if (!bossForm) continue;
+    const bossTypes = [bossForm.primary_type, bossForm.secondary_type].filter(Boolean);
+    for (const stageId of chainTargets) {
+      const stageForm = forms[stageId];
+      if (!stageForm) continue;
+      const stageTypes = [stageForm.primary_type, stageForm.secondary_type].filter(Boolean);
+      const multiplier = Math.max(0, ...stageTypes.map((type) => effectivenessOf(type, bossTypes)));
+      if (multiplier <= 1) continue;
+      const asStage = stageId !== formId ? ` as ${stageForm.name}` : "";
+      return [{
+        label: `Max Battles: hits ${bossForm.name} super-effectively by type${asStage} — not a Max-move or DPS rank; this release carries no Max-specific attacker data.`,
+        href: `./#dex/${encodeURIComponent(boss.formId)}`, route: "dex", view: "", linkText: "Dex",
+      }];
+    }
+  }
+  return [];
+}
 
 function raidLaneFits(targets, { raids, roster, forms }) {
   const ids = new Set(targets);
@@ -380,23 +518,37 @@ function cupTeamFits(formId, ivs, cp, { forms, pvp, deep, roster, currentEvents,
 }
 
 // Pure: forms/pvp/raids/roster/currentEvents in, up to 3 fit lines out.
-// Called from catchVerdict with the same ctx it already has in scope.
-export function whereItFits({ formId, targets, ivs, cp }, ctx) {
-  return [...cupTeamFits(formId, ivs, cp, ctx), ...raidLaneFits(targets, ctx)].slice(0, 3);
+// Called from catchVerdict with the same ctx it already has in scope. Order
+// is cup > open league > raid > Max — each lane is already strongest-first
+// internally, so the cap keeps the strongest of the highest-priority lanes
+// that actually have something to say (ponytail: a full cross-lane delta sort
+// isn't worth it for a 3-line cap).
+export function whereItFits({ formId, targets, chainTargets, ivs, cp, canDynamax, canGigantamax, best, options }, ctx) {
+  return [
+    ...cupTeamFits(formId, ivs, cp, ctx),
+    ...openLeagueFits(chainTargets, options, best, ivs, ctx),
+    ...raidLaneFits(targets, ctx),
+    ...maxBattleFits(formId, chainTargets, { canDynamax, canGigantamax }, ctx),
+  ].slice(0, 3);
 }
 
 // catchVerdict({ formId, ivs:{atk,def,sta}, cp?, chargedMoves?, forms, pvp,
-// pvpDeepRanks, raids, gym, roster, currentEvents, now }) -> verdict | null.
-// `chargedMoves`, when known, lets an already-cleared shadow skip the
-// Frustration line; a fresh catch always carries Frustration.
+// pvpDeepRanks, raids, gym, roster, currentEvents, now, currentMaxBattles?,
+// canDynamax?, canGigantamax? }) -> verdict | null. `chargedMoves`, when
+// known, lets an already-cleared shadow skip the Frustration line; a fresh
+// catch always carries Frustration. currentMaxBattles/canDynamax/
+// canGigantamax feed the Max Battle fit only — they're instance flags a fresh
+// scan never has, so they default to "no Max fit" rather than guessing.
 export function catchVerdict({
   formId, ivs, cp = null, chargedMoves = null,
   forms = {}, pvp = {}, pvpDeepRanks = null, raids = {}, gym = {}, roster = null, currentEvents = null, now = new Date(),
+  currentMaxBattles = null, canDynamax = false, canGigantamax = false,
 } = {}) {
   const form = forms[formId];
   if (!form || !ivs) return null;
   const level = cp ? solveLevel(form, ivs, Number(cp)) : null;
   const targets = verdictTargets(formId, forms);
+  const chainTargets = evolutionChainTargets(formId, forms);
   const ctx = { forms, ivs, level, pvp, deep: pvpDeepRanks };
   const options = targets.flatMap((id) => optionsFor(id, ctx));
   const viableOptions = options.filter(viable);
@@ -484,7 +636,9 @@ export function catchVerdict({
   }
 
   const whatIf = whatIfLines({ formId, cp, level, shadow: form.shadow, options, best, purify }, forms);
-  const fits = whereItFits({ formId, targets, ivs, cp }, { forms, pvp, deep: pvpDeepRanks, raids, roster: roster ?? {}, currentEvents, now });
+  const fits = whereItFits({ formId, targets, chainTargets, ivs, cp, canDynamax, canGigantamax, best, options }, {
+    forms, pvp, deep: pvpDeepRanks, raids, roster: roster ?? {}, currentEvents, now, level, currentMaxBattles,
+  });
 
   return {
     formId, name: form.name, dex: form.dex ?? null, shadow: Boolean(form.shadow), ivs, cp, level,

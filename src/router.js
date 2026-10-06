@@ -250,6 +250,7 @@ export function createRouter({
     if (typeof renderer !== "function") {
       throw new TypeError(`Missing renderer for route: ${route}`);
     }
+    const keptScroll = documentObject?.getElementById?.("app")?.scrollTop ?? 0;
     renderer();
     const screen = documentObject?.getElementById?.("app");
     const heading = screen?.querySelector?.("h2");
@@ -262,6 +263,16 @@ export function createRouter({
       heading.setAttribute?.("tabindex", "-1");
       heading.focus({ preventScroll: true });
     }
+    // A landing data chunk re-renders the same surface; only a real move
+    // (or a navigation the reader asked for) resets scroll, or a cold load
+    // snaps the page back to the top while they're reading it.
+    // Kept on the document, not in this closure: each landing chunk
+    // re-bootstraps the app with a fresh router, which would otherwise always
+    // look like a first visit.
+    const surface = `${route}/${view}`;
+    const root = documentObject?.documentElement;
+    const moved = moveFocus || root?.dataset?.renderedSurface !== surface;
+    if (root?.dataset) root.dataset.renderedSurface = surface;
     lastRendered = { route, view };
     // Read the view back off the location: a renderer may canonicalize the URL
     // itself (?boss=X#raids folds into #raids/target), and marking the view we
@@ -277,13 +288,16 @@ export function createRouter({
     // on script load: a module that parses and then throws while rendering is
     // just as dead to the user as one that never loaded.
     documentObject?.documentElement?.setAttribute?.("data-app-booted", "true");
-    windowObject.scrollTo?.(0, 0);
-    // The screen (#app) scrolls internally now, not the window — reset its
-    // scroll position too, and restart the 220ms dex page-wipe.
-    screen?.scrollTo?.(0, 0);
-    screen?.classList?.remove("dex-wipe");
-    void screen?.offsetWidth;
-    screen?.classList?.add("dex-wipe");
+    if (!moved && screen && keptScroll) screen.scrollTop = keptScroll;
+    if (moved) {
+      windowObject.scrollTo?.(0, 0);
+      // The screen (#app) scrolls internally now, not the window — reset its
+      // scroll position too, and restart the 220ms dex page-wipe.
+      screen?.scrollTo?.(0, 0);
+      screen?.classList?.remove("dex-wipe");
+      void screen?.offsetWidth;
+      screen?.classList?.add("dex-wipe");
+    }
     return route;
   }
 

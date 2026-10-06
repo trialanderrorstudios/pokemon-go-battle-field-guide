@@ -29,6 +29,10 @@ export function verdictForEntry(entry, ctx) {
     ivs: entry.instance.ivs,
     cp: Number.isFinite(entry.instance.cp) ? entry.instance.cp : null,
     chargedMoves: moves.length ? moves : null,
+    // Max Battle fit (2026-10-06): canDynamax/canGigantamax are logged
+    // instance flags (round 15/17) — real signal here, unlike a fresh scan.
+    canDynamax: Boolean(entry.instance.canDynamax),
+    canGigantamax: Boolean(entry.instance.canGigantamax),
   });
 }
 

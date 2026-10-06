@@ -6,6 +6,20 @@
 
 export const SHELL_CHANGELOG = Object.freeze([
   Object.freeze({
+    rev: "r196", date: "2026-10-06",
+    added: Object.freeze([
+      "Raids opens on \"Raid bosses now\": every boss in rotation by tier, each tile opening its boss card. The boss card shows its infographic right in the app, with Share under it, and boss links on Today and current bosses in the Dex open it.",
+      "\"Where it fits\" now covers the open Great, Ultra and Master Leagues (e.g. \"Great League: Dusclops #77 of 1,152 — your IVs rank #21 of 4,096\") and Max Battles your Dynamax Pokémon hit super-effectively.",
+      "When two CP values both fit a scan, the row offers both as one-tap choices instead of picking one.",
+    ]),
+    tweaked: Object.freeze([
+      "Scans read a CP the text reader splits apart by reading each digit on its own (fixes CP 97 reading as 9 on iPad).",
+      "The cup simulator now builds meta opponents at PvPoke's own default IVs and agrees with PvPoke's published winner in about 77% of tested Great League matchups (was 73%).",
+      "Fixed a style rule on the Rocket leader cards that a bad merge had broken in r195.",
+      "Pages no longer jump back to the top while data is still loading on a cold start.",
+    ]),
+  }),
+  Object.freeze({
     rev: "r195", date: "2026-10-06",
     added: Object.freeze([
       "Rocket: Giovanni, Arlo, Cliff and Sierra each get a card — every possible Pokémon per lineup slot with what it's weak to and resists, and counters from your own box first. Counters are ranked by raid type damage, and the card says so: shields and fast-move pressure matter in these fights. \"Share\" turns it into an image.",

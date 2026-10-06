@@ -99,7 +99,7 @@ import {
 import {
   rotationPackCardData, trophyCardData,
   gymDefenseCardData, gymLineupCardData, instanceCardData, shareOrDownloadCard, triageSummaryCardData, verdictCardData, cupTeamCardData,
-  bossCardShareData, rocketBattlerCardShareData,
+  bossCardShareData, rocketBattlerCardShareData, renderShareCard,
 } from "./share-card.js";
 import {
   exportDexSummary,
@@ -152,7 +152,7 @@ import {
 } from "./backup.js";
 import { buildPvpFullRankings, createPvpState, renderPvp } from "./views/pvp.js";
 import { withMyTeamOverride } from "./pvp-team.js";
-import { renderRaids } from "./views/raids.js";
+import { raidBossGalleryData, renderRaidBossGallery, renderRaids } from "./views/raids.js";
 import {
   advanceDrillQuestion,
   answerDrillQuestion,
@@ -275,7 +275,10 @@ export const ROUTE_CHUNKS = Object.freeze({
   // and the entry's raid-attacker section is one section among many, not the
   // reason most visits happen — so it's chained through HOME_DEFERRED_CHUNK_KEY
   // after these five land (see the dex-route-visit chaining below).
-  dex: ["gyms.json", "pvp.json", "acquisition.json", "current-eggs.json", "raid-targets.json", "extras.json"],
+  // current-bosses.json (review fix, MED, 2026-10-06): tiny, but without it
+  // a cold dex deep-link never shows the "currently up" tag/CTA until some
+  // other route happens to load it first.
+  dex: ["gyms.json", "pvp.json", "acquisition.json", "current-eggs.json", "raid-targets.json", "extras.json", "current-bosses.json"],
   // Not a real route — no URL ever resolves here. It exists so the deferred
   // raids.json fetch (see ROUTE_CHUNKS.home above) can go through the exact
   // same claim/load/merge machinery as a real route instead of a bespoke
@@ -2720,6 +2723,10 @@ export function createInteractionController({
                 ? `\n--- name retry (${named.name ? `read ${named.name} @ ${named.score}` : "no read"}) ---\n${named.raw}`
                 : "\n--- name retry unavailable on this device ---";
             }
+            // Set below when the banner retry's digit segmentation turns up
+            // 2+ CP values that are each HP-consistent — ambiguous, so the
+            // row renders them as one-tap chips instead of auto-picking.
+            let cpCandidates = null;
             if (parsed.cp === null && parsed.hp !== null) {
               // Full-screen pass lost the CP banner — targeted crop retry
               // (see cpBannerRetry). Merged at low confidence; the "CP not
@@ -2734,19 +2741,30 @@ export function createInteractionController({
               // The retry's raw output is appended EITHER WAY, so evidence
               // distinguishes "retry ran and read garbage" from "never ran".
               const banner = await api.cpBannerRetry?.(engine, file);
-              // Of every pass's read, take the first that fits a real IV
+              // Of every pass's read, keep only the ones that fit a real IV
               // spread for this HP (2026-10-05: "cp12" came before "cp102").
+              // Exactly one fit auto-applies, same as before; two or more
+              // (2026-10-06: a digit-segmented "97" can be as HP-consistent
+              // as a misread "94") is genuine ambiguity — never silently pick
+              // the first one, surface both as one-tap chips instead (see
+              // cpCandidates below, rendered by ocrIntakeRowHtml).
               const fits = (cp) => parsed.formId && forms[parsed.formId]
                 && ivCandidatesFromCpHp(forms[parsed.formId], cp, parsed.hp).length > 0;
-              const fitting = (banner?.candidates ?? []).find(fits);
-              if (banner && fitting) banner.cp = fitting;
-              if (banner?.cp) {
+              const fitting = (banner?.candidates ?? []).filter(fits);
+              if (banner && fitting.length === 1) {
+                banner.cp = fitting[0];
+              } else if (banner && fitting.length > 1) {
+                cpCandidates = fitting;
+              }
+              if (!cpCandidates && banner?.cp) {
                 parsed.cp = banner.cp;
                 parsed.confidence.cp = "low";
                 parsed.issues = parsed.issues.filter((issue) => issue !== "CP not found.");
+              } else if (cpCandidates) {
+                parsed.issues = [...(parsed.issues ?? []), "CP partly read — pick the right one below."];
               }
               if (banner) {
-                rawText += `\n--- banner retry (${banner.cp ? `read ${banner.cp}` : "no read"}) ---\n${banner.raw}`;
+                rawText += `\n--- banner retry (${cpCandidates ? `ambiguous: ${cpCandidates.join(" or ")}` : banner.cp ? `read ${banner.cp}` : "no read"}) ---\n${banner.raw}`;
               } else {
                 rawText += "\n--- banner retry unavailable on this device ---";
               }
@@ -2770,6 +2788,10 @@ export function createInteractionController({
               // only needed where parsed.confidence alone can't tell "derived"
               // apart from "retried" (see the CP-hidden+bars branch below).
               provenance: {},
+              // 2+ HP-consistent CP reads from the digit-segmented banner
+              // retry (see cpBannerRetry) — rendered as one-tap chips by
+              // ocrIntakeRowHtml, same shape as row.ivCandidates.
+              cpCandidates,
             };
             applyOcrIvSolve(row);
             // Same-screen appraisal (operator, 2026-10-05: shadow Deino CP351
@@ -2815,6 +2837,10 @@ export function createInteractionController({
                     // badge it "derived", not "retried" (ocrFieldBadges
                     // otherwise reads confidence.cp "low" as a retry).
                     row.provenance = { ...row.provenance, cp: "derived" };
+                    // A derived CP is the one to trust — any leftover "CP
+                    // partly read" chips from the banner retry's own
+                    // ambiguity (above) would otherwise contradict it.
+                    row.cpCandidates = null;
                     row.draft = { ...row.draft, cp: cps[0], ivs: { ...bars.ivs } };
                     row.solvedIvs = { ivs: { ...bars.ivs }, level: fits[0].level, source: "bars" };
                     row.issues = [...(row.issues ?? []).filter((issue) => issue !== "CP not found."), `CP ${cps[0]} worked out from HP + appraisal — the banner was hidden.`];
@@ -3074,6 +3100,23 @@ export function createInteractionController({
           row.solvedIvs = row.ivCandidates?.find((combo) => combo.ivs.atk === ivs.atk && combo.ivs.def === ivs.def && combo.ivs.sta === ivs.sta) ?? { ivs, level: null };
           row.ivCandidates = null;
           row.rosterMatch = rosterMatchForScan({ formId: row.parsed?.formId, ivs, cp: row.parsed?.cp }, roster.instances);
+        }
+        rerenderCurrent();
+        return;
+      }
+      const ocrRowSetCp = target?.closest?.("[data-ocr-row-set-cp]");
+      if (ocrRowSetCp) {
+        const row = ui.ocrIntake?.rows?.find((candidate) => candidate.id === ocrRowSetCp.dataset.ocrRowSetCp);
+        const cp = Number(ocrRowSetCp.dataset.ocrCp);
+        if (row && row.cpCandidates?.includes(cp)) {
+          row.parsed.cp = cp;
+          row.parsed.confidence.cp = "low";
+          row.parsed.issues = (row.parsed.issues ?? []).filter((issue) => issue !== "CP partly read — pick the right one below.");
+          row.issues = (row.issues ?? []).filter((issue) => issue !== "CP partly read — pick the right one below.");
+          row.cpCandidates = null;
+          row.draft = { ...row.draft, cp: String(cp) };
+          applyOcrIvSolve(row);
+          row.rosterMatch = rosterMatchForScan({ formId: row.parsed?.formId, ivs: row.draft?.ivs, cp }, roster.instances);
         }
         rerenderCurrent();
         return;
@@ -5074,6 +5117,7 @@ function renderBossCard(card, forms) {
     bossCardCounterTile("Legendary / Mythical", card.counters.legendaryMythical),
     bossCardCounterTile("General", card.counters.general),
   ].filter(Boolean) : [];
+  const sharePayloadJson = escapeHtml(JSON.stringify(bossCardSharePayload(card, forms)));
   return `<section class="boss-card" aria-labelledby="boss-card-title">
     <div class="boss-card-header">
       <h3 id="boss-card-title">${escapeHtml(card.name)}</h3>
@@ -5082,24 +5126,29 @@ function renderBossCard(card, forms) {
       ${card.raidHour ? `<p class="boss-card-window">Raid Hour: ${escapeHtml(card.raidHour.name)}</p>` : ""}
       ${card.shiny !== null ? `<p class="boss-card-window">${card.shiny ? "Shiny available" : "Not shiny-eligible yet"}</p>` : ""}
     </div>
-    ${card.catchCp ? `<div class="boss-card-stats">
-      <div class="boss-card-stat"><p class="status-kicker">Catch CP</p><p class="boss-card-level">${card.catchCp.normal.level ? `Level ${escapeHtml(Math.round(card.catchCp.normal.level))} encounter` : ""}</p><p>${ivFloorLabel(card.catchCp.normal)}: ${escapeHtml(card.catchCp.normal.minimumRaidIVCP)}</p><p>${jargonTerm("hundo", "Hundo")}: ${escapeHtml(card.catchCp.normal.hundoCP)}</p></div>
-      <div class="boss-card-stat"><p class="status-kicker">Boosted CP</p><p class="boss-card-level">${card.catchCp.boosted.level ? `Level ${escapeHtml(Math.round(card.catchCp.boosted.level))} weather-boosted encounter` : ""}</p><p>${ivFloorLabel(card.catchCp.boosted)}: ${escapeHtml(card.catchCp.boosted.minimumRaidIVCP)}</p><p>${jargonTerm("hundo", "Hundo")}: ${escapeHtml(card.catchCp.boosted.hundoCP)}</p></div>
-    </div>` : ""}
-    <p class="type-chip-list" aria-label="Weak to">Weak to: ${card.weakTo.length ? card.weakTo.map((row) => (
+    <div class="boss-card-infographic" data-boss-infographic data-share-payload="${sharePayloadJson}" role="img" aria-label="${escapeHtml(card.name)} boss card infographic">
+      <p class="boss-card-infographic-loading">Loading infographic…</p>
+    </div>
+    <details class="boss-card-section boss-card-details" open>
+      <summary>Details &amp; counters</summary>
+      ${card.catchCp ? `<div class="boss-card-stats">
+        <div class="boss-card-stat"><p class="status-kicker">Catch CP</p><p class="boss-card-level">${card.catchCp.normal.level ? `Level ${escapeHtml(Math.round(card.catchCp.normal.level))} encounter` : ""}</p><p>${ivFloorLabel(card.catchCp.normal)}: ${escapeHtml(card.catchCp.normal.minimumRaidIVCP)}</p><p>${jargonTerm("hundo", "Hundo")}: ${escapeHtml(card.catchCp.normal.hundoCP)}</p></div>
+        <div class="boss-card-stat"><p class="status-kicker">Boosted CP</p><p class="boss-card-level">${card.catchCp.boosted.level ? `Level ${escapeHtml(Math.round(card.catchCp.boosted.level))} weather-boosted encounter` : ""}</p><p>${ivFloorLabel(card.catchCp.boosted)}: ${escapeHtml(card.catchCp.boosted.minimumRaidIVCP)}</p><p>${jargonTerm("hundo", "Hundo")}: ${escapeHtml(card.catchCp.boosted.hundoCP)}</p></div>
+      </div>` : ""}
+      <p class="type-chip-list" aria-label="Weak to">Weak to: ${card.weakTo.length ? card.weakTo.map((row) => (
     `<span class="type-weak-badge${row.isDouble ? " is-double" : ""}">${typeChip(row.type)}${row.isDouble ? "4x" : "2x"}</span>`
   )).join("") : "None documented"}</p>
-    <p class="type-chip-list" aria-label="Resists">Resists: ${card.resists.length ? card.resists.map((row) => (
+      <p class="type-chip-list" aria-label="Resists">Resists: ${card.resists.length ? card.resists.map((row) => (
     `<span class="type-resist-badge${row.isDouble ? " is-double" : ""}">${typeChip(row.type)}${row.isDouble ? "0.39x" : "0.625x"}</span>`
   )).join("") : "None documented"}</p>
-    ${bossCardTrainersLine(card.trainersNeeded)}
-    ${movesetRows.length ? `<details class="boss-card-section" open><summary>Movesets & ratings</summary><ul class="boss-card-moveset-list">${movesetRows.join("")}</ul></details>` : ""}
-    ${counterTiles.length ? `<details class="boss-card-section"><summary>Top counters</summary><div class="boss-card-counter-groups">${counterTiles.join("")}</div></details>` : ""}
-    ${card.maxReady !== null ? renderMaxReadySection(card.maxReady) : ""}
-    <button type="button" class="boss-card-share" data-action="share-card-payload" data-share-type="bossCard" data-share-payload="${escapeHtml(JSON.stringify(bossCardSharePayload(card, forms)))}">Share boss card</button>
+      ${bossCardTrainersLine(card.trainersNeeded)}
+      ${movesetRows.length ? `<details class="boss-card-section" open><summary>Movesets & ratings</summary><ul class="boss-card-moveset-list">${movesetRows.join("")}</ul></details>` : ""}
+      ${counterTiles.length ? `<details class="boss-card-section"><summary>Top counters</summary><div class="boss-card-counter-groups">${counterTiles.join("")}</div></details>` : ""}
+      ${card.maxReady !== null ? renderMaxReadySection(card.maxReady) : ""}
+      <button type="button" class="boss-card-share" data-action="share-card-payload" data-share-type="bossCard" data-share-payload="${sharePayloadJson}">Share boss card</button>
+    </details>
   </section>`;
 }
-
 
 // Rocket leader/Giovanni card. Review fix (MED): counterRow's rank/elite-TM
 // moveset fields are a raid-DPS rank — meaningless (and misleading) for a 3v3
@@ -5641,6 +5690,60 @@ export function bootstrap({
     gymDefenderForms.map((form) => [form.form_id, form.dex]),
   );
   const storage = windowObject.localStorage ?? null;
+
+  // Fills the boss card's infographic container (renderBossCard above) with
+  // a real <img> built from the exact same canvas drawBossCard() the Share
+  // button draws — lazily, after the card's own HTML is already on screen,
+  // never blocking first paint on a canvas render. A bootstrap-local helper
+  // (not a module-level one) so it closes over bootstrap's own
+  // windowObject/documentObject directly, same as every other render-time
+  // helper in this function — no-op wherever the DOM has no boss-card
+  // container (every string-based test harness's documentObject stand-in,
+  // and any route that didn't render a boss card). A data: URL, not
+  // URL.createObjectURL's blob: one — this app's own CSP (index.html)
+  // scopes img-src to 'self' and data: only, so a blob: <img> src is
+  // silently blocked by the browser (caught by the e2e console-error guard).
+  //
+  // Review fix (HIGH perf, 2026-10-06): every raids rerender (an input
+  // keystroke, an encounter-level toggle) tore down and rebuilt #app, so the
+  // old dataset.hydrated guard was dead — it always saw a brand-new
+  // container and redrew the 1080x1780 canvas + PNG + base64 encode from
+  // scratch every time. Cached by the share payload's own JSON (the same
+  // string already on the container, so no re-serialization): a cache hit
+  // writes the <img> synchronously, no canvas work at all. Bounded to the
+  // last 2 boss cards — this is a convenience cache, not a growing leak.
+  const BOSS_CARD_INFOGRAPHIC_CACHE_LIMIT = 2;
+  const bossCardInfographicCache = new Map(); // sharePayload JSON -> { dataUrl, width, height, name }
+  function hydrateBossCardInfographics() {
+    for (const container of documentObject?.querySelectorAll?.("[data-boss-infographic]") ?? []) {
+      const payloadJson = container.dataset.sharePayload ?? "";
+      const cached = bossCardInfographicCache.get(payloadJson);
+      if (cached) {
+        container.innerHTML = `<img class="boss-card-infographic-img" src="${cached.dataUrl}" alt="${escapeHtml(cached.name)} boss card infographic" width="${cached.width}" height="${cached.height}">`;
+        continue;
+      }
+      let payload = null;
+      try { payload = JSON.parse(payloadJson || "null"); } catch { payload = null; }
+      if (!payload) continue;
+      renderShareCard("bossCard", payload, { documentObject }).then((result) => {
+        if (!result || typeof windowObject?.FileReader !== "function") return;
+        const reader = new windowObject.FileReader();
+        reader.onload = () => {
+          // Stale-promise guard: by the time this async chain resolves, the
+          // container could belong to a render that's no longer current.
+          if (container.dataset.sharePayload !== payloadJson) return;
+          const entry = { dataUrl: reader.result, width: result.width, height: result.height, name: payload.name };
+          bossCardInfographicCache.set(payloadJson, entry);
+          while (bossCardInfographicCache.size > BOSS_CARD_INFOGRAPHIC_CACHE_LIMIT) {
+            bossCardInfographicCache.delete(bossCardInfographicCache.keys().next().value);
+          }
+          container.innerHTML = `<img class="boss-card-infographic-img" src="${entry.dataUrl}" alt="${escapeHtml(entry.name)} boss card infographic" width="${entry.width}" height="${entry.height}">`;
+        };
+        reader.readAsDataURL(result.blob);
+      }).catch(() => {});
+    }
+  }
+
   const ui = uiState ?? createInteractionState({
     roster,
     validFormIds,
@@ -5658,6 +5761,13 @@ export function bootstrap({
   let searchRefresh = () => {};
   let currentRoute = "home";
   let currentView = "";
+  // Set by the raids(view) renderer below (default view only, after its own
+  // ?boss= redirect has resolved activeView) — read right after base(view)
+  // runs so the gallery can be prepended ahead of the guide card and the
+  // view-switcher tabs, which the raids renderer's own innerHTML cannot
+  // reach above (the guide is itself prepended generically, after every
+  // route render, below).
+  let raidsGalleryHtml = "";
   let triageResult = null;
   const basePath = basePathFrom(windowObject.location);
   // "" whenever the asked-for route isn't the one in the URL — a rerender of
@@ -6053,6 +6163,8 @@ export function bootstrap({
         pvp: state.pvp,
         pvpDeepRanks: state.pvpDeepRanks,
         raidTargetTool: state.raidTargetTool,
+        currentBosses: state.currentBosses,
+        currentMaxBattles: state.currentMaxBattles,
         raids: state.raids,
         raidsLoaded: loadedChunkPaths.has("raids-regular.json") && loadedChunkPaths.has("raids-shadow.json"),
         moveSettings: state.moveSettings,
@@ -6083,6 +6195,10 @@ export function bootstrap({
       // the param once so later re-renders (picking a different target) aren't
       // silently overridden back to it.
       let activeView = view;
+      // Reset every render; only the default ("") branch below ever sets
+      // this again — hundo/bossNotFound/target must never carry over a
+      // stale gallery from a previous render of this same route.
+      raidsGalleryHtml = "";
       const bossParam = new URLSearchParams(windowObject.location?.search ?? "").get("boss");
       // An explicitly-requested boss that fails validFormIds must not fall
       // through to whatever ui.raid.targetFormId already held (raidState's
@@ -6094,6 +6210,14 @@ export function bootstrap({
       if (activeView !== "hundo" && bossParam) {
         if (validFormIds.has(bossParam)) {
           ui.raid.targetFormId = bossParam;
+          // Review fix (MED, 2026-10-06): a persisted non-"all" category
+          // (e.g. "Shadow" from a previous visit) excludes most bosses —
+          // without this reset, raidTargetSurface's own honest-swap notice
+          // below would silently swap a ?boss= deep link to a DIFFERENT
+          // boss (targets[0] of the stale category) the instant it didn't
+          // match that filter, defeating the whole point of a link that
+          // names a specific Pokémon.
+          ui.raid.targetCategory = "all";
           activeView = "target";
           const url = new URL(windowObject.location.href);
           url.searchParams.delete("boss");
@@ -6135,9 +6259,18 @@ export function bootstrap({
           + `<div class="raids-view"><aside class="fallback-section" role="alert">No current data for that boss.</aside></div>`;
         return;
       }
+      // Only the default "Top 15 by type" view gets the gallery — read by
+      // the generic post-render step below (after base(view) returns), so
+      // it lands ahead of the guide card and the view-switcher tabs, which
+      // this route's own innerHTML has no way to reach above.
+      raidsGalleryHtml = activeView === "" ? renderRaidBossGallery(
+        raidBossGalleryData({ currentBosses: state.currentBosses, currentMaxBattles: state.currentMaxBattles, forms: state.core.forms }),
+        state.core.forms,
+      ) : "";
       app.innerHTML = interactionNotice(ui) + tabs + budgetPointer + (state.raids && state.raidTargetTool
         ? renderRaidSurface(state, ui, roster, activeView)
         : chunkNotice("raids", "Raids"));
+      hydrateBossCardInfographics();
     },
     gyms(view) {
       const placementState = { ...state, lineupFormIds: ui.gym.lineupFormIds };
@@ -6308,7 +6441,7 @@ export function bootstrap({
           weakLaneCount: weakLanes(typeCoverage({ raids: state.raids, roster })).length,
           verdictFor: (entry) => verdictForEntry(entry, {
             forms: state.core.forms, pvp: state.pvp, pvpDeepRanks: state.pvpDeepRanks, raids: state.raids,
-            gym: state.gym, roster, currentEvents: state.currentEvents ?? null,
+            gym: state.gym, roster, currentEvents: state.currentEvents ?? null, currentMaxBattles: state.currentMaxBattles,
           }),
           boxAudit: ui.boxAudit,
           profileName: ui.profiles.profiles.length > 1 ? (ui.profiles.profiles.find((p) => p.id === ui.profiles.activeId)?.name ?? null) : null,
@@ -6375,6 +6508,11 @@ export function bootstrap({
       // doesn't tear down nodes base() already bound live listeners to
       // (e.g. home's search input via bindSearch).
       app.insertAdjacentHTML("afterbegin", renderGuide(route, storage));
+      // Raids hub gallery (operator ask 2026-10-06): the last prepend wins
+      // the top slot, so this lands above the guide card the line above
+      // just inserted — "the first thing on the Raids hub", not buried under
+      // the guide, the view-switcher tabs, and the type/weather pickers.
+      if (route === "raids" && raidsGalleryHtml) app.insertAdjacentHTML("afterbegin", raidsGalleryHtml);
       // Sheets render into the body-level overlay root, NOT #app: #app sits
       // inside .bezelwrap whose chamfer clip-path clips fixed descendants, so
       // a sheet mounted in #app has its lower-left corner cut on real WebKit
@@ -6413,7 +6551,7 @@ export function bootstrap({
           verdictFor: (instance) => {
             const ctx = state.pvp && state.raids && state.gym ? {
               forms: state.core.forms, pvp: state.pvp, pvpDeepRanks: state.pvpDeepRanks, raids: state.raids,
-              gym: state.gym, roster, currentEvents: state.currentEvents ?? null,
+              gym: state.gym, roster, currentEvents: state.currentEvents ?? null, currentMaxBattles: state.currentMaxBattles,
             } : null;
             const verdict = ctx ? verdictForEntry({ formId: instance.formId, instance }, ctx) : null;
             return verdict ? renderCatchVerdict(verdict) : "";
@@ -6497,7 +6635,7 @@ export function bootstrap({
     getCurrentEvents: () => state.currentEvents ?? null,
     getVerdictContext: () => (state.pvp && state.raids && state.gym ? {
       forms: state.core.forms, pvp: state.pvp, pvpDeepRanks: state.pvpDeepRanks, raids: state.raids,
-      gym: state.gym, roster, currentEvents: state.currentEvents ?? null,
+      gym: state.gym, roster, currentEvents: state.currentEvents ?? null, currentMaxBattles: state.currentMaxBattles,
     } : null),
     getRaidPlanCardData,
     getRotationPackCardData,

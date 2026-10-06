@@ -26,6 +26,7 @@ import { resistancesOf, weaknessesOf } from "../type-chart.js";
 // I3 scan-row confidence badges (read/retried/derived/missing) — pure
 // derivation lives with the parser, not the renderer.
 import { ocrFieldBadges } from "../ocr-intake.js";
+import { isLive } from "./raids.js";
 
 const LEAGUE_NAMES = Object.freeze({ great: "Great League", ultra: "Ultra League", master: "Master League" });
 
@@ -286,7 +287,14 @@ function raidAttackerSection(form, raids, raidsLoaded, raidTargetTool = null) {
 }
 
 
-function bossSection(form, raidTargetTool) {
+// isCurrentBoss (operator report 2026-10-06: tapping Mega Victreebel/Xerneas
+// from Today sometimes landed with no visible card — a dex visitor for
+// either needs the same "this is up right now" signal, not just the
+// evergreen "has a raid-target entry at all" line below) — true when this
+// form is in the live rotation (currentBosses) or a live Max Battle
+// (currentMaxBattles), same two feeds boss-countdown.js/today-tasks.js
+// already read for "what's up now".
+function bossSection(form, raidTargetTool, currentBosses, currentMaxBattles, now = new Date()) {
   // No raidTargetTool at all = the raid-targets.json chunk has not landed —
   // show the same honest loading state pvpSection uses instead of silently
   // omitting the section (operator report 2026-08-12: Garchomp's hundo CP
@@ -297,11 +305,21 @@ function bossSection(form, raidTargetTool) {
     <h3 id="dex-boss-title">As a raid boss</h3><p class="dex-loading">Loading…</p></section>`;
   }
   const target = (raidTargetTool.targets ?? []).find((entry) => entry.bossFormId === form.form_id);
-  if (!target) return "";
-  return `<section class="dex-section" aria-labelledby="dex-boss-title">
+  // isLive (review fix, HIGH, 2026-10-06): mere presence in the
+  // currentBosses/currentMaxBattles array isn't "currently up" — Mega
+  // Charizard X/Y sit there a week before their startsAt, and an ended Max
+  // Battle week (Beldum's Dynamax, endsAt 2026-08-16) stays listed too.
+  // Same isLive check raids.js's own "Raid bosses now" gallery gates on.
+  const rotationRow = (currentBosses?.bosses ?? []).find((boss) => boss.formId === form.form_id && isLive(boss, now));
+  const maxRow = (currentMaxBattles?.bosses ?? []).find((boss) => boss.formId === form.form_id && isLive(boss, now));
+  const isCurrentBoss = Boolean(rotationRow || maxRow);
+  if (!target && !isCurrentBoss) return "";
+  const tierLabel = maxRow ? `${maxRow.kind ?? "Max Battle"} now` : rotationRow?.tier ? `${rotationRow.tier} now` : "Raid boss now";
+  return `<section class="dex-section${isCurrentBoss ? " dex-boss-current" : ""}" aria-labelledby="dex-boss-title">
     <h3 id="dex-boss-title">As a raid boss</h3>
-    <p>Hundo CP ${escapeHtml(target.normal?.hundoCP)}${target.weatherBoosted?.hundoCP ? ` (${escapeHtml(target.weatherBoosted.hundoCP)} weather-boosted)` : ""}</p>
-    <p><a class="safe-escape" href="./?boss=${encodeURIComponent(form.form_id)}#raids">See counters →</a></p>
+    ${isCurrentBoss ? `<p class="dex-boss-current-tag">Currently up — ${escapeHtml(tierLabel)}</p>` : ""}
+    ${target ? `<p>Hundo CP ${escapeHtml(target.normal?.hundoCP)}${target.weatherBoosted?.hundoCP ? ` (${escapeHtml(target.weatherBoosted.hundoCP)} weather-boosted)` : ""}</p>` : ""}
+    <p><a class="safe-escape${isCurrentBoss ? " dex-boss-card-button" : ""}" href="./?boss=${encodeURIComponent(form.form_id)}#raids">${isCurrentBoss ? "Open boss card →" : "See counters →"}</a></p>
   </section>`;
 }
 
@@ -1623,6 +1641,13 @@ function ocrIntakeRowHtml(row, verdictFor = null) {
     ? `<p class="ocr-row-next">CP + HP narrow to ${row.ivCandidates.length} possible IV spreads — pick one:</p>
       <div class="ocr-row-actions ocr-row-candidates">${row.ivCandidates.map((combo) => `<button type="button" class="ocr-row-pick-btn" data-ocr-row-set-ivs="${escapeHtml(row.id)}" data-ocr-ivs="${escapeHtml(`${combo.ivs.atk},${combo.ivs.def},${combo.ivs.sta}`)}">${escapeHtml(`${combo.ivs.atk}/${combo.ivs.def}/${combo.ivs.sta}`)}</button>`).join("")}</div>`
     : "";
+  // CP partly read (2026-10-06): the banner retry's digit segmentation found
+  // 2+ CP values that each admit a valid IV spread for this HP — never
+  // auto-picked (see app.js's cpBannerRetry wiring), tappable instead.
+  const cpChips = row.cpCandidates?.length
+    ? `<p class="ocr-row-next">CP partly read — ${row.cpCandidates.length} possible values, pick one:</p>
+      <div class="ocr-row-actions ocr-row-candidates">${row.cpCandidates.map((cp) => `<button type="button" class="ocr-row-pick-btn" data-ocr-row-set-cp="${escapeHtml(row.id)}" data-ocr-cp="${escapeHtml(cp)}">CP ${escapeHtml(cp)}</button>`).join("")}</div>`
+    : "";
   let actions = "";
   const match = !row.accepted ? row.rosterMatch : null;
   const matchNote = match?.kind === "same"
@@ -1655,6 +1680,7 @@ function ocrIntakeRowHtml(row, verdictFor = null) {
     ${unreadable ? `<p class="ocr-row-degrade">${escapeHtml(OCR_ROW_DEGRADE_COPY)}</p>` : ocrRowFieldsHtml(row)}
     ${solvedLine}
     ${movesReadLine}
+    ${cpChips}
     ${ivChips}
     ${verdictFor ? verdictFor(row) : ""}
     ${ocrRowIssuesHtml(row.issues)}
@@ -1844,6 +1870,8 @@ export function renderDex({
   pvp = null,
   pvpDeepRanks = null,
   raidTargetTool = null,
+  currentBosses = null,
+  currentMaxBattles = null,
   raids = null,
   raidsLoaded = false,
   moveSettings = null,
@@ -1865,6 +1893,11 @@ export function renderDex({
   twoPanel = false,
   dexRailQuery = "",
   dexRailFilter = "all",
+  // Injected rather than read off `new Date()` inside bossSection itself —
+  // keeps renderDex a pure function of its args, same contract its other
+  // props already follow, and lets tests pin "now" instead of racing the
+  // real clock against fixture data that goes stale (review fix, HIGH).
+  now = new Date(),
 } = {}) {
   const form = forms[formId];
   if (!form) return unknownFormShell(formId);
@@ -1880,7 +1913,7 @@ export function renderDex({
     ${adjacentSpeciesRow(form, forms)}
     ${statsSection(form)}
     ${superMegaLine(form)}
-    ${bossSection(form, raidTargetTool)}
+    ${bossSection(form, raidTargetTool, currentBosses, currentMaxBattles, now)}
     ${weaknessSection(form)}
     ${optimalSection(form, gym, raids, raidsLoaded, formInstancesFor(form, roster), pvp)}
     ${gymSection(form, gym)}
