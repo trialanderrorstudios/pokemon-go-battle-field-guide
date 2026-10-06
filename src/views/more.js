@@ -2,6 +2,8 @@ import { escapeHtml } from "./home.js";
 import { jargonTerm } from "../glossary.js";
 import { moveLink } from "./move-sheet.js";
 import { stableRosterJson } from "../storage.js";
+import { loadMedalState } from "../medals.js";
+import { renderMedalsView } from "./medals.js";
 import { renderCollectionView } from "./collection.js";
 import { SHOP_GUIDE } from "../shop-guide.js";
 import { CAPABILITY_GUIDE } from "../capability-guide.js";
@@ -24,7 +26,7 @@ import { checkSpread } from "../spread-checker.js";
 import { catchVerdict, renderCatchVerdict } from "../catch-verdict.js";
 import { renderGroupView } from "./group.js";
 import { loadGroupMembers } from "../group-store.js";
-import { luckyOwnedFormIdSet, shinyOwnedFormIdSet } from "../collection.js";
+import { collectionProgress, luckyOwnedFormIdSet, shinyOwnedFormIdSet } from "../collection.js";
 import { formatFriendCode, friendCodeQrMatrix, isValidFriendCode } from "../friend-codes.js";
 
 
@@ -295,6 +297,7 @@ function profilesSection(data) {
     return `<li class="profile-row${isActive ? " is-active" : ""}">
       <strong>${escapeHtml(p.name)}</strong>${isActive ? ` <span class="tier-pill">Active</span>` : ""}
       ${isActive ? "" : `<button type="button" data-action="profile-switch" data-profile-id="${escapeHtml(p.id)}">Switch to ${escapeHtml(p.name)}</button>`}
+      <button type="button" data-action="profile-rename" data-profile-id="${escapeHtml(p.id)}">Rename to the name below</button>
       ${isActive || p.id === "main" ? "" : `<button type="button" data-action="profile-remove" data-profile-id="${escapeHtml(p.id)}">Remove</button>`}
     </li>`;
   }).join("");
@@ -316,7 +319,7 @@ function profilesSection(data) {
     <p class="status-kicker">One roster per account</p><h2 id="more-profiles-title">Profiles</h2>
     <p>Viewing <strong>${escapeHtml(active.name)}</strong>. Each profile keeps its own roster on this device; switching reloads the app so nothing from the other account lingers.</p>
     <ul class="profile-list">${rows}</ul>
-    <label class="defense-log-player-name">New profile
+    <label class="defense-log-player-name">Profile name
       <input type="text" maxlength="24" data-profile-new-name placeholder="Alt, partner…" value="${escapeHtml(data.profileDraftName ?? "")}">
     </label>
     <button type="button" data-action="profile-add">Add profile</button>
@@ -749,6 +752,7 @@ function renderMoreMenu() {
         ["./#more/xladvisor", "XL Advisor — is level 50 worth it?"],
         ["./#more/elitetm", "Elite TM Planner — where to spend them"],
         ["./#more/spreadcheck", "Spread Checker — species + IVs, get the verdict"],
+        ["./#more/medals", "Medals & levels — platinum planner, level 71–80 tasks, XP"],
       ],
     })}
     ${menuSection({
@@ -873,6 +877,17 @@ export function renderMore(data = {}) {
       currentEvents: data.currentEvents,
     })) : "";
     return `<div class="more-view">${BACK_TO_MORE}${renderSpreadCheckView({ state: sel, result, forms: data.forms, verdictHtml, loading })}</div>`;
+  }
+  if (view === "medals") {
+    const index = data.profiles ?? null;
+    const active = index?.profiles?.find((p) => p.id === index.activeId) ?? null;
+    return `<div class="more-view">${BACK_TO_MORE}${renderMedalsView({
+      state: loadMedalState(data.storageObject, active?.id ?? "main"),
+      trainerLevel: data.trainerProfile?.level ?? null,
+      profileName: index?.profiles?.length > 1 ? active?.name : null,
+      dexCaught: Object.fromEntries(collectionProgress(data.forms, data.roster ?? {}).byGeneration
+        .filter((bucket) => bucket.region).map((bucket) => [bucket.region, bucket.caught])),
+    })}</div>`;
   }
   if (view === "elitetm") return `<div class="more-view">${BACK_TO_MORE}${renderEliteTmView({
     roster: data.roster, forms: data.forms, raidRows: data.raids,

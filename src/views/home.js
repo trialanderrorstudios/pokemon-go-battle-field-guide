@@ -1321,6 +1321,13 @@ function timelineCard(event, forms, { badgeClass, badgeText }, raidTargetTool = 
 // carry): { [formId]: { headline, href } } for a boss this roster has no
 // strong counter for. Threaded through so the timeline keeps the one gap
 // teaser Home had — it doesn't invent a new one.
+// D2: one event straight into the phone calendar, for the rows the bulk
+// export would include. A sibling of the row, never inside its <a>.
+function eventCalendarButton(event, now) {
+  if (!event?.eventId || !calendarEvents({ events: [event] }, { now, horizonDays: 365 }).length) return "";
+  return `<p class="tl-row-note"><button type="button" class="tl-calendar-button" data-action="calendar-export" data-calendar-event-id="${escapeHtml(event.eventId)}">Add to calendar</button></p>`;
+}
+
 function timelineRow(event, forms, now, gapByFormId, raidTargetTool = null) {
   const name = forms?.[event.formId]?.name ?? event.name;
   const when = formatEventWhen(event.startsAt, event.endsAt, now);
@@ -1332,10 +1339,11 @@ function timelineRow(event, forms, now, gapByFormId, raidTargetTool = null) {
   // the boss row's own <a class="tl-row"> would put an <a> inside an <a>,
   // which the parser force-closes (dropping the note out of the row box).
   const gapNote = gap ? `<p class="tl-row-note"><a class="safe-escape" href="${escapeHtml(gap.href)}">${escapeHtml(gap.headline)} — See Roster Gaps →</a></p>` : "";
+  const calendar = eventCalendarButton(event, now);
   if (event.formId) {
-    return `<a class="tl-row" href="./?boss=${encodeURIComponent(event.formId)}#raids">${body}</a>${gapNote}`;
+    return `<a class="tl-row" href="./?boss=${encodeURIComponent(event.formId)}#raids">${body}</a>${gapNote}${calendar}`;
   }
-  return `<div class="tl-row">${body}${gapNote}${timelineDetails(event, "tl-row-note")}</div>`;
+  return `<div class="tl-row">${body}${gapNote}${timelineDetails(event, "tl-row-note")}</div>${calendar}`;
 }
 
 // The overflow past `limit` used to point at "the events calendar" —

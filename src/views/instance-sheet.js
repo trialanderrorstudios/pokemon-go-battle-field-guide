@@ -198,7 +198,7 @@ function renameRow(instance, renameValue, renameCopy) {
 }
 
 
-function instanceRow(instance, form, quickCp, pvp, forms, renameValue, renameCopy) {
+function instanceRow(instance, form, quickCp, pvp, forms, renameValue, renameCopy, verdictFor = null) {
   const level = instanceLevel(form, instance);
   const quickCpActive = quickCp?.instanceId === instance.id;
   const badges = shinyLuckyBadges(instance);
@@ -213,6 +213,7 @@ function instanceRow(instance, form, quickCp, pvp, forms, renameValue, renameCop
       <p>${instance.fastMove
         ? `${escapeHtml(displayMoveName(instance.fastMove))} + ${(instance.chargedMoves ?? []).map(displayMoveName).join(" / ")}`
         : `<span class="instance-moves-missing">Moves not set — tap Edit to add them.</span>`}</p>
+      ${verdictFor?.(instance) ?? ""}
       ${evolvesToLine ? `<p class="instance-evolves-to">Evolves to <span class="instance-predicted-cp-badge">${evolvesToLine}</span></p>` : ""}
       ${renameRow(instance, renameValue, renameCopy)}
     </div>
@@ -231,7 +232,7 @@ function instanceRow(instance, form, quickCp, pvp, forms, renameValue, renameCop
 // release-data fast/charged move lists — never free text.
 export function renderInstanceSheet({
   form, forms = {}, instances = [], draft = null, error = "", focusInstanceId = null, quickCp = null, shareMessage = "", pvp = {},
-  renameByInstanceId = null, renameCopy = null, starTier = null,
+  renameByInstanceId = null, renameCopy = null, starTier = null, verdictFor = null,
 } = {}) {
   if (!form || !draft) return "";
   const legal = legalMoves(form);
@@ -245,7 +246,7 @@ export function renderInstanceSheet({
       <h2 id="instance-sheet-title">${escapeHtml(form.name)} details</h2>
       <p>Everything below stays on this device. Exact CP/IVs/moves make raid and power-up guidance precise for this specific Pokémon instead of a general assumption.</p>
       ${shareMessage ? `<p class="triage-copy-status" role="status">${escapeHtml(shareMessage)}</p>` : ""}
-      ${existing.length ? `<h3>Your ${escapeHtml(form.name)}s</h3><ul class="instance-list">${existing.map((instance) => instanceRow(instance, form, quickCp, pvp, forms, renameByInstanceId?.get(instance.id), renameCopy)).join("")}</ul>` : ""}
+      ${existing.length ? `<h3>Your ${escapeHtml(form.name)}s</h3><ul class="instance-list">${existing.map((instance) => instanceRow(instance, form, quickCp, pvp, forms, renameByInstanceId?.get(instance.id), renameCopy, verdictFor)).join("")}</ul>` : ""}
       <h3>${draft.editingId ? "Edit" : "Add"} an instance</h3>
       ${error ? `<p class="instance-sheet-error" role="alert">${escapeHtml(error)}</p>` : ""}
       <label class="instance-cp-input">CP

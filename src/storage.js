@@ -544,11 +544,6 @@ export async function importRoster(payload, validFormIds, store) {
 }
 
 
-export async function replaceRoster(state, validFormIds, store) {
-  return importRoster(state, validFormIds, store);
-}
-
-
 export async function exportRoster(store) {
   return `${stableJson(await loadRoster(store))}\n`;
 }

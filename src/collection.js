@@ -58,6 +58,13 @@ export function livingDexEntries(forms = {}) {
 }
 
 
+// G3: the platinum regional Pokédex medal for each generation, so the living
+// dex shows how far each region is from its medal. Community-sourced, same as
+// medals.js.
+export const REGION_MEDAL_PLATINUM = Object.freeze({
+  Kanto: 151, Johto: 100, Hoenn: 135, Sinnoh: 107, Unova: 156, Kalos: 72, Alola: 86, Galar: 89, Paldea: 103,
+});
+
 // A form counts toward its species' shiny/lucky ownership either from the
 // standalone per-form flag (dex-list quick toggle) or from any owned
 // instance that's individually marked — a real shiny/lucky instance always
@@ -125,13 +132,17 @@ export function collectionProgress(forms, roster) {
   for (const entry of entries) {
     const key = entry.gen ?? 0;
     if (!byGeneration.has(key)) {
-      byGeneration.set(key, { gen: entry.gen, region: entry.region, caught: 0, total: 0, shiny: 0, lucky: 0 });
+      byGeneration.set(key, { gen: entry.gen, region: entry.region, caught: 0, total: 0, shiny: 0, lucky: 0, formsOwned: 0, formsTotal: 0 });
     }
     const bucket = byGeneration.get(key);
     bucket.total += 1;
     if (speciesIsCaught(entry, owned)) bucket.caught += 1;
     if (speciesIsFlagged(entry, shiny)) bucket.shiny += 1;
     if (speciesIsFlagged(entry, lucky)) bucket.lucky += 1;
+    // G2: every collectible form (costumes, regional variants), not just the
+    // species — "do I have the Rock Star Pikachu" is a different question.
+    bucket.formsTotal += entry.formIds.length;
+    bucket.formsOwned += entry.formIds.filter((formId) => owned.has(formId)).length;
   }
 
   const overall = { caught: 0, total: entries.length, shiny: 0, lucky: 0 };

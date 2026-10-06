@@ -6,6 +6,22 @@
 
 export const SHELL_CHANGELOG = Object.freeze([
   Object.freeze({
+    rev: "r190", date: "2026-10-05",
+    added: Object.freeze([
+      "Medals & levels (under Me): enter your medal counts and see your platinum total, the cheapest next platinums, every level 71–80 task with checkboxes, and how much XP and how many Lucky-Egg evolves are left to the next level and to 80. Level tasks and XP come from Leek Duck; medal targets are community-sourced and editable.",
+      "Box audit: in-game search lists for your build, raid and gym keepers, a transfer list that only includes species where every copy came back transfer (favourites, shinies, luckies and 4-stars excluded), and the total dust, candy, XL and Elite TMs your whole build queue costs.",
+      "Your saved Pokémon now show their catch verdict on the detail sheet.",
+      "Share a catch verdict or a cup team as an image.",
+      "Add to calendar on each upcoming event in the Home timeline.",
+      "Living Dex counts forms and costumes per region and shows how far each region is from its platinum Pokédex medal.",
+      "Profiles can be renamed.",
+    ]),
+    tweaked: Object.freeze([
+      "Cup teams are now scored on PvPoke's simulated 1v1 matchups against the cup meta, and say which threats your trio beats and which it has no answer to.",
+      "PvP rankings re-based to PvPoke's 2026-10-06 data (Shadow Hydreigon enters Great League; Reshiram rises to #6 in Master League).",
+    ]),
+  }),
+  Object.freeze({
     rev: "r189", date: "2026-10-05",
     tweaked: Object.freeze([
       "Max Monday and Raid Hour bosses now show their hundo catch CP everywhere they appear on Home: the timeline card, upcoming rows, the Today checklist and the \"leaves Max spots\" task, not just the Max card.",

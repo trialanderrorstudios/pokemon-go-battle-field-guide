@@ -9,7 +9,8 @@
 // Only logged instances with all three IVs are judged; star-only entries have
 // nothing to rank.
 import { catchVerdict } from "./catch-verdict.js";
-import { buildSearchQuery } from "./game-search.js";
+import { buildSearchQuery, toSearchName } from "./game-search.js";
+import { powerUpCost, xlPowerUpCost } from "./raid-target.js";
 
 const KEEPER_CALLS = new Set(["build", "raid", "gym"]);
 const BATCH_SIZE = 40;
@@ -49,11 +50,82 @@ export function summarizeAudit(results) {
   }
   const purify = buildSearchQuery(purifyNames);
   return {
+    ...bucketSearches(results),
+    resourcePlan: resourcePlan(results),
     judged: results.filter((r) => r.verdict).length,
     counts,
     disagreements,
     purifyChunks: purify.chunks.map((chunk) => `${chunk}&shadow`),
     purifyExcluded: purify.excludedCount,
+  };
+}
+
+// Per-verdict in-game search strings (B2). A name search selects EVERY copy
+// of a species, so the keeper lists (build/raid/gym) over-select harmlessly —
+// they're for favouriting or tagging — but a transfer list must never catch a
+// keeper: only species+shadow groups where every judged copy came back
+// "transfer" are listed, and favourites, shinies, luckies and 4-stars are
+// excluded in the string itself.
+const KEEP_BUCKETS = ["build", "raid", "gym"];
+export const TRANSFER_GUARD = "&!favorite&!shiny&!lucky&!4*";
+
+function bucketSearches(results) {
+  const keepNames = Object.fromEntries(KEEP_BUCKETS.map((call) => [call, []]));
+  const groups = new Map();
+  for (const { entry, verdict } of results) {
+    if (!verdict) continue;
+    if (keepNames[verdict.call]) keepNames[verdict.call].push(verdict.name);
+    const shadow = String(entry.formId).endsWith("-shadow");
+    const key = `${toSearchName(verdict.name) ?? verdict.name}|${shadow}`;
+    if (!groups.has(key)) groups.set(key, { name: verdict.name, shadow, calls: new Set() });
+    groups.get(key).calls.add(verdict.call);
+  }
+  const transferOnly = [...groups.values()].filter((group) => group.calls.size === 1 && group.calls.has("transfer"));
+  const transferChunks = [false, true].flatMap((shadow) => buildSearchQuery(
+    transferOnly.filter((group) => group.shadow === shadow).map((group) => group.name),
+  ).chunks.map((chunk) => `${chunk}&${shadow ? "" : "!"}shadow${TRANSFER_GUARD}`));
+  return {
+    keepChunks: Object.fromEntries(KEEP_BUCKETS.map((call) => [call, buildSearchQuery(keepNames[call]).chunks])),
+    transferChunks,
+  };
+}
+
+// H2: what the whole build queue costs. Every "build" verdict with a known
+// current level and a target level (best.fitsAt) is priced from its level to
+// that target with the app's own power-up tables; XL above 40; shadows pay
+// x1.2 (applied to the regular-candy total, per-step rounding ignored — so
+// shadow totals are approximate, and said so). Evolution candy is not priced:
+// it depends on the family, which the verdict doesn't carry.
+const SHADOW_COST = 1.2;
+
+export function resourcePlan(results) {
+  const builds = [];
+  for (const { entry, verdict } of results) {
+    if (verdict?.call !== "build" || !verdict.best?.fitsAt || !Number.isFinite(verdict.level)) continue;
+    const from = verdict.level;
+    const to = verdict.best.fitsAt.level;
+    if (!(to > from)) continue;
+    const regular = powerUpCost(from, Math.min(40, to));
+    const xl = to > 40 ? xlPowerUpCost(Math.max(40, from), to, verdict.shadow) : { candy: 0, stardust: 0 };
+    const factor = verdict.shadow ? SHADOW_COST : 1;
+    const owned = new Set([entry.instance?.fastMove, ...(entry.instance?.chargedMoves ?? [])].filter(Boolean));
+    builds.push({
+      id: entry.id, name: verdict.name, league: verdict.best.league, from, to,
+      stardust: Math.round(regular.stardust * factor) + xl.stardust,
+      candy: Math.round(regular.candy * factor),
+      xlCandy: xl.candy,
+      eliteTms: (verdict.best.eliteMoves ?? []).filter((move) => !owned.has(move)).length,
+      evolves: verdict.best.name !== verdict.name,
+      shadow: verdict.shadow,
+    });
+  }
+  const sum = (key) => builds.reduce((total, build) => total + build[key], 0);
+  return {
+    count: builds.length,
+    stardust: sum("stardust"), candy: sum("candy"), xlCandy: sum("xlCandy"), eliteTms: sum("eliteTms"),
+    evolveCount: builds.filter((build) => build.evolves).length,
+    anyShadow: builds.some((build) => build.shadow),
+    priciest: [...builds].sort((a, b) => b.stardust - a.stardust).slice(0, 8),
   };
 }
 

@@ -3,7 +3,7 @@ import { ocrIntakeSectionHtml } from "./dex.js";
 import { scanRowVerdictHtml } from "../catch-verdict.js";
 import { spriteHtml } from "../sprites.js";
 import {
-  collectionProgress, collectionSuggestions, livingDexRows, randomUncaughtFormId, speciesMarkState,
+  collectionProgress, collectionSuggestions, livingDexRows, randomUncaughtFormId, REGION_MEDAL_PLATINUM, speciesMarkState,
 } from "../collection.js";
 
 const FILTERS = Object.freeze([
@@ -52,7 +52,7 @@ function progressLine(bucket) {
   const complete = bucket.total > 0 && bucket.caught === bucket.total;
   return `<li class="collection-progress-row">
     <span>${escapeHtml(bucket.region ? `Gen ${bucket.gen} · ${bucket.region}` : "Unplaced")}${complete ? ' <span class="i1-milestone-stamp">COMPLETE</span>' : ""}</span>
-    <span>${bucket.caught}/${bucket.total} caught · ${bucket.shiny} shiny · ${bucket.lucky} lucky</span>
+    <span>${bucket.caught}/${bucket.total} caught · ${bucket.shiny} shiny · ${bucket.lucky} lucky${bucket.formsTotal > bucket.total ? ` · ${bucket.formsOwned}/${bucket.formsTotal} forms` : ""}${REGION_MEDAL_PLATINUM[bucket.region] ? ` · <span class="collection-medal">${bucket.caught >= REGION_MEDAL_PLATINUM[bucket.region] ? "platinum medal ✓" : `${REGION_MEDAL_PLATINUM[bucket.region] - bucket.caught} to platinum medal`}</span>` : ""}</span>
   </li>`;
 }
 

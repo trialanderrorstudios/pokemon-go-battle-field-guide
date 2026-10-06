@@ -30,7 +30,7 @@ function metaHtml(meta) {
     <ol class="cup-meta">${rows}</ol>`;
 }
 
-function teamHtml(team, pool) {
+function teamHtml(team, pool, cupName = "") {
   if (!pool.length) {
     return `<p class="briefing-note">Nothing in your logged box is legal here yet. Star or scan what you own and this fills in.</p>`;
   }
@@ -44,7 +44,18 @@ function teamHtml(team, pool) {
     ...team.doubleWeaknesses.map((w) => `${w.name} takes ${w.type} at ×2.56.`),
   ];
   const bench = pool.filter((p) => !team.members.includes(p)).slice(0, 6);
-  return `<ol class="cup-team">${members}</ol>
+  // H1: simulated 1v1 results against the cup meta (PvPoke).
+  const sim = team.sim && (team.sim.covered.length || team.sim.unanswered.length)
+    ? `<p class="briefing-note">Simulated vs the cup meta: ${team.sim.covered.length ? `beats ${escapeHtml(team.sim.covered.join(", "))}` : "no confirmed wins"}${team.sim.unanswered.length ? `; no answer to ${escapeHtml(team.sim.unanswered.join(", "))}` : ""}.</p>`
+    : "";
+  // I2: the team as a share card; the button carries the card data inline.
+  const payload = JSON.stringify({
+    cupName,
+    members: team.members.map((m, i) => ({ name: m.name, role: roles[i], note: `open GL #${m.openRank}${m.spreadRank ? ` · spread #${m.spreadRank}` : ""}` })),
+    warnings,
+  });
+  const share = cupName ? `<button type="button" data-action="share-card-payload" data-share-type="cupTeam" data-share-payload="${escapeHtml(payload)}">Share this team</button>` : "";
+  return `${share}<ol class="cup-team">${members}</ol>${sim}
     ${warnings.length ? `<ul class="cup-warnings">${warnings.map((w) => `<li>${escapeHtml(w)}</li>`).join("")}</ul>` : `<p class="briefing-note">No shared weakness across the trio.</p>`}
     ${bench.length ? `<p class="briefing-note">Bench: ${bench.map((m) => `${escapeHtml(m.name)} (#${m.openRank})`).join(", ")}</p>` : ""}
     <p class="briefing-note">Picked by summed open rank, penalized for weaknesses two members share — a starting point, not a simulation.</p>`;
@@ -65,7 +76,7 @@ export function renderCupView({ currentEvents, forms = {}, pvp = {}, pvpDeepRank
     const pool = ownedCupPool(cup, ctx);
     const body = cup.rule === "unevolved"
       ? littleCupHtml(pool)
-      : `<h4>From your box</h4>${teamHtml(bestCupTeam(cup, ctx), pool)}${metaHtml(cupMeta(cup, ctx))}`;
+      : `<h4>From your box</h4>${teamHtml(bestCupTeam(cup, ctx), pool, cup.name)}${metaHtml(cupMeta(cup, ctx))}`;
     return `<details class="fallback-section cup-section"${index === 0 ? " open" : ""} data-cup-event="${escapeHtml(cup.eventId)}">
       <summary><strong>${escapeHtml(cup.name)}</strong> · ${cup.live ? `live until ${escapeHtml(day(cup.endsAt))}` : `starts ${escapeHtml(day(cup.startsAt))}`}</summary>
       <p class="cup-rules">${escapeHtml(rulesLine(cup))}</p>

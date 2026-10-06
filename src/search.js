@@ -160,6 +160,7 @@ export const REFERENCE_PAGES = Object.freeze([
     ["Anti-meta picks", "pvp", "antimeta", ["anti meta", "antimeta", "pvp counters"]],
     ["Move swap", "pvp", "swap", ["move swap", "swap moves", "tm"]],
     ["Theorycraft", "pvp", "theorycraft", ["theorycraft", "simulate", "battle sim"]],
+    ["Medals & levels", "more", "medals", ["medal", "medals", "platinum", "level 80", "level up", "xp", "lucky egg", "level tasks"]],
     ["Spread Checker", "more", "spreadcheck", ["spread", "iv check", "ivs", "appraisal", "verdict", "keep or transfer", "is it good"]],
     ["My Box — triage and box audit", "triage", "", ["box", "triage", "box audit", "audit", "transfer", "clean up", "storage full"]],
     ["Build next", "triage", "gaps", ["build next", "what to build", "gaps"]],

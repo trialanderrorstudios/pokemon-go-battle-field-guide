@@ -48,6 +48,8 @@ export const CARD_SPECS = Object.freeze({
   gymLineup: Object.freeze({ width: CARD_WIDTH, height: CARD_HEIGHT }),
   trophyCard: Object.freeze({ width: CARD_WIDTH, height: CARD_HEIGHT }),
   rotationPack: Object.freeze({ width: CARD_WIDTH, height: CARD_HEIGHT }),
+  verdict: Object.freeze({ width: CARD_WIDTH, height: CARD_HEIGHT }),
+  cupTeam: Object.freeze({ width: CARD_WIDTH, height: CARD_HEIGHT }),
 });
 
 // Literal copies of the --dx-* tokens in web/styles/app.css — canvas 2D
@@ -429,6 +431,103 @@ function tierColor(tier) {
   return PALETTE.muted;
 }
 
+// I2 (2026-10-05): verdict and cup-team cards. Their buttons carry the card
+// data inline (data-share-payload), so these guards are the trust boundary
+// for whatever JSON came off the page.
+function wrapText(ctx, text, maxWidth) {
+  const lines = [];
+  let line = "";
+  for (const word of String(text ?? "").split(" ")) {
+    const next = line ? `${line} ${word}` : word;
+    if (ctx.measureText(next).width > maxWidth && line) {
+      lines.push(line);
+      line = word;
+    } else line = next;
+  }
+  if (line) lines.push(line);
+  return lines;
+}
+
+const clip = (value, max) => String(value ?? "").slice(0, max);
+
+export function verdictCardData(raw) {
+  if (!raw || typeof raw.name !== "string" || typeof raw.headline !== "string") return null;
+  return {
+    name: clip(raw.name, 40), tags: clip(raw.tags, 60), read: clip(raw.read, 60), headline: clip(raw.headline, 160),
+    lines: (Array.isArray(raw.lines) ? raw.lines : []).slice(0, 5).map((line) => clip(line, 200)),
+  };
+}
+
+export function cupTeamCardData(raw) {
+  if (!raw || typeof raw.cupName !== "string" || !Array.isArray(raw.members) || !raw.members.length) return null;
+  return {
+    cupName: clip(raw.cupName, 40),
+    members: raw.members.slice(0, 3).map((m) => ({ name: clip(m?.name, 40), role: clip(m?.role, 12), note: clip(m?.note, 60) })),
+    warnings: (Array.isArray(raw.warnings) ? raw.warnings : []).slice(0, 3).map((w) => clip(w, 120)),
+  };
+}
+
+function drawVerdictCard(ctx, { width }, data) {
+  drawChassis(ctx, width, CARD_HEIGHT, "Catch verdict");
+  ctx.textBaseline = "alphabetic";
+  ctx.fillStyle = PALETTE.muted;
+  ctx.font = `700 28px ${MONO}`;
+  ctx.fillText(data.tags, 120, 200);
+  ctx.fillStyle = PALETTE.text;
+  ctx.font = `700 40px ${MONO}`;
+  ctx.fillText(data.read, 120, 260);
+  ctx.fillStyle = PALETTE.lens;
+  ctx.font = `700 54px ${DISPLAY}`;
+  let y = 360;
+  for (const line of wrapText(ctx, data.headline, width - 240)) {
+    ctx.fillText(line, 120, y);
+    y += 66;
+  }
+  y += 30;
+  ctx.fillStyle = PALETTE.text;
+  ctx.font = `34px ${DISPLAY}`;
+  for (const note of data.lines) {
+    for (const line of wrapText(ctx, `• ${note}`, width - 240)) {
+      if (y > CARD_HEIGHT - 160) return;
+      ctx.fillText(line, 120, y);
+      y += 46;
+    }
+    y += 14;
+  }
+}
+
+function drawCupTeamCard(ctx, { width }, data) {
+  drawChassis(ctx, width, CARD_HEIGHT, "Cup team");
+  ctx.textBaseline = "alphabetic";
+  ctx.fillStyle = PALETTE.text;
+  ctx.font = `700 60px ${DISPLAY}`;
+  ctx.fillText(data.cupName, 120, 220);
+  let y = 300;
+  const rowWidth = width - 240;
+  for (const member of data.members) {
+    ctx.fillStyle = PALETTE.panel;
+    ctx.fillRect(120, y, rowWidth, 150);
+    ctx.fillStyle = PALETTE.lens;
+    ctx.font = `700 26px ${MONO}`;
+    ctx.fillText(member.role.toUpperCase(), 150, y + 44);
+    ctx.fillStyle = PALETTE.text;
+    ctx.font = `700 46px ${DISPLAY}`;
+    ctx.fillText(member.name, 150, y + 96);
+    ctx.fillStyle = PALETTE.muted;
+    ctx.font = `26px ${MONO}`;
+    ctx.fillText(member.note, 150, y + 132);
+    y += 170;
+  }
+  ctx.font = `32px ${DISPLAY}`;
+  ctx.fillStyle = PALETTE.muted;
+  for (const warning of data.warnings) {
+    for (const line of wrapText(ctx, warning, rowWidth)) {
+      ctx.fillText(line, 120, y + 40);
+      y += 44;
+    }
+  }
+}
+
 function drawGymLineupCard(ctx, { width }, data) {
   drawChassis(ctx, width, CARD_HEIGHT, "Gym defense");
   ctx.textBaseline = "alphabetic";
@@ -573,6 +672,8 @@ function cardFilename(type, data) {
   if (type === "gymLineup") return `field-guide-gym-lineup-${safeSlug(data.gymName ?? "leads")}.png`;
   if (type === "trophyCard") return "field-guide-trophy-case.png";
   if (type === "rotationPack") return "field-guide-raid-rotation.png";
+  if (type === "verdict") return `field-guide-verdict-${safeSlug(data.name)}.png`;
+  if (type === "cupTeam") return `field-guide-${safeSlug(data.cupName)}-team.png`;
   return "field-guide-triage.png";
 }
 
@@ -595,6 +696,8 @@ export async function renderShareCard(type, data, { documentObject = globalThis.
   else if (type === "gymLineup") drawGymLineupCard(ctx, spec, data);
   else if (type === "trophyCard") drawTrophyCard(ctx, spec, data);
   else if (type === "rotationPack") drawRotationPackCard(ctx, spec, data);
+  else if (type === "verdict") drawVerdictCard(ctx, spec, data);
+  else if (type === "cupTeam") drawCupTeamCard(ctx, spec, data);
   else return null;
   const blob = await canvasToBlob(canvas);
   if (!blob || !blob.size) return null;

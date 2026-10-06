@@ -152,6 +152,8 @@ const SHELL_CODE_FILES = Object.freeze([
   "./src/views/mastery.js",
   "./src/views/elitetm.js",
   "./src/views/spreadcheck.js",
+  "./src/views/medals.js",
+  "./src/medals.js",
   "./src/views/xl.js",
   "./src/views/gyms.js",
   "./src/views/home.js",

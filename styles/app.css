@@ -8646,3 +8646,36 @@ html:not([data-app-booted]) #app .fallback-section {
 
 /* Calendar export (D, 2026-10-05). */
 .calendar-export button { font-weight: 700; }
+
+/* D2: per-event "Add to calendar" under timeline rows. */
+.tl-calendar-button {
+  min-height: 32px;
+  padding: 0 0.7rem;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: var(--panel-raised);
+  color: var(--cyan);
+  font: inherit;
+  font-weight: 700;
+}
+
+/* I2: Share on a catch verdict. */
+.catch-verdict .cv-share {
+  min-height: 32px;
+  margin-top: 0.4rem;
+  padding: 0 0.8rem;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: var(--panel-raised);
+  color: var(--cyan);
+  font: inherit;
+  font-weight: 700;
+}
+
+/* F1-F3: Medals & levels. */
+.medals-view .medal-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 0.35rem; }
+.medals-view .medal-list li { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 0.4rem; align-items: center; }
+.medals-view .medal-list li.is-done .medal-name { color: var(--green); }
+.medals-view .medal-input { width: 6.5rem; min-height: 36px; }
+.medals-view .medal-tasks { list-style: none; padding: 0; display: grid; gap: 0.3rem; }
+.medals-view details > summary { cursor: pointer; padding-block: 0.3rem; }

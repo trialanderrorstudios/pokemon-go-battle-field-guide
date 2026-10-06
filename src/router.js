@@ -24,7 +24,7 @@ const ROUTE_VIEWS = Object.freeze({
   // working, which silently eats real ones too.
   more: [
     "roster", "settings", "about", "trades", "delta", "budget", "future", "megas", "coverage", "collection",
-    "shopguide", "purge", "dupes", "powerup", "capabilities", "changelog", "tradeplanner", "trophy", "group", "journal", "mastery", "compare", "buddyplanner", "xladvisor", "elitetm", "spreadcheck",
+    "shopguide", "purge", "dupes", "powerup", "capabilities", "changelog", "tradeplanner", "trophy", "group", "journal", "mastery", "compare", "buddyplanner", "xladvisor", "elitetm", "spreadcheck", "medals",
   ],
 });
 
@@ -51,7 +51,7 @@ const HUBS = Object.freeze([
   ] },
   { id: "raids", items: [["raids", "", "Raids"], ["raids", "hundo", "Hundos"], ["more", "group", "Raid Group"]] },
   { id: "me", items: [
-    ["more", "", "All features"], ["more", "settings", "Settings & profiles"], ["more", "tradeplanner", "Trade Planner"], ["more", "trades", "Trades"],
+    ["more", "", "All features"], ["more", "medals", "Medals & levels"], ["more", "settings", "Settings & profiles"], ["more", "tradeplanner", "Trade Planner"], ["more", "trades", "Trades"],
     ["more", "capabilities", "What it can do"], ["more", "about", "About"],
   ] },
 ]);

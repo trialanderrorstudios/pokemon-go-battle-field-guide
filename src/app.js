@@ -76,10 +76,12 @@ import { cpBannerRetry, nameBannerRetry } from "./ocr-worker.js";
 import { frustrationWindow, renderFrustrationWindowCard } from "./frustration-window.js";
 import { renderCupView } from "./views/cup.js";
 import { auditBox, verdictForEntry } from "./box-audit.js";
+import { renderCatchVerdict } from "./catch-verdict.js";
 import { buildIcs, calendarEvents } from "./calendar-export.js";
 import {
-  addProfile, loadProfiles, removeProfile, rosterRecordKey, saveProfiles, setActiveProfile, tradeSuggestions,
+  activeProfile, addProfile, loadProfiles, removeProfile, renameProfile, rosterRecordKey, saveProfiles, setActiveProfile, tradeSuggestions,
 } from "./profiles.js";
+import { applyMedalEdit, loadMedalState, saveMedalState } from "./medals.js";
 import { readAppraisalBars, pickCandidateByBars } from "./ocr-appraisal-bars.js";
 import { createOcrEngine as createOcrEngineDefault, OcrEngineError } from "./ocr-worker.js";
 import {
@@ -95,7 +97,7 @@ import {
 } from "./gym-defense-log.js";
 import {
   rotationPackCardData, trophyCardData,
-  gymDefenseCardData, gymLineupCardData, instanceCardData, shareOrDownloadCard, triageSummaryCardData,
+  gymDefenseCardData, gymLineupCardData, instanceCardData, shareOrDownloadCard, triageSummaryCardData, verdictCardData, cupTeamCardData,
 } from "./share-card.js";
 import {
   exportDexSummary,
@@ -2060,6 +2062,15 @@ export function createInteractionController({
       const target = event?.target;
       // I2 quick-add IV/move selects — native <select> (picker wheel), fires
       // "change" on commit, not "input".
+      const medalEdit = target?.closest?.("[data-medal-edit]");
+      if (medalEdit) {
+        const profileId = activeProfile(ui.profiles ?? loadProfiles(storage)).id;
+        const kind = medalEdit.dataset.medalEdit;
+        const value = kind === "task" ? medalEdit.checked : medalEdit.value;
+        saveMedalState(storage, profileId, applyMedalEdit(loadMedalState(storage, profileId), { kind, key: medalEdit.dataset.medalKey, value }));
+        rerenderCurrent();
+        return;
+      }
       const spreadcheckCp = target?.closest?.("[data-spreadcheck-cp]");
       if (spreadcheckCp) {
         const cp = Math.round(Number(spreadcheckCp.value));
@@ -3778,6 +3789,21 @@ export function createInteractionController({
           ui.profileMessage = "Profile added — switch to it to start its roster.";
         }
         rerender("more");
+      } else if (action === "profile-rename") {
+        // J8: renameProfile existed with no way to reach it. Reuses the name
+        // field the Add button reads.
+        const typed = ui.profileDraftName
+          || controllerWindow()?.document?.querySelector?.("[data-profile-new-name]")?.value || "";
+        const { index, error } = renameProfile(ui.profiles, actionEl.dataset.profileId, typed);
+        if (error) {
+          ui.profileMessage = error;
+        } else {
+          ui.profiles = index;
+          saveProfiles(storage, index);
+          ui.profileDraftName = "";
+          ui.profileMessage = "Profile renamed.";
+        }
+        rerender("more");
       } else if (action === "profile-switch") {
         const next = setActiveProfile(ui.profiles, actionEl.dataset.profileId);
         if (next.activeId === ui.profiles.activeId) return;
@@ -3812,9 +3838,16 @@ export function createInteractionController({
         ui.profileCompare = { status: "done", suggestions: tradeSuggestions(rosters, forms) };
         rerender("more");
       } else if (action === "calendar-export") {
-        const payload = buildIcs(api.getCurrentEvents?.());
+        // A per-event button (D2) carries its eventId; the bulk button doesn't.
+        const eventId = actionEl.dataset.calendarEventId;
+        const current = api.getCurrentEvents?.();
+        const payload = eventId
+          ? buildIcs({ events: (current?.events ?? []).filter((event) => event.eventId === eventId) }, { horizonDays: 365 })
+          : buildIcs(current);
         (api.onCalendarExport ?? onCalendarExport)?.(payload);
-        ui.calendarMessage = "Calendar file downloaded — open it to add the events.";
+        ui.calendarMessage = eventId
+          ? "Calendar file downloaded — open it to add that event."
+          : "Calendar file downloaded — open it to add the events.";
         rerenderCurrent();
       } else if (action === "run-box-audit") {
         const ctx = api.getVerdictContext?.();
@@ -3879,6 +3912,17 @@ export function createInteractionController({
           : outcome === "cancelled" ? ""
           : "Could not share or download the card on this device.";
         rerender("home");
+      } else if (action === "share-card-payload") {
+        // I2: verdict / cup-team cards carry their data on the button; the
+        // *CardData guards re-validate it before anything is drawn.
+        const type = actionEl.dataset.shareType;
+        let raw = null;
+        try { raw = JSON.parse(actionEl.dataset.sharePayload ?? "null"); } catch { raw = null; }
+        const cardData = type === "verdict" ? verdictCardData(raw) : type === "cupTeam" ? cupTeamCardData(raw) : null;
+        const outcome = cardData ? await (api.onShareCard ?? onShareCard)?.(type, cardData) : "no-data";
+        const message = outcome === "shared" ? "Shared." : outcome === "downloaded" ? "Card downloaded."
+          : outcome === "cancelled" ? "" : "Could not share or download the card on this device.";
+        if (message) announce(controllerWindow()?.document, message);
       } else if (action === "share-gym-lineup-card") {
         const cardData = (api.getGymLineupCardData ?? getGymLineupCardData)?.() ?? null;
         const outcome = cardData ? await (api.onShareCard ?? onShareCard)?.("gymLineup", cardData) : "no-data";
@@ -5884,6 +5928,16 @@ export function bootstrap({
           renameByInstanceId,
           renameCopy: ui.instanceSheet.renameCopy,
           starTier: ui.instanceSheet.starTier ?? null,
+          // H4: the catch verdict on every saved copy, same engine as the
+          // scan rows and Spread Checker. Empty until rankings have loaded.
+          verdictFor: (instance) => {
+            const ctx = state.pvp && state.raids && state.gym ? {
+              forms: state.core.forms, pvp: state.pvp, pvpDeepRanks: state.pvpDeepRanks, raids: state.raids,
+              gym: state.gym, roster, currentEvents: state.currentEvents ?? null,
+            } : null;
+            const verdict = ctx ? verdictForEntry({ formId: instance.formId, instance }, ctx) : null;
+            return verdict ? renderCatchVerdict(verdict) : "";
+          },
         });
       }
       // I1's mini-sheet is NOT spliced here — views/collection.js renders it

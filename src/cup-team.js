@@ -136,20 +136,57 @@ function sharedWeaknesses(members, threatTypes) {
 
 // Best trio from the owned pool: lowest summed open rank, penalized for every
 // threat type two members are both weak to. Brute force — 12 choose 3 is 220.
+// H1 (2026-10-05): matchups from PvPoke's own 1v1 simulator, already in the
+// Great League rows — keyMatchups (opponents this species beats, rating >
+// 500) and keyCounters (opponents that beat it). A 1v1 at 1500 CP plays out
+// the same in any 1500 cup, so these score a team against the cup meta far
+// better than type weaknesses alone. Sparse (top 5 each way per species), so
+// they adjust the rank-and-weakness score rather than replace it.
+const SIM_THREAT_COST = 25;
+const SIM_COVER_BONUS = 15;
+
+function simWins(pvp) {
+  const wins = new Map();
+  const add = (winner, loser) => {
+    if (!wins.has(winner)) wins.set(winner, new Set());
+    wins.get(winner).add(loser);
+  };
+  for (const row of pvp?.great ?? []) {
+    for (const m of row.keyMatchups ?? []) if (m.rating > 500) add(row.formId, m.opponentFormId);
+    for (const c of row.keyCounters ?? []) if (c.rating < 500) add(c.opponentFormId, row.formId);
+  }
+  return wins;
+}
+
+function simCoverage(members, meta, wins) {
+  const beats = (a, b) => Boolean(wins.get(a)?.has(b));
+  const covered = [];
+  const unanswered = [];
+  for (const threat of meta) {
+    const answered = members.some((m) => beats(m.formId, threat.formId));
+    if (answered) covered.push(threat.name);
+    else if (members.some((m) => beats(threat.formId, m.formId))) unanswered.push(threat.name);
+  }
+  return { covered, unanswered };
+}
+
 export function bestCupTeam(cup, ctx) {
   if (cup.rule === "unevolved") return null;
   const meta = cupMeta(cup, ctx);
   const threatTypes = [...new Set(meta.flatMap((m) => m.types))];
   const pool = ownedCandidates(cup, ctx).filter((c) => c.openRank).slice(0, CANDIDATE_POOL);
   if (pool.length < 3) return { members: pool, sharedWeaknesses: [], threatTypes, short: true };
+  const wins = simWins(ctx.pvp);
   let best = null;
   for (let i = 0; i < pool.length; i += 1) {
     for (let j = i + 1; j < pool.length; j += 1) {
       for (let k = j + 1; k < pool.length; k += 1) {
         const members = [pool[i], pool[j], pool[k]];
         const shared = sharedWeaknesses(members, threatTypes);
-        const score = members.reduce((sum, m) => sum + m.openRank, 0) + shared.length * SHARED_WEAKNESS_COST;
-        if (!best || score < best.score) best = { members, sharedWeaknesses: shared, score };
+        const sim = simCoverage(members, meta, wins);
+        const score = members.reduce((sum, m) => sum + m.openRank, 0) + shared.length * SHARED_WEAKNESS_COST
+          + sim.unanswered.length * SIM_THREAT_COST - sim.covered.length * SIM_COVER_BONUS;
+        if (!best || score < best.score) best = { members, sharedWeaknesses: shared, sim, score };
       }
     }
   }

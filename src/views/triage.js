@@ -287,6 +287,17 @@ const AUDIT_CALL_LABEL = Object.freeze({
   build: "Build", situational: "Playable", raid: "Raid", gym: "Gym", purify: "Purify", transfer: "Transfer",
 });
 
+// H2: the build queue's total cost, then the eight priciest builds.
+const LEAGUE_SHORT = Object.freeze({ great: "GL", ultra: "UL", master: "ML" });
+function resourcePlanHtml(plan) {
+  if (!plan?.count) return "";
+  const n = (value) => Number(value).toLocaleString("en-US");
+  return `<h4>Build queue cost · ${plan.count} Pokémon</h4>
+    <p><strong>${n(plan.stardust)}</strong> Stardust · <strong>${n(plan.candy)}</strong> Candy${plan.xlCandy ? ` · <strong>${n(plan.xlCandy)}</strong> XL Candy` : ""}${plan.eliteTms ? ` · <strong>${plan.eliteTms}</strong> Elite TM${plan.eliteTms === 1 ? "" : "s"}` : ""}</p>
+    <p class="triage-invest-cost">Power-up only${plan.evolveCount ? `; ${plan.evolveCount} also need evolving (candy not included)` : ""}${plan.anyShadow ? "; shadow costs are approximate (×1.2)" : ""}.</p>
+    <ul class="triage-audit-priciest">${plan.priciest.map((b) => `<li>${escapeHtml(b.name)} ${LEAGUE_SHORT[b.league] ?? ""} · L${b.from}→L${b.to} · ${n(b.stardust)} dust${b.xlCandy ? ` · ${n(b.xlCandy)} XL` : ""}</li>`).join("")}</ul>`;
+}
+
 // Whole-box audit. Idle -> a button; running -> progress; done -> counts,
 // the CANDY-vs-keeper warnings, and the purify search lists.
 function boxAuditSection(audit, state) {
@@ -314,10 +325,22 @@ function boxAuditSection(audit, state) {
       ${summary.purifyExcluded ? `<p class="triage-invest-cost">${summary.purifyExcluded} not included — their names aren't verified to match in-game.</p>` : ""}
       ${searchChunkButtons(summary.purifyChunks, "purify", state)}`
     : "";
+  const keepLists = ["build", "raid", "gym"]
+    .filter((call) => summary.keepChunks?.[call]?.length)
+    .map((call) => `<h4>${AUDIT_CALL_LABEL[call]} keepers</h4>${searchChunkButtons(summary.keepChunks[call], `audit-${call}`, state)}`)
+    .join("");
+  const transfer = summary.transferChunks?.length
+    ? `<h4>Safe to transfer</h4>
+      <p>Only species where every logged copy came back "transfer"; favourites, shinies, luckies and 4-stars are excluded by the search itself. Check the list in-game before you send.</p>
+      ${searchChunkButtons(summary.transferChunks, "audit-transfer", state)}`
+    : "";
   return `<section class="triage-audit card" aria-labelledby="triage-audit-title">
     <h3 id="triage-audit-title">Box audit · ${escapeHtml(summary.judged)} judged</h3>
     <ul class="triage-audit-counts">${counts}</ul>
     ${warn}
+    ${resourcePlanHtml(summary.resourcePlan)}
+    ${keepLists ? `<h4>In-game search lists</h4><p>Paste into the in-game search to pull up each group.</p>${keepLists}` : ""}
+    ${transfer}
     ${purify}
     <button type="button" data-action="run-box-audit">Run again</button>
   </section>`;

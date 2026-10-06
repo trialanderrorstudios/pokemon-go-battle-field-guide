@@ -308,5 +308,8 @@ export function renderCatchVerdict(verdict) {
     <p class="cv-read">${escapeHtml(read)}</p>
     <p class="cv-call">${escapeHtml(verdict.headline)}</p>
     ${verdict.lines.length ? `<ul class="cv-lines">${verdict.lines.map((line) => `<li>${escapeHtml(line)}</li>`).join("")}</ul>` : ""}
+    <button type="button" class="cv-share" data-action="share-card-payload" data-share-type="verdict" data-share-payload="${escapeHtml(JSON.stringify({
+    name: verdict.name, tags, read, headline: verdict.headline, lines: verdict.lines,
+  }))}">Share</button>
   </article>`;
 }
