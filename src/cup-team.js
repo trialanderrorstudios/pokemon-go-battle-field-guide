@@ -42,7 +42,7 @@ function unevolvedBase(formId, forms, evolvedTargets) {
   return (forms[regular]?.evolves_to ?? []).length > 0 && !evolvedTargets.has(regular);
 }
 
-function evolvedTargetSet(forms) {
+export function evolvedTargetSet(forms) {
   const targets = new Set();
   for (const form of Object.values(forms)) for (const edge of form.evolves_to ?? []) targets.add(edge.formId);
   return targets;

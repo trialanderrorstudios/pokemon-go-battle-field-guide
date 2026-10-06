@@ -21,6 +21,8 @@ import { rankIvSpread, LEAGUE_CP_CAP, RANK_LEAGUES } from "./pvp-team.js";
 import { calculateCp, solveLevel } from "./instances.js";
 import { buildCost } from "./raid-target.js";
 import { frustrationWindow } from "./frustration-window.js";
+import { typeCoverage } from "./gap-analyzer.js";
+import { cupCalendar, isCupLegal, bestCupTeam, evolvedTargetSet } from "./cup-team.js";
 import { escapeHtml } from "./views/home.js";
 
 const LEAGUE_LABEL = Object.freeze({ great: "Great League", ultra: "Ultra League", master: "Master League" });
@@ -239,6 +241,150 @@ export function whatIfLines({ formId, cp, level, shadow, options, best, purify }
   return lines;
 }
 
+// Where it fits (L3, 2026-10-06) — top 3 of: raid lane(s) this catch's best
+// role per attacking type (raid-target.js's ranked rows, the same ones
+// topRaidRole already walks) joins or upgrades versus the owned roster's
+// current best in that type (gap-analyzer.js's typeCoverage, no new coverage
+// math); and live cup team(s) (cup-team.js's bestCupTeam, built on its own
+// simWins/simCoverage) it would join, with the covered-threat delta over the
+// team picked without it. Nothing fabricated: every number here is read off
+// data another module already ranked. Show nothing when there's no real fit.
+const CUP_FIT_CAP = 2;
+const RAID_FIT_CAP = 2;
+
+function raidLaneFits(targets, { raids, roster, forms }) {
+  const ids = new Set(targets);
+  const rows = [...(raids?.regular ?? []), ...(raids?.shadow ?? [])]
+    .filter((row) => row.status === "ranked" && ids.has(row.formId) && row.rank <= RAID_ROLE_RANK)
+    .sort((a, b) => a.rank - b.rank);
+  if (!rows.length) return [];
+  const bestByType = new Map(typeCoverage({ raids, roster }).map((row) => [row.attackingType, row.best]));
+  const seen = new Set();
+  const fits = [];
+  for (const row of rows) {
+    if (fits.length >= RAID_FIT_CAP || seen.has(row.attackingType)) continue;
+    seen.add(row.attackingType);
+    const before = bestByType.get(row.attackingType);
+    if (before && before.rank <= row.rank) continue;
+    const name = forms[row.formId]?.name ?? row.pokemon ?? row.formId;
+    const label = before
+      ? `Raids: #${row.rank} ${row.attackingType} attacker as ${name} — improves your #${before.rank} ${forms[before.formId]?.name ?? before.pokemon ?? before.formId}.`
+      : `Raids: #${row.rank} ${row.attackingType} attacker as ${name} — you had no solid counter for this type.`;
+    fits.push({ label, href: "./#triage/gaps", route: "triage", view: "gaps", linkText: "Roster Gaps" });
+  }
+  return fits;
+}
+
+// forms is the same stable object for the whole app session (one release
+// load) — the legality check's own evolved-target set is memoized on it
+// rather than rebuilt per cup, per catch (review: 089629f0, perf finding).
+const evolvedTargetsCache = new WeakMap();
+function evolvedTargetsFor(forms) {
+  let set = evolvedTargetsCache.get(forms);
+  if (!set) {
+    set = evolvedTargetSet(forms);
+    evolvedTargetsCache.set(forms, set);
+  }
+  return set;
+}
+
+function sameIvs(a, b) {
+  if (!a || !b) return a === b;
+  return a.atk === b.atk && a.def === b.def && a.sta === b.sta;
+}
+
+function hasExactInstance(roster, formId, ivs, cp) {
+  return (roster?.instances ?? []).some((i) => i.formId === formId && sameIvs(i.ivs, ivs) && (i.cp ?? null) === (cp ?? null));
+}
+
+// This exact catch, filtered out of the owned pool — used for the "before"
+// side when the catch is already a logged instance (the instance-sheet
+// path), so before/after differ by exactly this one Pokémon instead of
+// double-counting it. ownedFormIds is carried through unmodified: this
+// catch is never added to it (review finding — see rosterPlusCatch).
+function withoutExactInstance(roster, formId, ivs, cp) {
+  return {
+    ownedFormIds: roster?.ownedFormIds ?? [],
+    instances: (roster?.instances ?? []).filter((i) => !(i.formId === formId && sameIvs(i.ivs, ivs) && (i.cp ?? null) === (cp ?? null))),
+  };
+}
+
+// Augments the owned pool with this catch as a single instance (cup-team.js's
+// ownedCandidates reads it that way) — never via ownedFormIds. Adding the
+// formId to ownedFormIds let an over-cap instance (correctly dropped by
+// ownedCandidates' own cap check) come back in through its starred-only,
+// unknown-CP fallback, which is how an over-cap catch could falsely "join" a
+// 1500 cup (review: 089629f0, HIGH finding).
+function rosterPlusCatch(roster, formId, ivs, cp) {
+  return {
+    ownedFormIds: roster?.ownedFormIds ?? [],
+    instances: [...(roster?.instances ?? []), { formId, ivs, cp }],
+  };
+}
+
+function cupKeyFor(cup) {
+  return `${cup.eventId ?? ""}|${cup.name}`;
+}
+
+// "before" depends only on (cup, roster, forms, pvp, deep) — never on which
+// mon is being judged — so a box-audit batch judging thousands of catches
+// against the SAME roster recomputed it that many times over (review: perf
+// finding, +7s on a 2,700-mon audit). Cached by roster object identity; a
+// fresh roster reference (a real state update, not a catch-local clone)
+// naturally busts it.
+const cupBeforeCache = new WeakMap();
+function cachedBestCupTeam(cup, ctx) {
+  if (!ctx.roster || typeof ctx.roster !== "object") return bestCupTeam(cup, ctx);
+  let byCup = cupBeforeCache.get(ctx.roster);
+  if (!byCup) {
+    byCup = new Map();
+    cupBeforeCache.set(ctx.roster, byCup);
+  }
+  const key = cupKeyFor(cup);
+  if (!byCup.has(key)) byCup.set(key, bestCupTeam(cup, ctx));
+  return byCup.get(key);
+}
+
+function cupTeamFits(formId, ivs, cp, { forms, pvp, deep, roster, currentEvents, now }) {
+  if (!currentEvents) return [];
+  const live = cupCalendar(currentEvents, now).cups.filter((cup) => cup.live && cup.rule !== "unevolved").slice(0, CUP_FIT_CAP);
+  if (!live.length) return [];
+  const evolvedTargets = evolvedTargetsFor(forms);
+  // Comparing like with like: a catch that's already a saved instance (the
+  // instance-sheet path) is pulled OUT of the baseline and put back for
+  // "after", instead of a duplicate sitting in both sides. A brand-new catch
+  // (the scan path, almost always) leaves the real roster reference alone
+  // for "before", which is what lets cachedBestCupTeam actually hit.
+  const alreadyLogged = hasExactInstance(roster, formId, ivs, cp);
+  const baselineRoster = alreadyLogged ? withoutExactInstance(roster, formId, ivs, cp) : roster;
+  const afterRoster = alreadyLogged ? roster : rosterPlusCatch(roster, formId, ivs, cp);
+  const fits = [];
+  for (const cup of live) {
+    if (!isCupLegal(formId, cup, forms, evolvedTargets)) continue;
+    const before = cachedBestCupTeam(cup, { forms, pvp, pvpDeepRanks: deep, roster: baselineRoster });
+    const after = bestCupTeam(cup, { forms, pvp, pvpDeepRanks: deep, roster: afterRoster });
+    if (!after || after.short || !after.members.some((m) => m.formId === formId)) continue;
+    if (before && !before.short && before.members.some((m) => m.formId === formId)) continue;
+    const completesTeam = !before || before.short;
+    const coveredAfter = after.sim.covered.length;
+    const coveredDelta = completesTeam ? coveredAfter : coveredAfter - before.sim.covered.length;
+    const dropped = completesTeam ? null : before.members.find((m) => !after.members.some((w) => w.formId === m.formId));
+    const over = dropped ? ` over ${dropped.name}` : "";
+    const covers = coveredDelta > 0
+      ? ` — covers ${coveredDelta}${completesTeam ? "" : " more"} top-20 threat${coveredDelta === 1 ? "" : "s"}`
+      : "";
+    const verb = completesTeam ? "completes a team" : "joins your team";
+    fits.push({ label: `${cup.name}: ${verb}${over}${covers}.`, href: "./#pvp/cup", route: "pvp", view: "cup", linkText: "Cup" });
+  }
+  return fits;
+}
+
+// Pure: forms/pvp/raids/roster/currentEvents in, up to 3 fit lines out.
+// Called from catchVerdict with the same ctx it already has in scope.
+export function whereItFits({ formId, targets, ivs, cp }, ctx) {
+  return [...cupTeamFits(formId, ivs, cp, ctx), ...raidLaneFits(targets, ctx)].slice(0, 3);
+}
+
 // catchVerdict({ formId, ivs:{atk,def,sta}, cp?, chargedMoves?, forms, pvp,
 // pvpDeepRanks, raids, gym, roster, currentEvents, now }) -> verdict | null.
 // `chargedMoves`, when known, lets an already-cleared shadow skip the
@@ -338,10 +484,11 @@ export function catchVerdict({
   }
 
   const whatIf = whatIfLines({ formId, cp, level, shadow: form.shadow, options, best, purify }, forms);
+  const fits = whereItFits({ formId, targets, ivs, cp }, { forms, pvp, deep: pvpDeepRanks, raids, roster: roster ?? {}, currentEvents, now });
 
   return {
     formId, name: form.name, dex: form.dex ?? null, shadow: Boolean(form.shadow), ivs, cp, level,
-    call, headline, best, options, raid: raidRole, gym: gymRole, purify, frustration, ownedBetter: better, lines, whatIf,
+    call, headline, best, options, raid: raidRole, gym: gymRole, purify, frustration, ownedBetter: better, lines, whatIf, fits,
   };
 }
 
@@ -383,6 +530,7 @@ export function renderCatchVerdict(verdict) {
     <p class="cv-read">${escapeHtml(read)}</p>
     <p class="cv-call">${escapeHtml(verdict.headline)}</p>
     ${verdict.lines.length ? `<ul class="cv-lines">${verdict.lines.map((line) => `<li>${escapeHtml(line)}</li>`).join("")}</ul>` : ""}
+    ${verdict.fits?.length ? `<div class="cv-fits"><p class="cv-fits-title">Where it fits</p><ul class="cv-fits-list">${verdict.fits.map((fit) => `<li>${escapeHtml(fit.label)} <a class="safe-escape" href="${escapeHtml(fit.href)}" data-route="${escapeHtml(fit.route)}" data-view="${escapeHtml(fit.view)}">${escapeHtml(fit.linkText)}</a></li>`).join("")}</ul></div>` : ""}
     ${verdict.whatIf?.length ? `<details class="cv-whatif"><summary>What if…</summary><ul>${verdict.whatIf.map((line) => `<li>${escapeHtml(line)}</li>`).join("")}</ul></details>` : ""}
     ${renameLine(verdict)}
     <button type="button" class="cv-share" data-action="share-card-payload" data-share-type="verdict" data-share-payload="${escapeHtml(JSON.stringify({

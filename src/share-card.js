@@ -56,6 +56,9 @@ export const CARD_SPECS = Object.freeze({
   // layout; cropping groups to fit the shared height left the canvas half
   // empty AND dropped two of the four counter groups (2026-10 review fix).
   bossCard: Object.freeze({ width: CARD_WIDTH, height: 1780 }),
+  // Rocket leader/Giovanni card (round 17): up to 3 slots x 3 possible
+  // Pokémon each, same self-resizing-canvas story as bossCard above.
+  rocketBattlerCard: Object.freeze({ width: CARD_WIDTH, height: 1780 }),
 });
 
 // Literal copies of the --dx-* tokens in web/styles/app.css — canvas 2D
@@ -568,6 +571,40 @@ export function bossCardShareData(raw) {
   };
 }
 
+// Rocket leader/Giovanni card (round 17) — same trust-boundary guard as
+// bossCardShareData above, re-validating/clipping the button's inline
+// payload (app.js's rocketBattlerCardSharePayload) before anything is
+// drawn. Reuses clipPath/clipTypeRow from bossCardShareData's own guard
+// rather than a second set of field clippers. Review fix (MED): counters
+// here carry no rank/moveset/elite-TM meta — that's a raid-DPS rank, not a
+// 3v3 shielded-trainer-battle one — so this clips only pokemon/attackingType,
+// never clipCounterRow's full raid-attacker shape.
+function clipRocketCounterRow(row) {
+  return { formId: clip(row?.formId, 40), pokemon: clip(row?.pokemon, 40), attackingType: clip(row?.attackingType, 16) };
+}
+
+function clipRocketBattlerMon(mon) {
+  return {
+    formId: clip(mon?.formId, 40),
+    name: clip(mon?.name, 40),
+    types: (Array.isArray(mon?.types) ? mon.types : []).slice(0, 2).map((t) => clip(t, 16)),
+    weakTo: (Array.isArray(mon?.weakTo) ? mon.weakTo : []).slice(0, 18).map(clipTypeRow),
+    resists: (Array.isArray(mon?.resists) ? mon.resists : []).slice(0, 18).map(clipTypeRow),
+    ownedCounters: (Array.isArray(mon?.ownedCounters) ? mon.ownedCounters : []).slice(0, 6).map(clipRocketCounterRow),
+    generalCounters: (Array.isArray(mon?.generalCounters) ? mon.generalCounters : []).slice(0, 3).map(clipRocketCounterRow),
+    catchNote: typeof mon?.catchNote === "string" ? clip(mon.catchNote, 200) : null,
+  };
+}
+
+export function rocketBattlerCardShareData(raw) {
+  if (!raw || typeof raw.name !== "string" || !Array.isArray(raw.slots)) return null;
+  return {
+    name: clip(raw.name, 40),
+    title: clip(raw.title, 40),
+    slots: raw.slots.slice(0, 3).map((mons) => (Array.isArray(mons) ? mons : []).slice(0, 3).map(clipRocketBattlerMon)),
+  };
+}
+
 function drawVerdictCard(ctx, { width }, data) {
   drawChassis(ctx, width, CARD_HEIGHT, "Catch verdict");
   ctx.textBaseline = "alphabetic";
@@ -960,6 +997,100 @@ async function drawBossCard(ctx, spec, data, documentObject, canvas) {
   await layoutBossCard(bossCardPainter(ctx, false), false, data, left, contentWidth, documentObject);
 }
 
+// Rocket leader/Giovanni card (round 17) — reuses drawBossCard's own layout
+// helpers (drawBossCardLabel/drawBossCardChipRow/bossCardLineHeight/
+// wrapText/bossCardPainter/drawChassis/bossCardTypeColor), never a second
+// set. One SLOT label per lineup slot, one block per possible Pokémon in
+// it. No sprite art — a type-colored dot stands in, the same fallback
+// drawBossCard itself uses when a boss has no sprite path — since the
+// lineup feed can carry an unresolved formId: null for a name this dex
+// can't match.
+function drawRocketBattlerMon(p, x, y, width, mon) {
+  p.fillStyle = bossCardTypeColor(mon.types[0]);
+  p.beginPath();
+  p.arc(x + 14, y + 14, 14, 0, Math.PI * 2);
+  p.fill();
+  p.font = `700 28px ${DISPLAY}`;
+  p.fillStyle = PALETTE.text;
+  p.textBaseline = "middle";
+  p.fillText(mon.name, x + 36, y + 14);
+  p.textBaseline = "top";
+  let cursorY = y + 32;
+  if (mon.weakTo.length) {
+    cursorY += drawBossCardChipRow(p, x, cursorY, width, mon.weakTo, (row) => (row.isDouble ? "4x" : "2x")) + 8;
+  }
+  const counterRows = mon.ownedCounters.length ? mon.ownedCounters : mon.generalCounters;
+  if (counterRows.length) {
+    const label = mon.ownedCounters.length ? "Your box: " : "General: ";
+    const line = `${label}${counterRows.map((row) => `${row.pokemon} (${row.attackingType})`).join(", ")}`;
+    p.font = `20px ${MONO}`;
+    p.fillStyle = PALETTE.muted;
+    for (const wrapped of wrapText(p, line, width)) {
+      p.fillText(wrapped, x, cursorY);
+      cursorY += bossCardLineHeight(`20px ${MONO}`);
+    }
+    cursorY += 6;
+  }
+  if (mon.catchNote) {
+    p.font = `18px ${MONO}`;
+    p.fillStyle = PALETTE.warn;
+    for (const wrapped of wrapText(p, mon.catchNote, width)) {
+      p.fillText(wrapped, x, cursorY);
+      cursorY += bossCardLineHeight(`18px ${MONO}`);
+    }
+  }
+  p.textBaseline = "alphabetic";
+  return cursorY - y;
+}
+
+function layoutRocketBattlerCard(p, data, left, contentWidth) {
+  let y = BOSS_CARD_HEADER_TOP;
+  p.font = `700 44px ${DISPLAY}`;
+  p.fillStyle = PALETTE.text;
+  p.textAlign = "left";
+  p.textBaseline = "alphabetic";
+  p.fillText(data.name, left, y);
+  y += bossCardLineHeight(`700 44px ${DISPLAY}`) + 6;
+  if (data.title) {
+    p.font = `22px ${MONO}`;
+    p.fillStyle = PALETTE.muted;
+    p.textBaseline = "top";
+    p.fillText(data.title, left, y);
+    y += bossCardLineHeight(`22px ${MONO}`) + 6;
+  }
+  // Review fix (MED): same honest note the HTML card carries — counters
+  // below are a raid-DPS rank, not a 3v3 shielded-trainer-battle sim.
+  p.font = `18px ${MONO}`;
+  p.fillStyle = PALETTE.muted;
+  p.textBaseline = "top";
+  for (const wrapped of wrapText(p, "Counters ranked by raid type damage, not a trainer-battle sim — fast-move pressure and shields matter here too.", contentWidth)) {
+    p.fillText(wrapped, left, y);
+    y += bossCardLineHeight(`18px ${MONO}`);
+  }
+  y += BOSS_CARD_SECTION_GAP;
+
+  for (const [slotIndex, mons] of data.slots.entries()) {
+    if (!mons.length) continue;
+    y += drawBossCardLabel(p, left, y, `SLOT ${slotIndex + 1}`, { font: `700 22px ${MONO}`, color: PALETTE.lens });
+    y += 10;
+    for (const mon of mons) {
+      y += drawRocketBattlerMon(p, left, y, contentWidth, mon) + 20;
+    }
+    y += BOSS_CARD_SECTION_GAP - 20;
+  }
+  return y;
+}
+
+function drawRocketBattlerCard(ctx, spec, data, canvas) {
+  const left = 90;
+  const contentWidth = spec.width - left * 2;
+  const contentBottom = layoutRocketBattlerCard(bossCardPainter(ctx, true), data, left, contentWidth);
+  const finalHeight = Math.max(CARD_HEIGHT, Math.ceil(contentBottom) + BOSS_CARD_FOOTER_CLEARANCE);
+  if (canvas) canvas.height = finalHeight;
+  drawChassis(ctx, spec.width, finalHeight, "Rocket battler");
+  layoutRocketBattlerCard(bossCardPainter(ctx, false), data, left, contentWidth);
+}
+
 function drawGymLineupCard(ctx, { width }, data) {
   drawChassis(ctx, width, CARD_HEIGHT, "Gym defense");
   ctx.textBaseline = "alphabetic";
@@ -1107,6 +1238,7 @@ function cardFilename(type, data) {
   if (type === "verdict") return `field-guide-verdict-${safeSlug(data.name)}.png`;
   if (type === "cupTeam") return `field-guide-${safeSlug(data.cupName)}-team.png`;
   if (type === "bossCard") return `field-guide-boss-card-${safeSlug(data.name)}.png`;
+  if (type === "rocketBattlerCard") return `field-guide-rocket-${safeSlug(data.name)}.png`;
   return "field-guide-triage.png";
 }
 
@@ -1132,6 +1264,7 @@ export async function renderShareCard(type, data, { documentObject = globalThis.
   else if (type === "verdict") drawVerdictCard(ctx, spec, data);
   else if (type === "cupTeam") drawCupTeamCard(ctx, spec, data);
   else if (type === "bossCard") await drawBossCard(ctx, spec, data, documentObject, canvas);
+  else if (type === "rocketBattlerCard") drawRocketBattlerCard(ctx, spec, data, canvas);
   else return null;
   const blob = await canvasToBlob(canvas);
   if (!blob || !blob.size) return null;

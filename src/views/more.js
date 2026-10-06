@@ -378,7 +378,7 @@ function backupSection(data) {
   const nudge = data.backupNudge && !preview ? `
     <div class="fallback-section whats-new-card" role="note">
       <p><strong>Back up your data?</strong></p>
-      <p>You haven't backed up in a while (or ever). A backup is one JSON file with your roster, gym log, drill/feedback stats, and display prefs — nothing else, no secrets.</p>
+      <p>You haven't backed up in a while (or ever). A backup is one JSON file with your roster, profiles, medal progress, gym log, drill/feedback stats, and display prefs — nothing else, no secrets.</p>
       <button type="button" data-action="backup-export">Back up my data</button>
       <button type="button" data-action="dismiss-backup-nudge">Not now</button>
     </div>` : "";
@@ -398,7 +398,7 @@ function backupSection(data) {
     </div>` : "";
   return `<section class="more-section" aria-labelledby="more-backup-title">
     <p class="status-kicker">One file, all your data</p><h2 id="more-backup-title">Backup and restore</h2>
-    <p>No secrets live in this app. A backup bundles your roster (instances, stars, counts), gym defense log, drill streaks, feedback thumbs, and display prefs into one JSON file that stays yours. (Cached gym map coordinates aren't included — they rebuild automatically as you use the gym log.)</p>
+    <p>No secrets live in this app. A backup bundles your roster (instances, stars, counts), profiles, medal and level progress, gym defense log, drill streaks, feedback thumbs, and display prefs into one JSON file that stays yours. (Cached gym map coordinates aren't included — they rebuild automatically as you use the gym log.)</p>
     <p>Cross-device: export on your phone, AirDrop (or email) the file over, then restore it on your tablet.</p>
     ${nudge}
     <button type="button" data-action="backup-export">Back up my data</button>

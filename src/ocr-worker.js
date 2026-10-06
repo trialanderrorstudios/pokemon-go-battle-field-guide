@@ -492,7 +492,14 @@ export async function nameBannerRetry(engine, file, { anchors = [], scoreName, h
 // HP line retry (2026-10-05): the small grey "25 / 25 HP" text under the
 // green bar is the field the full-frame pass loses most (4 of 12 operator
 // fixtures), and without HP there is no IV solve at all. Region: just below
-// the bar, centre 40% of the width. Current HP can't exceed max.
+// the bar, centre 24% of the width (narrowed from 40% —
+// iPad fixtures, 2026-10-06: the appraisal screen's trainer avatar sits
+// further left on the wider 4:3 canvas, tall enough that its hair reaches up
+// into this row even within the bar's own x0/x1 (Tarountula: bar spans
+// 648-1408, hair starts ~1328). The HP text itself is centered under the bar
+// and much narrower than it on every fixture checked (iPhone and iPad), so
+// the crop is the centre 24% of the width — tight enough to miss the
+// avatar, wide enough for the text. Current HP can't exceed max.
 export function pickHpPair(text) {
   const match = String(text).match(/(\d{1,4})\s*[/|]\s*(\d{1,4})/);
   if (!match) return null;
@@ -505,12 +512,16 @@ export async function hpLineRetry(engine, file, { hpBar } = {}, documentObject =
   if (!hpBar || !Number.isFinite(hpBar.y1)) return null;
   const result = await readCroppedField(engine, file, {
     label: "hp",
-    region: (bitmap) => ({
-      sx: Math.round(bitmap.width * 0.3),
-      sw: Math.round(bitmap.width * 0.4),
-      sy: Math.round(hpBar.y1 + bitmap.height * 0.003),
-      sh: Math.round(bitmap.height * 0.026),
-    }),
+    region: (bitmap) => {
+      // Centre on the screen, not the green run: a damaged Pokémon's bar is
+      // shorter and left-aligned, but the HP text stays centred.
+      return {
+        sx: Math.round(bitmap.width * 0.38),
+        sw: Math.round(bitmap.width * 0.24),
+        sy: Math.round(hpBar.y1 + bitmap.height * 0.003),
+        sh: Math.round(bitmap.height * 0.026),
+      };
+    },
     scale: 3,
     whitelist: `${DIGITS}/HP `,
     pick: pickHpPair,

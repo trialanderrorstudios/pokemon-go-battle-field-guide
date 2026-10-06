@@ -768,7 +768,7 @@ function startOfDayString(dateString) {
   return new Date(year, month - 1, day);
 }
 
-function liveMaxBosses(currentMaxBattles, now) {
+export function liveMaxBosses(currentMaxBattles, now) {
   return (currentMaxBattles?.bosses ?? []).filter((boss) => !(typeof boss.endsAt === "string"
     && !Number.isNaN(Date.parse(boss.endsAt))
     && endOfDay(boss.endsAt) < now)
@@ -807,7 +807,7 @@ function maxLaneCardHtml({
       ${sprite}
       <div class="briefing-boss-heading">
         <p class="briefing-eyebrow-row"><span class="tier-pill" data-tier="max">${escapeHtml(laneLabel)}</span></p>
-        <h3>${linkedName}</h3>
+        <h2>${linkedName}</h2>
       </div>
     </div>
     <p class="briefing-note">${liveHeadline
@@ -821,7 +821,12 @@ function maxLaneCardHtml({
     const catchLine = target?.normal
       ? ` — hundo ${escapeHtml(target.normal.hundoCP)} CP at the level-${escapeHtml(Math.round(target.normal.level))} catch (IV floor ${escapeHtml(target.normal.minimumRaidIVCP)})`
       : "";
-    return `<p class="briefing-note">Now in Max Battle spots: <a href="./#dex/${encodeURIComponent(boss.formId)}" data-route="dex">${escapeHtml(`${boss.kind} ${forms?.[boss.formId]?.name ?? boss.formId}`)}</a> (through ${escapeHtml(boss.endsAt)})${catchLine}</p>`;
+    // ?boss=<formId>#raids (same deep link search.js/coach.js/cd-brief.js/
+    // today.js already use) — the Raid Target boss card now carries this
+    // boss's Max-ready box when it's a live Max Battle boss (app.js's
+    // raidTargetSurface liveMaxBosses() check), a strictly richer landing
+    // than the plain dex entry this link used to point at.
+    return `<p class="briefing-note">Now in Max Battle spots: <a href="./?boss=${encodeURIComponent(boss.formId)}#raids">${escapeHtml(`${boss.kind} ${forms?.[boss.formId]?.name ?? boss.formId}`)}</a> (through ${escapeHtml(boss.endsAt)})${catchLine}</p>`;
   }).join("")}
     <p class="briefing-note">${escapeHtml(maxReadyLine(roster?.instances))}</p>
     <p class="briefing-note">${liveMaxBosses(currentMaxBattles, now).length
@@ -969,7 +974,7 @@ function featuredBossCard({
           ${boss?.tier ? `<span class="tier-pill" data-tier="${escapeHtml(bossTierKey(boss.tier))}">${escapeHtml(boss.tier)}</span>` : ""}
           ${endsToday ? `<span class="ends-today">Ends today</span>` : ""}
         </p>
-        <h3><a href="./?boss=${encodeURIComponent(featured.formId)}#raids">${escapeHtml(featured.name)}</a></h3>
+        <h2><a href="./?boss=${encodeURIComponent(featured.formId)}#raids">${escapeHtml(featured.name)}</a></h2>
         ${bossTypes.length ? `<p class="briefing-eyebrow-row briefing-boss-types">${bossTypes.map((type) => `<span class="type-chip" data-type="${escapeHtml(type)}">${escapeHtml(type)}</span>`).join("")}</p>` : ""}
       </div>
     </div>

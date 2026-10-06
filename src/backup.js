@@ -16,6 +16,7 @@ import { ROSTER_SCHEMA, isPlainObject, importRoster } from "./storage.js";
 import { loadDefenseLog } from "./gym-defense-log.js";
 import { loadDrillStats } from "./drill.js";
 import { loadFeedback } from "./feedback.js";
+import { sanitizeMedalState } from "./medals.js";
 import { TEXT_SIZES } from "./text-size.js";
 import { THEMES } from "./theme.js";
 
@@ -29,7 +30,10 @@ const REQUIRED_PAYLOAD_FIELDS = new Set(["roster", "defenseLog", "textSize", "th
 // `profiles` (2026-10-05) carries every other profile's roster plus which one
 // was active at export; `roster` stays the active profile's, so an app that
 // predates profiles still restores the roster it would have before.
-const KNOWN_PAYLOAD_FIELDS = new Set([...REQUIRED_PAYLOAD_FIELDS, "drillStats", "feedback", "profiles"]);
+// `medals` (2026-10-06) is the raw pogo-medals dict, already keyed by every
+// profile id in one object, so unlike `profiles` it needs no per-profile
+// unpacking to round-trip every profile's medal/level progress.
+const KNOWN_PAYLOAD_FIELDS = new Set([...REQUIRED_PAYLOAD_FIELDS, "drillStats", "feedback", "profiles", "medals"]);
 const TEXT_SIZE_SET = new Set(TEXT_SIZES);
 const THEME_SET = new Set(THEMES);
 
@@ -54,10 +58,10 @@ export class BackupImportError extends Error {
 // imported file is preserved opaquely (see parseBackupEnvelope's `extra`).
 export function buildBackupEnvelope({
   roster, defenseLog, textSize, theme, appShellRevision,
-  drillStats = { currentStreak: 0, bestStreak: 0 }, feedback = [], profiles = null,
+  drillStats = { currentStreak: 0, bestStreak: 0 }, feedback = [], profiles = null, medals = {},
   now = () => new Date().toISOString(),
 }) {
-  const payload = { roster, defenseLog, textSize, theme, drillStats, feedback };
+  const payload = { roster, defenseLog, textSize, theme, drillStats, feedback, medals };
   if (profiles) payload.profiles = profiles;
   return {
     formatVersion: BACKUP_FORMAT_VERSION,
@@ -157,6 +161,15 @@ export async function parseBackupEnvelope(text, validFormIds) {
   }
   const drillStats = loadDrillStats({ getItem: () => JSON.stringify(raw.payload.drillStats ?? null) });
   const feedback = loadFeedback({ getItem: () => JSON.stringify(raw.payload.feedback ?? []) });
+  // Optional (missing on pre-2026-10-06 backups). Each profile is normalized
+  // through sanitizeMedalState — same "trust each store's own normalizer"
+  // rule as drillStats/feedback above — so a malformed/tampered backup
+  // file can't inject NaN counts, junk task keys, or an absurd typePlatinums
+  // into a later merge/replace.
+  const rawMedals = isPlainObject(raw.payload.medals) ? raw.payload.medals : {};
+  const medals = Object.fromEntries(
+    Object.entries(rawMedals).map(([profileId, state]) => [profileId, sanitizeMedalState(state)]),
+  );
   // Anything beyond the known fields is a future store this build of the app
   // doesn't understand yet. JSON.parse already guarantees these are plain
   // JSON values, so they're carried through this parse step rather than
@@ -175,7 +188,7 @@ export async function parseBackupEnvelope(text, validFormIds) {
     exportedAt: raw.exportedAt,
     appShellRevision: raw.appShellRevision ?? null,
     payload: {
-      roster, defenseLog, textSize: raw.payload.textSize, theme: raw.payload.theme, drillStats, feedback, extra,
+      roster, defenseLog, textSize: raw.payload.textSize, theme: raw.payload.theme, drillStats, feedback, medals, extra,
       ...(profiles ? { profiles } : {}),
     },
   };
@@ -288,6 +301,76 @@ function mergeFeedback(current, imported) {
 }
 
 
+// One profile's medal state has the same no-per-value-timestamp shape as
+// drillStats/ownedFormCounts above: never lose progress either device
+// already recorded, so counts/typePlatinums/xp keep the higher value and a
+// completed task stays completed. targets are a user override with no
+// timestamp either, so (like roster.preferences) the imported side wins per
+// key on merge — restoring is the explicit action just taken.
+//
+// Both sides are re-sanitized here, not just trusted from parseBackupEnvelope
+// above: `current` comes straight from live localStorage (loadAllMedalState),
+// which has never been through that normalizer, and sanitizeMedalState(null)
+// / sanitizeMedalState(undefined) return safe empty state instead of
+// throwing — a plain `current = {}` default parameter does NOT catch a
+// stored `null` entry (defaults only trigger on `undefined`), which used to
+// throw reading `current.counts` on a corrupted pogo-medals record.
+function mergeMedalState(current, imported) {
+  const safeCurrent = sanitizeMedalState(current);
+  const safeImported = sanitizeMedalState(imported);
+  const counts = { ...safeCurrent.counts };
+  for (const [name, value] of Object.entries(safeImported.counts)) {
+    counts[name] = Math.max(counts[name] ?? 0, value);
+  }
+  const tasks = { ...safeCurrent.tasks };
+  for (const [key, done] of Object.entries(safeImported.tasks)) {
+    tasks[key] = Boolean(safeCurrent.tasks[key]) || done;
+  }
+  const xp = safeCurrent.xp === null && safeImported.xp === null
+    ? null
+    : Math.max(safeCurrent.xp ?? 0, safeImported.xp ?? 0);
+  return {
+    counts,
+    targets: { ...safeCurrent.targets, ...safeImported.targets },
+    typePlatinums: Math.max(safeCurrent.typePlatinums, safeImported.typePlatinums),
+    tasks,
+    xp,
+  };
+}
+
+
+// medals is the raw pogo-medals dict (every profile id -> state) — merge
+// every profile id present on either side instead of just the active one.
+function mergeAllMedals(current, imported) {
+  const safeCurrent = isPlainObject(current) ? current : {};
+  const safeImported = isPlainObject(imported) ? imported : {};
+  const merged = {};
+  for (const profileId of new Set([...Object.keys(safeCurrent), ...Object.keys(safeImported)])) {
+    merged[profileId] = mergeMedalState(safeCurrent[profileId], safeImported[profileId]);
+  }
+  return merged;
+}
+
+
+// Replace overwrites, but only for profile ids the backup actually carries —
+// a profile this backup never knew about (a pre-medals backup, which carries
+// none at all, or a profile added to this device after export) keeps its
+// current medals untouched. Mirrors the "absent profile rosters are
+// preserved" rule the restore handler already applies to rosters
+// (app.js's backup-restore-merge/replace profile loop skips any profile id
+// not present in the backup). Every carried-over profile is re-sanitized —
+// same reasoning as mergeMedalState above.
+function replaceAllMedals(current, imported) {
+  const safeCurrent = isPlainObject(current) ? current : {};
+  const safeImported = isPlainObject(imported) ? imported : {};
+  const merged = { ...safeCurrent };
+  for (const [profileId, state] of Object.entries(safeImported)) {
+    merged[profileId] = sanitizeMedalState(state);
+  }
+  return merged;
+}
+
+
 // Combines a currently-loaded app state with a parsed backup's payload.
 // textSize/theme are per-device ergonomics, not shared data — merge leaves
 // them as this device already has them; only replaceBackupPayload changes
@@ -300,13 +383,18 @@ export function mergeBackupPayload(current, imported) {
     theme: current.theme,
     drillStats: mergeDrillStats(current.drillStats, imported.drillStats),
     feedback: mergeFeedback(current.feedback, imported.feedback),
+    medals: mergeAllMedals(current.medals, imported.medals),
     extra: { ...(current.extra ?? {}), ...(imported.extra ?? {}) },
   };
 }
 
 
-// Full overwrite: every store becomes exactly what the backup says.
-export function replaceBackupPayload(imported) {
+// Full overwrite: every store becomes exactly what the backup says — except
+// medals, which replace per-profile-id (see replaceAllMedals above): a
+// profile the backup doesn't mention keeps what it already had rather than
+// being wiped to empty. `current` is optional for callers that genuinely
+// have nothing to preserve (e.g. restoring onto a blank device).
+export function replaceBackupPayload(imported, current = {}) {
   return {
     roster: imported.roster,
     defenseLog: imported.defenseLog,
@@ -314,6 +402,7 @@ export function replaceBackupPayload(imported) {
     theme: imported.theme,
     drillStats: imported.drillStats ?? { currentStreak: 0, bestStreak: 0 },
     feedback: imported.feedback ?? [],
+    medals: replaceAllMedals(current.medals, imported.medals),
     extra: imported.extra ?? {},
   };
 }

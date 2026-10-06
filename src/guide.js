@@ -106,7 +106,7 @@ export function renderGuide(route, storage) {
   // search box, week strip and task grid all below the fold. Users dive in
   // rather than read instructions, so the app has to be what they see first.
   // The guide keeps every word; it just starts as one line.
-  return `<details class="fallback-section whats-new-card guide-card" role="note">
+  return `<details class="fallback-section whats-new-card guide-card">
     <summary><strong>${escapeHtml(copy.title)}</strong></summary>
     <p>${copy.body}</p>
     ${linksRow(copy.links)}

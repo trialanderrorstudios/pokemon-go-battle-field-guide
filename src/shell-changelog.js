@@ -6,6 +6,19 @@
 
 export const SHELL_CHANGELOG = Object.freeze([
   Object.freeze({
+    rev: "r195", date: "2026-10-06",
+    added: Object.freeze([
+      "Rocket: Giovanni, Arlo, Cliff and Sierra each get a card — every possible Pokémon per lineup slot with what it's weak to and resists, and counters from your own box first. Counters are ranked by raid type damage, and the card says so: shields and fast-move pressure matter in these fights. \"Share\" turns it into an image.",
+      "Max Battle bosses open the boss card too, with your Dynamax- and Gigantamax-capable Pokémon that hit the boss for super-effective damage. That list is a type check — the app has no Max-move or Max damage rankings.",
+      "\"Where it fits\" on every scan and saved Pokémon: the cup teams it would join (and how many more meta threats they'd cover) and the raid types where it beats your current best.",
+    ]),
+    tweaked: Object.freeze([
+      "iPad screenshots now scan: species, HP and IVs read on all four iPad test screenshots, with the scanner finding the HP bar on the wider screen and reading past the trainer on the appraisal screen.",
+      "Backups now include medal and level progress for every profile. Restoring an older backup with Replace keeps the medal progress already on this device.",
+      "Accessibility: every main screen scores 100 in Lighthouse — heading order fixed, small Dex labels enlarged, and every small button has a full-size tap area.",
+    ]),
+  }),
+  Object.freeze({
     rev: "r194", date: "2026-10-06",
     added: Object.freeze([
       "Raid boss card at the top of every raid target: catch and weather-boosted CP, weak to / resists, trainers needed, the boss's own best raid roles and PvP ranks with their investment tiers, and the best Mega, Shadow, Legendary and general counters with movesets. \"Share boss card\" turns it into an image.",

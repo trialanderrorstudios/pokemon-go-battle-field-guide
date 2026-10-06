@@ -82,20 +82,24 @@ function countersLine(type) {
   return counters.length ? `<p class="type-chip-list">Bring: ${counters.map(typeChip).join("")}</p>` : "";
 }
 
-function lineupGroup(entry, forms) {
+// Leaders/Giovanni (entry.type === "", since each of their slots can open
+// with Pokémon of different types) get the full counters card built in
+// app.js (renderRocketBattlerCard, keyed by name in battlerCardsHtml) in
+// place of the single-type countersLine() grunts get — never both.
+function lineupGroup(entry, forms, battlerCardsHtml) {
   const groupId = `rocket-lineup-${escapeHtml(entry.name.replace(/\s+/g, "-"))}`;
   return `<section class="egg-group" aria-labelledby="${groupId}">
     <h3 id="${groupId}">${escapeHtml(entry.name)}</h3>
     <p class="egg-row-cp">${escapeHtml(entry.title)}</p>
     ${entry.quote ? `<p class="rocket-quote">“${escapeHtml(entry.quote)}”</p>` : ""}
-    ${entry.type ? countersLine(entry.type) : ""}
+    ${entry.type ? countersLine(entry.type) : (battlerCardsHtml?.[entry.name] ?? "")}
     ${(entry.slots ?? []).map((mons, index) => lineupSlot(mons, index, forms)).join("")}
   </section>`;
 }
 
 export function renderRocket({
   currentBosses = null, currentEvents = null, raidTargetTool = null, forms = {},
-  rocketLineups = null, now = new Date(),
+  rocketLineups = null, now = new Date(), battlerCardsHtml = {},
 } = {}) {
   const bosses = shadowRaidBosses(currentBosses);
   const events = rocketFlavoredEvents(currentEvents);
@@ -111,7 +115,7 @@ export function renderRocket({
   // grunts, untyped grunts) — this view never re-sorts it.
   const lineups = rocketLineups?.lineups ?? [];
   const lineupSection = lineups.length
-    ? lineups.map((entry) => lineupGroup(entry, forms)).join("")
+    ? lineups.map((entry) => lineupGroup(entry, forms, battlerCardsHtml)).join("")
     : `<p class="gym-empty">Rocket lineup data isn't bundled in this release.</p>`;
 
   // These lines name no type, so hearing one tells you only that the taunt

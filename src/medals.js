@@ -102,31 +102,43 @@ export const TIER_LABEL = Object.freeze({
 
 const STORAGE_KEY = "pogo-medals";
 
-export function loadMedalState(storage, profileId = "main") {
+// Raw per-profile dict (one storage key holds every profile's medal state
+// already — unlike roster, which is one key PER profile). Exported so
+// backup.js can round-trip every profile's medals in one shot instead of
+// backup only ever knowing about the active profile.
+export function loadAllMedalState(storage) {
   try {
     const all = JSON.parse(storage?.getItem?.(STORAGE_KEY) ?? "{}");
-    const mine = all?.[profileId] ?? {};
-    return {
-      counts: mine.counts && typeof mine.counts === "object" ? mine.counts : {},
-      targets: mine.targets && typeof mine.targets === "object" ? mine.targets : {},
-      typePlatinums: Number.isInteger(mine.typePlatinums) ? mine.typePlatinums : 0,
-      tasks: mine.tasks && typeof mine.tasks === "object" ? mine.tasks : {},
-      xp: Number.isFinite(mine.xp) ? mine.xp : null,
-    };
+    return all && typeof all === "object" && !Array.isArray(all) ? all : {};
   } catch {
-    return { counts: {}, targets: {}, typePlatinums: 0, tasks: {}, xp: null };
+    return {};
   }
 }
 
-export function saveMedalState(storage, profileId, state) {
+export function saveAllMedalState(storage, all) {
   try {
-    const all = JSON.parse(storage?.getItem?.(STORAGE_KEY) ?? "{}") ?? {};
-    all[profileId] = state;
     storage?.setItem?.(STORAGE_KEY, JSON.stringify(all));
     return true;
   } catch {
     return false;
   }
+}
+
+export function loadMedalState(storage, profileId = "main") {
+  const mine = loadAllMedalState(storage)[profileId] ?? {};
+  return {
+    counts: mine.counts && typeof mine.counts === "object" ? mine.counts : {},
+    targets: mine.targets && typeof mine.targets === "object" ? mine.targets : {},
+    typePlatinums: Number.isInteger(mine.typePlatinums) ? mine.typePlatinums : 0,
+    tasks: mine.tasks && typeof mine.tasks === "object" ? mine.tasks : {},
+    xp: Number.isFinite(mine.xp) ? mine.xp : null,
+  };
+}
+
+export function saveMedalState(storage, profileId, state) {
+  const all = loadAllMedalState(storage);
+  all[profileId] = state;
+  return saveAllMedalState(storage, all);
 }
 
 // One applied edit from the page: a medal count, a target override, the type
@@ -139,6 +151,42 @@ export function applyMedalEdit(state, { kind, key, value }) {
   if (kind === "task") return { ...state, tasks: { ...state.tasks, [key]: Boolean(value) } };
   if (kind === "xp" && Number.isFinite(n) && n >= 0) return { ...state, xp: Math.floor(n) };
   return state;
+}
+
+// Normalizes an arbitrary value (a raw imported-backup profile, or a raw
+// localStorage read that predates/escaped these checks) into a safe medal
+// state using the exact same acceptance rules as applyMedalEdit above —
+// anything that wouldn't pass a live edit doesn't get to ride in through a
+// backup or a corrupted storage entry either. An invalid individual
+// count/target entry is DROPPED, not coerced to 0 — 0 means "entered as
+// zero" (medalRows/platinumCount treat it differently from "not entered").
+function plainMapOrEmpty(value) {
+  return value && typeof value === "object" && !Array.isArray(value) ? value : {};
+}
+
+export function sanitizeMedalState(raw) {
+  const source = plainMapOrEmpty(raw);
+  const counts = {};
+  for (const [name, value] of Object.entries(plainMapOrEmpty(source.counts))) {
+    const n = Number(value);
+    if (Number.isFinite(n) && n >= 0) counts[name] = Math.floor(n);
+  }
+  const targets = {};
+  for (const [name, value] of Object.entries(plainMapOrEmpty(source.targets))) {
+    const n = Number(value);
+    if (Number.isFinite(n) && n > 0) targets[name] = Math.floor(n);
+  }
+  const typePlatinumsN = Number(source.typePlatinums);
+  const typePlatinums = Number.isInteger(typePlatinumsN) && typePlatinumsN >= 0 && typePlatinumsN <= TYPE_MEDAL_COUNT
+    ? typePlatinumsN
+    : 0;
+  const tasks = {};
+  for (const [key, value] of Object.entries(plainMapOrEmpty(source.tasks))) {
+    tasks[key] = Boolean(value);
+  }
+  const xpN = Number(source.xp);
+  const xp = Number.isFinite(xpN) && xpN >= 0 ? Math.floor(xpN) : null;
+  return { counts, targets, typePlatinums, tasks, xp };
 }
 
 export function medalRows(state) {

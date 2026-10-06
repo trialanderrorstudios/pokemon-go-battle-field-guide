@@ -1,7 +1,7 @@
 import { announce, createRouter, resolveRoute, ROUTES } from "./router.js";
 import { APP_SHELL_REVISION, ReleaseManager } from "./release-manager.js";
 import { ATTACK_TYPES, WEATHERS, becauseLine, buildRaidPlan, loadWeather, powerUpCost, saveWeather } from "./raid-target.js";
-import { bossCardData } from "./boss-card.js";
+import { bossCardData, rocketBattlerCardData } from "./boss-card.js";
 import {
   REFERENCE_PAGES,
   buildSearchIndex, loadRecentSearches, removeRecentSearch, saveRecentSearch, search,
@@ -30,7 +30,7 @@ import { defenderPoolFromRanking, scorePlacement } from "./placement.js";
 import { jargonTerm } from "./glossary.js";
 import { dismissGuide, renderGuide, showGuide } from "./guide.js";
 import {
-  briefingCardCollapsedKey, briefingCollapsedKey, currentRaidPlanCardData, escapeHtml, ownedStarButton, renderFinaleHabitatsCard, renderHome, renderResearchEncountersCard, viewSegments,
+  briefingCardCollapsedKey, briefingCollapsedKey, currentRaidPlanCardData, escapeHtml, liveMaxBosses, ownedStarButton, renderFinaleHabitatsCard, renderHome, renderResearchEncountersCard, viewSegments,
 } from "./views/home.js";
 import { renderBasics } from "./views/basics.js";
 import { renderMaxBasics } from "./views/maxbasics.js";
@@ -82,7 +82,7 @@ import { buildIcs, calendarEvents } from "./calendar-export.js";
 import {
   activeProfile, addProfile, loadProfiles, removeProfile, renameProfile, rosterRecordKey, saveProfiles, setActiveProfile, tradeSuggestions,
 } from "./profiles.js";
-import { applyMedalEdit, loadMedalState, saveMedalState } from "./medals.js";
+import { applyMedalEdit, loadAllMedalState, loadMedalState, saveAllMedalState, saveMedalState } from "./medals.js";
 import { readAppraisalBars, pickCandidateByBars, readHpBar, readShadowAura, SHADOW_AURA_MIN } from "./ocr-appraisal-bars.js";
 import { createOcrEngine as createOcrEngineDefault, OcrEngineError } from "./ocr-worker.js";
 import {
@@ -99,7 +99,7 @@ import {
 import {
   rotationPackCardData, trophyCardData,
   gymDefenseCardData, gymLineupCardData, instanceCardData, shareOrDownloadCard, triageSummaryCardData, verdictCardData, cupTeamCardData,
-  bossCardShareData,
+  bossCardShareData, rocketBattlerCardShareData,
 } from "./share-card.js";
 import {
   exportDexSummary,
@@ -4106,7 +4106,7 @@ export function createInteractionController({
         let raw = null;
         try { raw = JSON.parse(actionEl.dataset.sharePayload ?? "null"); } catch { raw = null; }
         const cardData = type === "verdict" ? verdictCardData(raw) : type === "cupTeam" ? cupTeamCardData(raw)
-          : type === "bossCard" ? bossCardShareData(raw) : null;
+          : type === "bossCard" ? bossCardShareData(raw) : type === "rocketBattlerCard" ? rocketBattlerCardShareData(raw) : null;
         const outcome = cardData ? await (api.onShareCard ?? onShareCard)?.(type, cardData) : "no-data";
         const message = outcome === "shared" ? "Shared." : outcome === "downloaded" ? "Card downloaded."
           : outcome === "cancelled" ? "" : "Could not share or download the card on this device.";
@@ -4408,6 +4408,7 @@ export function createInteractionController({
           theme: ui.theme,
           drillStats: loadDrillStats(storage),
           feedback: loadFeedback(storage),
+          medals: loadAllMedalState(storage),
           appShellRevision: APP_SHELL_REVISION,
         });
         (api.onBackupExport ?? onBackupExport)?.(stableBackupJson(envelope));
@@ -4429,10 +4430,11 @@ export function createInteractionController({
           theme: ui.theme,
           drillStats: loadDrillStats(storage),
           feedback: loadFeedback(storage),
+          medals: loadAllMedalState(storage),
         };
         const restored = mode === "merge"
           ? mergeBackupPayload(current, preview.envelope.payload)
-          : replaceBackupPayload(preview.envelope.payload);
+          : replaceBackupPayload(preview.envelope.payload, current);
         failureRoute = "more";
         // Each roster returns to the profile it was exported from (C4). The
         // one on screen goes through mutateRoster as before; the rest are
@@ -4471,6 +4473,7 @@ export function createInteractionController({
         applyTheme(rootElement, ui.theme);
         ui.drill.stats = saveDrillStats(storage, restored.drillStats);
         saveFeedback(storage, restored.feedback);
+        saveAllMedalState(storage, restored.medals ?? {});
         recordBackupNow(storage);
         ui.backupNudge = false;
         ui.backupImportPreview = null;
@@ -5035,6 +5038,21 @@ function bossCardTrainersLine(trainersNeeded) {
   return `<p class="boss-card-trainers"><strong>Trainers needed:</strong> ${text}</p>`;
 }
 
+// Max Battle only (card.maxReady is null for every ordinary raid boss —
+// bossCardData only fills it in when called with ctx.isMaxBattle). Species-
+// type-vs-boss-type only: this release ships no Max move list or Max-
+// specific attacker ranking, so the section says so rather than implying a
+// DPS-level rank like the raid moveset rows above it.
+function renderMaxReadySection(rows) {
+  const body = rows.length
+    ? `<ul class="boss-card-moveset-list">${rows.map((row) => `<li><span class="boss-card-role">${escapeHtml(row.nickname ?? row.name)}</span>${row.nickname ? ` <span class="boss-card-rank">(${escapeHtml(row.name)})</span>` : ""} <span class="boss-card-rank">${row.isDouble ? "4x" : "2x"} by type</span></li>`).join("")}</ul>`
+    : `<p class="boss-card-moveset">None of your Dynamax/Gigantamax-ready Pokémon type-counter this boss yet.</p>`;
+  return `<details class="boss-card-section" open><summary>Your Max-ready box (by type)</summary>
+    <p class="boss-card-moveset">Species type vs. this boss's type — not a Max-move or DPS rank; this release carries no Max-specific attacker data.</p>
+    ${body}
+  </details>`;
+}
+
 // Compact, shareable boss summary at the top of the Raid Target view. The
 // detailed sections below stay the full interactive tool (observed-CP check,
 // full counter lists); this card's own weak-to/catch-CP coverage removes the
@@ -5077,22 +5095,115 @@ function renderBossCard(card, forms) {
     ${bossCardTrainersLine(card.trainersNeeded)}
     ${movesetRows.length ? `<details class="boss-card-section" open><summary>Movesets & ratings</summary><ul class="boss-card-moveset-list">${movesetRows.join("")}</ul></details>` : ""}
     ${counterTiles.length ? `<details class="boss-card-section"><summary>Top counters</summary><div class="boss-card-counter-groups">${counterTiles.join("")}</div></details>` : ""}
+    ${card.maxReady !== null ? renderMaxReadySection(card.maxReady) : ""}
     <button type="button" class="boss-card-share" data-action="share-card-payload" data-share-type="bossCard" data-share-payload="${escapeHtml(JSON.stringify(bossCardSharePayload(card, forms)))}">Share boss card</button>
   </section>`;
 }
 
 
+// Rocket leader/Giovanni card. Review fix (MED): counterRow's rank/elite-TM
+// moveset fields are a raid-DPS rank — meaningless (and misleading) for a 3v3
+// shielded trainer battle, so this tile drops them and shows only the
+// Pokémon and the attacking type it qualifies under, never bossCardCounterTile's
+// raid-card tile (which does show rank/moveset).
+function rocketCounterTile(label, rows) {
+  if (!rows.length) return "";
+  return `<div class="boss-card-counter-tile">
+    <p class="boss-card-counter-label">${escapeHtml(label)}</p>
+    <ol>${rows.map((row) => `<li><strong>${escapeHtml(row.pokemon)}</strong> <span class="boss-card-counter-meta">${escapeHtml(row.attackingType)}</span></li>`).join("")}</ol>
+  </div>`;
+}
+
+// One <details> per lineup slot; one mon block per possible Pokémon in that
+// slot. mon.types is feed data, not this app's own type-chart output — typeChip
+// deliberately doesn't escape its input (same trust boundary rocket.js's own
+// countersLine() guards), so only verified ATTACK_TYPES membership reaches it.
+function renderRocketMon(mon) {
+  if (mon.noTypeData) {
+    return `<div class="rocket-battler-mon"><p class="boss-card-role">${escapeHtml(mon.name)}</p>
+      <p class="boss-card-moveset">No type data for this Pokémon in this release's feed.</p></div>`;
+  }
+  const safeTypes = mon.types.filter((type) => ATTACK_TYPES.includes(type));
+  const weakHtml = mon.weakTo.length ? mon.weakTo.map((row) => (
+    `<span class="type-weak-badge${row.isDouble ? " is-double" : ""}">${typeChip(row.type)}${row.isDouble ? "4x" : "2x"}</span>`
+  )).join("") : "None documented";
+  const resistHtml = mon.resists.length ? mon.resists.map((row) => (
+    `<span class="type-resist-badge${row.isDouble ? " is-double" : ""}">${typeChip(row.type)}${row.isDouble ? "0.39x" : "0.625x"}</span>`
+  )).join("") : "None documented";
+  const counterTiles = [
+    rocketCounterTile("Your box", mon.ownedCounters),
+    rocketCounterTile("General counters", mon.generalCounters),
+  ].filter(Boolean);
+  return `<div class="rocket-battler-mon">
+    <p class="boss-card-role">${escapeHtml(mon.name)} <span class="type-chip-list">${safeTypes.map(typeChip).join("")}</span></p>
+    <p class="type-chip-list" aria-label="Weak to">Weak to: ${weakHtml}</p>
+    <p class="type-chip-list" aria-label="Resists">Resists: ${resistHtml}</p>
+    ${counterTiles.length ? `<div class="boss-card-counter-groups">${counterTiles.join("")}</div>` : `<p class="boss-card-moveset">No ranked counters in this release's data.</p>`}
+    ${mon.catchNote ? `<p class="boss-card-moveset">${escapeHtml(mon.catchNote)}</p>` : ""}
+  </div>`;
+}
+
+function renderRocketBattlerCard(card) {
+  if (!card) return "";
+  const slug = escapeHtml(card.name.toLowerCase().replace(/\s+/g, "-"));
+  const slots = card.slots.filter((mons) => mons.length);
+  return `<section class="boss-card" aria-labelledby="rocket-battler-${slug}-title">
+    <div class="boss-card-header">
+      <h3 id="rocket-battler-${slug}-title">${escapeHtml(card.name)}</h3>
+      <p class="boss-card-window">${escapeHtml(card.title ?? "")}</p>
+    </div>
+    <p>Each slot's actual Pokémon is random until you're in the fight — these are every Pokémon this slot can open with, with counters for each. Counters are ranked by raid type damage, not a trainer-battle sim — fast-move pressure and shields matter here too.</p>
+    ${slots.map((mons, index) => `<details class="boss-card-section"${index === 0 ? " open" : ""}>
+      <summary>Slot ${index + 1}</summary>
+      ${mons.map((mon) => renderRocketMon(mon)).join("")}
+    </details>`).join("")}
+    <button type="button" class="boss-card-share" data-action="share-card-payload" data-share-type="rocketBattlerCard" data-share-payload="${escapeHtml(JSON.stringify(rocketBattlerCardSharePayload(card)))}">Share ${escapeHtml(card.name)} card</button>
+  </section>`;
+}
+
+function rocketBattlerCardSharePayload(card) {
+  // No rank/moveset/elite-TM meta (review fix, MED) — that's a raid-DPS
+  // rank, not a trainer-battle one; only the Pokémon and the attacking type
+  // it qualifies under carry over to the shared card.
+  const counterPayloadRow = (row) => ({ formId: row.formId, pokemon: row.pokemon, attackingType: row.attackingType });
+  return {
+    name: card.name,
+    title: card.title,
+    slots: card.slots.map((mons) => mons.map((mon) => ({
+      formId: mon.formId,
+      name: mon.name,
+      types: mon.types,
+      weakTo: mon.weakTo,
+      resists: mon.resists,
+      ownedCounters: mon.ownedCounters.map(counterPayloadRow),
+      generalCounters: mon.generalCounters.map(counterPayloadRow),
+      catchNote: mon.catchNote,
+    }))),
+  };
+}
+
+
 function raidTargetSurface(state, ui, roster) {
+  const forms = state.core?.forms ?? state.forms ?? {};
+  // Captured before the honest-swap block below can mutate ui.raid.targetFormId
+  // — review fix (LOW): isMaxBattle must ask about the boss the ?boss= deep
+  // link / UI actually requested, not whatever fallback boss a swap lands on.
+  const requestedFormId = ui.raid.targetFormId;
   const allTargets = state.raidTargetTool?.targets ?? [];
   const category = allowed(ui.raid.targetCategory, RAID_TARGET_CATEGORY_SET, "all");
-  const targets = raidTargetsForCategory(allTargets, state.core?.forms ?? state.forms ?? {}, category);
+  const targets = raidTargetsForCategory(allTargets, forms, category);
   // Honest-swap notice: same class of bug the ?boss= deep-link path already
   // guards against (app.js's bossNotFound) — a category change or a boss
   // rotating out of the live tier list must not silently swap the counters
   // out from under the reader with zero on-screen trace of what happened.
+  // Review fix (LOW): a requested id that isn't a raid target in ANY
+  // category (droppedBoss undefined below) used to swap with no notice at
+  // all — fall back to the dex's own name for it so the swap still gets a
+  // visible notice instead of silently landing on an unrelated boss.
   let targetSwapNotice = "";
-  if (!targets.some((row) => row.bossFormId === ui.raid.targetFormId)) {
-    const droppedBoss = allTargets.find((row) => row.bossFormId === ui.raid.targetFormId)?.boss;
+  if (!targets.some((row) => row.bossFormId === requestedFormId)) {
+    const droppedBoss = allTargets.find((row) => row.bossFormId === requestedFormId)?.boss
+      ?? forms[requestedFormId]?.name;
     ui.raid.targetFormId = targets[0]?.bossFormId ?? "";
     const nextBoss = targets[0]?.boss;
     const categoryLabel = RAID_TARGET_CATEGORIES.find(([value]) => value === category)?.[1] ?? category;
@@ -5110,9 +5221,13 @@ function raidTargetSurface(state, ui, roster) {
     roster,
     trainerLevel: ui.trainerProfile.level,
   }, state);
-  const forms = state.core?.forms ?? state.forms ?? {};
+  // isMaxBattle: the REQUESTED boss is a LIVE Max Battle boss right now (same
+  // liveMaxBosses() check home.js's Max lane card uses) — gates bossCardData's
+  // Max-only maxReady field so an ordinary raid boss's card is unchanged.
+  const isMaxBattle = liveMaxBosses(state.currentMaxBattles, new Date())
+    .some((boss) => boss.formId === requestedFormId);
   const bossCard = bossCardData(ui.raid.targetFormId, {
-    data: state, weather: ui.weather, roster, trainerLevel: ui.trainerProfile.level,
+    data: state, weather: ui.weather, roster, trainerLevel: ui.trainerProfile.level, isMaxBattle,
   });
   const lanes = {
     regular: ["Regular, Mega & Primal", plan.regularCounters, plan.beginnerRegularGroups],
@@ -5858,6 +5973,17 @@ export function bootstrap({
         : chunkNotice("eggs", "Egg Pool"));
     },
     rocket() {
+      // Leader/Giovanni cards (round 17, K10 follow-on): built here, not in
+      // views/rocket.js, so the card can reuse app.js's own renderBossCard
+      // neighbors (bossCardCounterTile etc.) without a circular import back
+      // from that view module. Only battlers with no single declared type
+      // (rocket-lineups.json's `type: ""` leaders/boss/untyped grunts) get
+      // one — review fix (LOW): same `!entry.type` boundary rocket.js's own
+      // lineupGroup() already uses for "give this one a counters line or
+      // not", not a second, hardcoded name list that can drift from it.
+      const battlerCardsHtml = Object.fromEntries((state.rocketLineups?.lineups ?? [])
+        .filter((entry) => !entry.type)
+        .map((entry) => [entry.name, renderRocketBattlerCard(rocketBattlerCardData(entry, { data: state, roster }))]));
       app.innerHTML = interactionNotice(ui) + (state.currentBosses && state.currentEvents
         ? renderRocket({
           currentBosses: state.currentBosses,
@@ -5869,6 +5995,7 @@ export function bootstrap({
           // lineup section renders its own honest empty state rather than
           // blanking the whole page.
           rocketLineups: state.rocketLineups,
+          battlerCardsHtml,
         })
         : chunkNotice("rocket", "Team GO Rocket"));
     },

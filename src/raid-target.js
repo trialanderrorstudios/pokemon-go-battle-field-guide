@@ -317,7 +317,11 @@ export function withoutMegasOrPrimals(rows, forms) {
 }
 
 
-function counterLane(rows, bossTypes, { limit, owned = null, boostedTypeSet = null }) {
+// Exported so boss-card.js can rank counters for a non-raid PvE encounter
+// (a Team GO Rocket battler's lineup slot) with the exact same owned-first/
+// general ranking buildRaidPlan's own regularCounters/shadowCounters/
+// ownedCounters use below — never a second counter-ranking engine.
+export function counterLane(rows, bossTypes, { limit, owned = null, boostedTypeSet = null }) {
   return counterCandidates(rows, bossTypes, { owned, boostedTypeSet }).slice(0, limit);
 }
 

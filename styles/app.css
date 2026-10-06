@@ -1160,7 +1160,7 @@ h1 {
 
 .hub-chip {
   flex: none;
-  min-height: 32px;
+  min-height: 44px;
   display: inline-flex;
   align-items: center;
   padding: 0 0.75rem;
@@ -3927,7 +3927,7 @@ h1 {
 
 .collection-card-dex {
   color: var(--muted);
-  font-size: 0.68rem;
+  font-size: 0.75rem;
 }
 
 .collection-card-name {
@@ -3936,7 +3936,7 @@ h1 {
 
 .collection-card-status {
   color: var(--muted);
-  font-size: 0.68rem;
+  font-size: 0.75rem;
 }
 
 .egg-group {
@@ -6776,6 +6776,7 @@ html:not([data-app-booted]) #app .fallback-section {
 }
 
 .briefing-dismiss {
+  position: relative;
   flex: none;
   margin-top: 0.1rem;
   padding: 0.35rem 0.6rem;
@@ -6789,6 +6790,14 @@ html:not([data-app-booted]) #app .fallback-section {
   letter-spacing: 0.03em;
   text-transform: uppercase;
   cursor: pointer;
+}
+
+/* Invisible 44px touch target — the pill itself stays this small on purpose
+   (see the collapse-row density it sits in above), just the hit area grows. */
+.briefing-dismiss::after {
+  content: "";
+  position: absolute;
+  inset: -12px 0;
 }
 
 .briefing-dismiss:hover,
@@ -6871,7 +6880,7 @@ html:not([data-app-booted]) #app .fallback-section {
 .briefing-boss-head { display: flex; align-items: flex-start; gap: 0.65rem; }
 .briefing-boss-head .sprite { width: 56px; height: 56px; }
 .briefing-boss-heading { min-width: 0; flex: 1; }
-.briefing-boss-heading h3 { margin: 0; font-size: 1.05rem; line-height: 1.2; }
+.briefing-boss-heading h2 { margin: 0; font-size: 1.05rem; line-height: 1.2; }
 .briefing-eyebrow-row { margin: 0 0 0.15rem; display: flex; flex-wrap: wrap; gap: 0.35rem; align-items: center; }
 /* The featured card's type-chip row. Was an inline style="margin-top:0.3rem"
    until 2026-08-11, when the publish e2e caught it violating the CSP's
@@ -7851,11 +7860,20 @@ html:not([data-app-booted]) #app .fallback-section {
 }
 
 .today-strip-text {
+  position: relative;
   min-width: 0;
   color: var(--text);
   font-size: 0.85rem;
   text-decoration: none;
   overflow-wrap: anywhere;
+}
+
+/* Invisible 44px touch target, same technique as .briefing-dismiss above —
+   bounded by .today-strip-row's own padding so it never reaches the next row. */
+.today-strip-text::after {
+  content: "";
+  position: absolute;
+  inset: -14px 0;
 }
 
 .today-strip-clear {
@@ -8122,7 +8140,7 @@ html:not([data-app-booted]) #app .fallback-section {
 }
 .party-swap-btn:hover { border-color: var(--cyan); }
 
-/* ============================================================
+/* =====================================================
    LANE group-ui — Raid Group view (web/src/views/group.js).
    New selectors only; existing .more-view/.more-section/.instance-list/
    .instance-row/.file-action/.party-slot*/.party-estimate*/.party-gaps/
@@ -8649,6 +8667,7 @@ html:not([data-app-booted]) #app .fallback-section {
 
 /* D2: per-event "Add to calendar" under timeline rows. */
 .tl-calendar-button {
+  position: relative;
   min-height: 32px;
   padding: 0 0.7rem;
   border-radius: 999px;
@@ -8657,6 +8676,13 @@ html:not([data-app-booted]) #app .fallback-section {
   color: var(--cyan);
   font: inherit;
   font-weight: 700;
+}
+
+/* Invisible 44px touch target, same technique as .briefing-dismiss above. */
+.tl-calendar-button::after {
+  content: "";
+  position: absolute;
+  inset: -9px 0;
 }
 
 /* I2: Share on a catch verdict. */
@@ -8789,3 +8815,21 @@ html:not([data-app-booted]) #app .fallback-section {
 /* Boss card: the encounter level each CP band is for (the e2e-checked fact
    the old .raid-cp-lines carried before the card replaced them). */
 .boss-card-level { margin: 0; font-size: 0.75rem; color: var(--muted); }
+
+/* L3: "Where it fits" on a catch verdict — up to 3 cup-team/raid-lane fits. */
+.cv-fits { margin-top: 0.35rem; }
+.cv-fits-title { margin: 0 0 0.2rem; font-size: 0.78rem; font-weight: 700; color: var(--cyan); }
+.cv-fits-list { margin: 0; padding-left: 1.1rem; font-size: 0.82rem; color: var(--text); }
+.cv-fits-list li + li { margin-top: 0.15rem; }
+.cv-fits-list a { color: var(--cyan); }
+=======
+/* Rocket leader/Giovanni card (round 17): one block per possible Pokémon in
+   a lineup slot, inside the shared .boss-card/.boss-card-section shell. */
+.rocket-battler-mon {
+  padding: 0.5rem 0;
+  border-top: 1px solid var(--line);
+}
+/* Review fix (NIT): the first mon block is always preceded by its
+   <summary>, so it's never literally :first-child — target the actual
+   sibling relationship instead. */
+summary + .rocket-battler-mon { border-top: none; }

@@ -377,8 +377,22 @@ export async function readShadowAura(file, { documentObject = globalThis.documen
 // operator fixtures). When the full-frame OCR misses the HP word, this pixel
 // anchor still places the name and HP-text retries. Mint green: high G,
 // G well above R. Returns { y0, y1, x0, x1 } or null.
+//
+// iPad fixtures (2026-10-06): Tarountula's bug-type backdrop draws big green
+// bokeh circles that are wide enough (4:3 is wider relative to height than
+// iPhone's 19.5:9) to pass the width*0.3 run check below. The real bar is
+// thin — 17-20px, ~0.6-0.7% of height, on every iPhone and iPad fixture seen
+// so far — while that backdrop circle is ~8% of height. Reject anything that
+// thick and keep scanning instead of returning the first wide green run.
+//
+// Also iPad (same date): the open-appraisal card dims to a blue tint on the
+// iPad layout (not on iPhone's), which pulls the bar's blue channel up
+// almost to G (e.g. rgb(65,174,162) vs the undimmed rgb(128,238,192)) and
+// failed the old "G - B > 20" check. G still clearly leads B even dimmed, so
+// the bar stays "G is the highest channel" (G >= B) rather than needing a gap.
 export function findHpBar({ data, width, height }) {
-  const isGreen = (i) => data[i + 1] > 170 && data[i + 1] - data[i] > 50 && data[i + 1] - data[i + 2] > 20 && data[i] < 200;
+  const isGreen = (i) => data[i + 1] > 170 && data[i + 1] - data[i] > 50 && data[i + 1] >= data[i + 2] && data[i] < 200;
+  const maxThickness = Math.max(1, Math.round(height * 0.02));
   let found = null;
   for (let y = Math.round(height * 0.25); y < Math.round(height * 0.7); y += 1) {
     let run = 0;
@@ -394,8 +408,12 @@ export function findHpBar({ data, width, height }) {
     const isBar = best && best.len > width * 0.3;
     if (isBar && !found) found = { y0: y, y1: y, x0: best.x0, x1: best.x1 };
     else if (isBar && found && y === found.y1 + 1) found.y1 = y;
-    else if (found) break;
+    else if (found) {
+      if (found.y1 - found.y0 <= maxThickness) return found;
+      found = null;
+    }
   }
+  if (found && found.y1 - found.y0 > maxThickness) found = null;
   return found;
 }
 
