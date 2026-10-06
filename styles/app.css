@@ -8721,3 +8721,71 @@ html:not([data-app-booted]) #app .fallback-section {
 .cup-sim-mark.cup-sim-w { color: var(--green); }
 .cup-sim-mark.cup-sim-l { color: var(--danger); }
 .cup-sim-mark.cup-sim-t { color: var(--amber); }
+
+/* I3: Boss card (web/src/boss-card.js + app.js's renderBossCard) — a compact
+   shareable summary at the top of Raid Target. Phone-first (390px): single
+   column, same panel/line tokens as .raid-boss-summary below it. */
+.boss-card {
+  display: grid;
+  gap: 0.5rem;
+  padding: 0.8rem;
+  margin-bottom: 0.75rem;
+  border: 1px solid var(--line);
+  border-radius: 0.75rem;
+  background: linear-gradient(145deg, var(--panel-raised), var(--panel));
+}
+.boss-card-header h3 { margin: 0 0 0.25rem; }
+.boss-card-window { margin: 0.2rem 0; color: var(--amber); font-size: 0.8rem; }
+.boss-card-stats {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.5rem;
+}
+.boss-card-stat {
+  padding: 0.5rem;
+  border: 1px solid var(--line);
+  border-radius: 0.6rem;
+  background: var(--panel);
+}
+.boss-card-stat p { margin: 0.1rem 0; }
+.type-resist-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.1rem 0.1rem 0.1rem 0.3rem;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  color: var(--cyan);
+  font-size: 0.72rem;
+  font-weight: 750;
+}
+.type-resist-badge.is-double { color: var(--green); }
+.boss-card-trainers { margin: 0; }
+.boss-card-section summary { cursor: pointer; font-weight: 700; color: var(--text); }
+.boss-card-moveset-list { list-style: none; margin: 0.4rem 0 0; padding: 0; display: grid; gap: 0.5rem; }
+.boss-card-role { font-weight: 700; color: var(--text); }
+.boss-card-rank { margin-left: 0.4rem; color: var(--muted); font-size: 0.78rem; }
+.boss-card-role + .invest-pill { margin-left: 0.4rem; }
+.boss-card-moveset { margin: 0.15rem 0 0; font-size: 0.78rem; color: var(--muted); }
+.boss-card-counter-groups { display: grid; gap: 0.5rem; margin-top: 0.4rem; }
+.boss-card-counter-tile {
+  padding: 0.5rem;
+  border: 1px solid var(--line);
+  border-radius: 0.6rem;
+  background: var(--panel);
+}
+.boss-card-counter-tile ol { list-style: none; margin: 0.3rem 0 0; padding: 0; display: grid; gap: 0.35rem; }
+.boss-card-counter-label { margin: 0; font-weight: 700; color: var(--cyan); }
+.boss-card-counter-meta { margin-left: 0.3rem; color: var(--muted); font-size: 0.78rem; }
+.boss-card-share {
+  justify-self: start;
+  padding: 0.5rem 0.9rem;
+  border: 1px solid var(--line);
+  border-radius: 0.6rem;
+  background: var(--panel);
+  color: var(--text);
+}
+
+/* Boss card: the encounter level each CP band is for (the e2e-checked fact
+   the old .raid-cp-lines carried before the card replaced them). */
+.boss-card-level { margin: 0; font-size: 0.75rem; color: var(--muted); }

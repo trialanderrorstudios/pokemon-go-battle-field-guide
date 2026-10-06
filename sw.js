@@ -63,6 +63,7 @@ const SHELL_CODE_FILES = Object.freeze([
   "./src/journal-hooks.js",
   "./src/badges.js",
   "./src/battle-sim.js",
+  "./src/boss-card.js",
   "./src/boss-countdown.js",
   "./src/calendar-export.js",
   "./src/profiles.js",

@@ -619,7 +619,10 @@ const INVEST_TIER_ORDER = Object.freeze({
 // the boss's OWN verdict as something to build ("is this worth my time") —
 // a different question from beatability()'s roster-dependent "can my team
 // beat it in a raid".
-function attackerRowsFor(formId, rows) {
+// Exported for boss-card.js (same "every ranked row for this boss, deduped
+// by attacking type, best rank first" — the boss's own raid-attacker verdict
+// across every type it's ranked for, not just its single lowest-rank row).
+export function attackerRowsFor(formId, rows) {
   const byType = new Map();
   for (const row of rows) {
     if (row.formId !== formId) continue;
@@ -966,7 +969,7 @@ function featuredBossCard({
           ${boss?.tier ? `<span class="tier-pill" data-tier="${escapeHtml(bossTierKey(boss.tier))}">${escapeHtml(boss.tier)}</span>` : ""}
           ${endsToday ? `<span class="ends-today">Ends today</span>` : ""}
         </p>
-        <h3>${escapeHtml(featured.name)}</h3>
+        <h3><a href="./?boss=${encodeURIComponent(featured.formId)}#raids">${escapeHtml(featured.name)}</a></h3>
         ${bossTypes.length ? `<p class="briefing-eyebrow-row briefing-boss-types">${bossTypes.map((type) => `<span class="type-chip" data-type="${escapeHtml(type)}">${escapeHtml(type)}</span>`).join("")}</p>` : ""}
       </div>
     </div>

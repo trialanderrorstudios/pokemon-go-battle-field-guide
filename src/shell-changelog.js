@@ -6,6 +6,12 @@
 
 export const SHELL_CHANGELOG = Object.freeze([
   Object.freeze({
+    rev: "r194", date: "2026-10-06",
+    added: Object.freeze([
+      "Raid boss card at the top of every raid target: catch and weather-boosted CP, weak to / resists, trainers needed, the boss's own best raid roles and PvP ranks with their investment tiers, and the best Mega, Shadow, Legendary and general counters with movesets. \"Share boss card\" turns it into an image.",
+    ]),
+  }),
+  Object.freeze({
     rev: "r193", date: "2026-10-05",
     added: Object.freeze([
       "Cups: \"Simulate your team vs the cup meta\" — your recommended trio battled against the cup's top 8 (1-1 shields), with each result named. It's this app's own simulator and says so: it agrees with PvPoke's published winner in about 73% of tested matchups, uses your logged IVs and moves where it can, and assumes rank-1 builds otherwise.",

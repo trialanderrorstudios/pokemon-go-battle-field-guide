@@ -50,6 +50,12 @@ export const CARD_SPECS = Object.freeze({
   rotationPack: Object.freeze({ width: CARD_WIDTH, height: CARD_HEIGHT }),
   verdict: Object.freeze({ width: CARD_WIDTH, height: CARD_HEIGHT }),
   cupTeam: Object.freeze({ width: CARD_WIDTH, height: CARD_HEIGHT }),
+  // Taller than the shared CARD_HEIGHT — a full infographic (sprite, CP
+  // boxes, weak/resist chips, up to 6 moveset rows, 4 counter-group tile
+  // rows) genuinely needs more room than every other card's single-screen
+  // layout; cropping groups to fit the shared height left the canvas half
+  // empty AND dropped two of the four counter groups (2026-10 review fix).
+  bossCard: Object.freeze({ width: CARD_WIDTH, height: 1780 }),
 });
 
 // Literal copies of the --dx-* tokens in web/styles/app.css — canvas 2D
@@ -450,6 +456,21 @@ function wrapText(ctx, text, maxWidth) {
 
 const clip = (value, max) => String(value ?? "").slice(0, max);
 
+// Duplicated from views/move-sheet.js's displayMoveName, not imported — a
+// real import would cycle (move-sheet.js -> views/home.js -> share-card.js,
+// same reasoning sprites.js's own escapeHtml duplication comment gives for
+// staying a dependency-free leaf module).
+function displayMoveName(moveId) {
+  return String(moveId ?? "").toLowerCase().split("_")
+    .map((word) => (word ? `${word[0].toUpperCase()}${word.slice(1)}` : ""))
+    .join(" ");
+}
+
+function moveText(moveId, elite) {
+  if (!moveId) return "";
+  return elite ? `${displayMoveName(moveId)} (Elite)` : displayMoveName(moveId);
+}
+
 export function verdictCardData(raw) {
   if (!raw || typeof raw.name !== "string" || typeof raw.headline !== "string") return null;
   return {
@@ -464,6 +485,86 @@ export function cupTeamCardData(raw) {
     cupName: clip(raw.cupName, 40),
     members: raw.members.slice(0, 3).map((m) => ({ name: clip(m?.name, 40), role: clip(m?.role, 12), note: clip(m?.note, 60) })),
     warnings: (Array.isArray(raw.warnings) ? raw.warnings : []).slice(0, 3).map((w) => clip(w, 120)),
+  };
+}
+
+function clipInt(value, fallback = null) {
+  return Number.isInteger(value) ? value : fallback;
+}
+
+function clipBool(value) {
+  return Boolean(value);
+}
+
+// A move/sprite path here is always one this app's own spritePath()/data
+// produced server-side (app.js's bossCardSharePayload) — this just keeps the
+// guard's contract the same shape as every other field: a string of sane
+// length, or null, never trusted beyond that.
+function clipPath(value) {
+  return typeof value === "string" ? clip(value, 200) : null;
+}
+
+function clipTypeRow(row) {
+  return { type: clip(row?.type, 16), multiplier: Number.isFinite(row?.multiplier) ? row.multiplier : 1, isDouble: clipBool(row?.isDouble) };
+}
+
+function clipRaidAttackerRow(row) {
+  return {
+    attackingType: clip(row?.attackingType, 16),
+    rank: clipInt(row?.rank),
+    investmentTier: typeof row?.investmentTier === "string" ? clip(row.investmentTier, 8) : null,
+    fastMove: typeof row?.fastMove === "string" ? clip(row.fastMove, 40) : null,
+    chargedMove: typeof row?.chargedMove === "string" ? clip(row.chargedMove, 40) : null,
+    eliteFastTM: clipBool(row?.eliteFastTM),
+    eliteChargedTM: clipBool(row?.eliteChargedTM),
+  };
+}
+
+function clipPvpRow(row) {
+  return {
+    league: clip(row?.league, 24),
+    rank: clipInt(row?.rank),
+    investmentTier: typeof row?.investmentTier === "string" ? clip(row.investmentTier, 8) : null,
+    fastMove: typeof row?.fastMove === "string" ? clip(row.fastMove, 40) : null,
+    chargedMoves: (Array.isArray(row?.chargedMoves) ? row.chargedMoves : []).slice(0, 2).map((m) => clip(m, 40)),
+    eliteFastTM: clipBool(row?.eliteFastTM),
+    eliteChargedTM: clipBool(row?.eliteChargedTM),
+  };
+}
+
+function clipCounterRow(row) {
+  return { ...clipRaidAttackerRow(row), formId: clip(row?.formId, 40), pokemon: clip(row?.pokemon, 40), spritePath: clipPath(row?.spritePath) };
+}
+
+const COUNTER_GROUP_KEYS = Object.freeze(["mega", "shadow", "legendaryMythical", "general"]);
+
+// I3 (2026-10-06): boss card. The Raid Target view's "Share boss card" button
+// carries the display-ready shape drawBossCard draws from directly (real
+// numbers/moves/sprite paths, same contract app.js's bossCardSharePayload
+// builds) — this guard re-validates/clips every field before anything is
+// drawn, same trust boundary as verdictCardData/cupTeamCardData above.
+export function bossCardShareData(raw) {
+  if (!raw || typeof raw.name !== "string") return null;
+  const catchCp = raw.catchCp && [raw.catchCp.normalMin, raw.catchCp.normalHundo, raw.catchCp.boostedMin, raw.catchCp.boostedHundo].every(Number.isFinite)
+    ? { normalMin: raw.catchCp.normalMin, normalHundo: raw.catchCp.normalHundo, boostedMin: raw.catchCp.boostedMin, boostedHundo: raw.catchCp.boostedHundo }
+    : null;
+  const counters = raw.counters && typeof raw.counters === "object"
+    ? Object.fromEntries(COUNTER_GROUP_KEYS.map((key) => [key, (Array.isArray(raw.counters[key]) ? raw.counters[key] : []).slice(0, 3).map(clipCounterRow)]))
+    : null;
+  return {
+    name: clip(raw.name, 40),
+    formId: clip(raw.formId, 40),
+    spritePath: clipPath(raw.spritePath),
+    types: (Array.isArray(raw.types) ? raw.types : []).slice(0, 2).map((t) => clip(t, 16)),
+    window: clip(raw.window, 60),
+    catchCp,
+    weakTo: (Array.isArray(raw.weakTo) ? raw.weakTo : []).slice(0, 18).map(clipTypeRow),
+    resists: (Array.isArray(raw.resists) ? raw.resists : []).slice(0, 18).map(clipTypeRow),
+    raidAttackers: (Array.isArray(raw.raidAttackers) ? raw.raidAttackers : []).slice(0, 3).map(clipRaidAttackerRow),
+    pvp: (Array.isArray(raw.pvp) ? raw.pvp : []).slice(0, 3).map(clipPvpRow),
+    counters,
+    raidHour: typeof raw.raidHour === "string" ? clip(raw.raidHour, 80) : null,
+    trainersNeeded: typeof raw.trainersNeeded === "string" ? clip(raw.trainersNeeded, 240) : null,
   };
 }
 
@@ -526,6 +627,337 @@ function drawCupTeamCard(ctx, { width }, data) {
       y += 44;
     }
   }
+}
+
+function bossCardTypeColor(type) {
+  return TYPE_COLORS[type] ?? TYPE_COLORS.Normal;
+}
+
+// A thin drawing facade over the real 2D context: every metric read
+// (measureText) always goes to the real context, but every pixel-mutating
+// call (fillRect/fillText/drawImage/arc/fill, and the style setters that
+// affect them) is a no-op when `dry`. drawBossCard runs its ENTIRE layout
+// twice — once dry, to measure the content's real height, once for real,
+// after resizing the canvas to fit — through this one shared layout
+// function, so both passes make identical wrap/line decisions by
+// construction and can never drift apart into two copies of the same math.
+function bossCardPainter(ctx, dry) {
+  return {
+    measureText: (text) => ctx.measureText(text),
+    set font(value) { ctx.font = value; }, // always real: measureText depends on it
+    set fillStyle(value) { if (!dry) ctx.fillStyle = value; },
+    set textAlign(value) { if (!dry) ctx.textAlign = value; },
+    set textBaseline(value) { if (!dry) ctx.textBaseline = value; },
+    fillText(text, x, y) { if (!dry) ctx.fillText(text, x, y); },
+    fillRect(x, y, w, h) { if (!dry) ctx.fillRect(x, y, w, h); },
+    beginPath() { if (!dry) ctx.beginPath(); },
+    arc(...args) { if (!dry) ctx.arc(...args); },
+    fill() { if (!dry) ctx.fill(); },
+    drawImage(...args) { if (!dry) ctx.drawImage(...args); },
+  };
+}
+
+// Line height for a `"<weight> <size>px <family>"` font string — every
+// section below advances its cursor by this (plus a gap), never by a
+// hand-tuned magic number that silently stops matching once the font size
+// changes (2026-10 review: that mismatch is exactly what made "RESISTS"
+// and "MOVESETS & RATINGS" overlap the chip row above them).
+function bossCardLineHeight(font) {
+  const size = Number(/([0-9]+)px/.exec(font)?.[1] ?? 20);
+  return Math.ceil(size * 1.3);
+}
+
+// A flat-colored chip (type or tier) with centered-height text, the canvas
+// equivalent of .type-chip/.invest-pill in the HTML card. Returns the width
+// it drew, so callers can lay out a row of chips left to right.
+function drawBossCardChip(p, x, y, text, color, { height = 36, textColor = PALETTE.screen, font = `700 22px ${MONO}` } = {}) {
+  p.font = font;
+  const paddingX = 16;
+  const width = Math.ceil(p.measureText(text).width) + paddingX * 2;
+  p.fillStyle = color;
+  p.fillRect(x, y, width, height);
+  p.fillStyle = textColor;
+  p.textAlign = "left";
+  p.textBaseline = "middle";
+  p.fillText(text, x + paddingX, y + height / 2 + 1);
+  p.textBaseline = "alphabetic";
+  return width;
+}
+
+const BOSS_CARD_CHIP_HEIGHT = 36;
+const BOSS_CARD_CHIP_GAP = 10;
+const BOSS_CARD_CHIP_ROW_GAP = 10;
+
+// Row of type chips (weak-to/resists/header types), each colored by its own
+// type like the HTML card's typeChip() — suffixFor(row) adds the multiplier
+// text ("4x"/"0.625x") or returns "" for a plain type chip. Wraps to a new
+// row inside maxWidth (a dual-weakness boss can have more weak/resist types
+// than fit on one line) and returns the TOTAL height consumed across every
+// row it drew, so the caller's cursor always advances past every chip, not
+// just the first row (2026-10 review, item 1/5).
+function drawBossCardChipRow(p, x, y, maxWidth, rows, suffixFor) {
+  let cursorX = x;
+  let cursorY = y;
+  for (const row of rows) {
+    const suffix = suffixFor(row);
+    const label = suffix ? `${row.type} ${suffix}` : row.type;
+    p.font = `700 22px ${MONO}`;
+    const width = Math.ceil(p.measureText(label).width) + 32;
+    if (cursorX > x && cursorX + width > x + maxWidth) {
+      cursorX = x;
+      cursorY += BOSS_CARD_CHIP_HEIGHT + BOSS_CARD_CHIP_ROW_GAP;
+    }
+    drawBossCardChip(p, cursorX, cursorY, label, bossCardTypeColor(row.type), { height: BOSS_CARD_CHIP_HEIGHT });
+    cursorX += width + BOSS_CARD_CHIP_GAP;
+  }
+  return (cursorY - y) + BOSS_CARD_CHIP_HEIGHT;
+}
+
+// A top-anchored section label ("WEAK TO", "MEGA", …) — top-anchored (not
+// alphabetic-baseline like the rest of this file's cards) so its own
+// bossCardLineHeight is an honest "how much vertical space did this just
+// use", with no ascender reaching back up into whatever was drawn above it.
+function drawBossCardLabel(p, x, y, text, { font = `700 20px ${MONO}`, color = PALETTE.muted } = {}) {
+  p.font = font;
+  p.fillStyle = color;
+  p.textBaseline = "top";
+  p.fillText(text, x, y);
+  p.textBaseline = "alphabetic";
+  return bossCardLineHeight(font);
+}
+
+// Investment-tier pill: the release's own shipped tier string in a flat
+// chip, same green-on-panel treatment as the HTML card's reused .invest-pill
+// — never a derived letter grade (2026-10 review fix).
+function drawBossCardTierPill(p, x, y, tier) {
+  if (!tier) return 0;
+  return drawBossCardChip(p, x, y, tier, PALETTE.panelRaised, { textColor: PALETTE.good, height: 32, font: `700 20px ${MONO}` });
+}
+
+// Truncates to fit one line (tile moveset text), appending an ellipsis —
+// canvas text has no CSS text-overflow, so this is the manual equivalent.
+function bossCardFitText(p, text, maxWidth, font) {
+  p.font = font;
+  if (p.measureText(text).width <= maxWidth) return text;
+  let cut = text;
+  while (cut.length > 1 && p.measureText(`${cut}…`).width > maxWidth) cut = cut.slice(0, -1);
+  return `${cut}…`;
+}
+
+function bossCardMovesetRows(data) {
+  return [
+    ...data.raidAttackers.map((row) => ({
+      role: row.attackingType, tier: row.investmentTier, rank: row.rank,
+      moveset: `${moveText(row.fastMove, row.eliteFastTM)} + ${moveText(row.chargedMove, row.eliteChargedTM)}`,
+    })),
+    ...data.pvp.map((row) => ({
+      role: row.league, tier: row.investmentTier, rank: row.rank,
+      moveset: `${moveText(row.fastMove, row.eliteFastTM)} + ${row.chargedMoves.map((m) => moveText(m, row.eliteChargedTM)).join(" / ")}`,
+    })),
+  ];
+}
+
+// One "<role> <tier pill> rank #N" line plus its (possibly wrapped) moveset
+// line(s) below, fully top-anchored — returns the row's real height (role
+// line + however many moveset lines actually wrapped) so the next row's
+// cursor never guesses a fixed height that a long moveset could blow past.
+function drawBossCardMovesetRow(p, x, y, width, row) {
+  const roleFont = `700 28px ${DISPLAY}`;
+  const roleLineHeight = bossCardLineHeight(roleFont);
+  p.font = roleFont;
+  p.fillStyle = PALETTE.text;
+  p.textBaseline = "top";
+  p.fillText(row.role, x, y);
+  const roleWidth = Math.ceil(p.measureText(row.role).width);
+  let chipX = x + roleWidth + 14;
+  const chipY = y + Math.max(0, (roleLineHeight - 32) / 2);
+  chipX += drawBossCardTierPill(p, chipX, chipY, row.tier) + 10;
+  p.font = `22px ${MONO}`;
+  p.fillStyle = PALETTE.muted;
+  p.textBaseline = "top";
+  p.fillText(`rank #${row.rank}`, chipX, y + Math.max(0, (roleLineHeight - 22) / 2));
+  let cursorY = y + roleLineHeight + 6;
+  const movesetFont = `22px ${DISPLAY}`;
+  const movesetLineHeight = bossCardLineHeight(movesetFont);
+  p.font = movesetFont;
+  p.fillStyle = PALETTE.muted;
+  p.textBaseline = "top";
+  for (const line of wrapText(p, row.moveset, width)) {
+    p.fillText(line, x, cursorY);
+    cursorY += movesetLineHeight;
+  }
+  p.textBaseline = "alphabetic";
+  return cursorY - y;
+}
+
+const BOSS_CARD_SECTION_GAP = 32;
+const BOSS_CARD_HEADER_TOP = 150; // clears drawChassis's "BOSS CARD" kicker (ends ~y=114)
+const BOSS_CARD_FOOTER_CLEARANCE = 120; // room for drawChassis's footer text + margin
+
+// The whole card, header through counter tiles, run through the painter
+// facade above — `dry` additionally gates the async sprite loads (a dry
+// pass only needs heights, never pixels, so it skips the network/File I/O
+// entirely). Returns the final cursor y, i.e. the content's real height.
+async function layoutBossCard(p, dry, data, left, contentWidth, documentObject) {
+  let y = BOSS_CARD_HEADER_TOP;
+  const spriteSize = 140;
+  const mainImage = (!dry && data.spritePath) ? await loadImage(documentObject, data.spritePath) : null;
+  if (mainImage) {
+    p.drawImage(mainImage, left, y, spriteSize, spriteSize);
+  } else {
+    p.fillStyle = bossCardTypeColor(data.types[0]);
+    p.beginPath();
+    p.arc(left + spriteSize / 2, y + spriteSize / 2, spriteSize / 2, 0, Math.PI * 2);
+    p.fill();
+  }
+  const headerX = left + spriteSize + 30;
+  const headerWidth = contentWidth - spriteSize - 30;
+  p.font = `700 50px ${DISPLAY}`;
+  p.fillStyle = PALETTE.text;
+  p.textAlign = "left";
+  p.textBaseline = "alphabetic";
+  p.fillText(data.name, headerX, y + 46);
+  const chipRowHeight = drawBossCardChipRow(p, headerX, y + 64, headerWidth, data.types.map((type) => ({ type })), () => "");
+  let headerLineY = y + 64 + chipRowHeight + 16;
+  if (data.window) {
+    p.fillStyle = PALETTE.warn;
+    p.font = `700 24px ${MONO}`;
+    p.textBaseline = "top";
+    p.fillText(data.window, headerX, headerLineY);
+    headerLineY += bossCardLineHeight(`700 24px ${MONO}`) + 6;
+  }
+  y = Math.max(y + spriteSize, headerLineY) + BOSS_CARD_SECTION_GAP;
+
+  if (data.catchCp) {
+    const boxWidth = (contentWidth - 20) / 2;
+    const boxHeight = 108;
+    const drawCpBox = (x, label, min, hundo) => {
+      p.fillStyle = PALETTE.panel;
+      p.fillRect(x, y, boxWidth, boxHeight);
+      p.fillStyle = PALETTE.muted;
+      p.font = `700 22px ${MONO}`;
+      p.textBaseline = "alphabetic";
+      p.fillText(label, x + 18, y + 32);
+      p.fillStyle = PALETTE.lens;
+      p.font = `700 34px ${MONO}`;
+      p.fillText(`${min}-${hundo}`, x + 18, y + 80);
+    };
+    drawCpBox(left, "CATCH CP", data.catchCp.normalMin, data.catchCp.normalHundo);
+    drawCpBox(left + boxWidth + 20, "BOOSTED CP", data.catchCp.boostedMin, data.catchCp.boostedHundo);
+    y += boxHeight + 20;
+  }
+  if (data.raidHour) {
+    p.fillStyle = PALETTE.lens;
+    p.font = `700 22px ${MONO}`;
+    p.textBaseline = "top";
+    p.fillText(`Raid Hour: ${data.raidHour}`, left, y);
+    y += bossCardLineHeight(`700 22px ${MONO}`) + 10;
+  }
+  if (data.trainersNeeded) {
+    p.font = `22px ${DISPLAY}`;
+    const lineHeight = bossCardLineHeight(`22px ${DISPLAY}`);
+    p.fillStyle = PALETTE.text;
+    p.textBaseline = "top";
+    let cursorY = y;
+    for (const line of wrapText(p, `Trainers needed: ${data.trainersNeeded}`, contentWidth)) {
+      p.fillText(line, left, cursorY);
+      cursorY += lineHeight;
+    }
+    y = cursorY + 10;
+  }
+  if (data.catchCp || data.raidHour || data.trainersNeeded) y += BOSS_CARD_SECTION_GAP - 10;
+
+  if (data.weakTo.length) {
+    y += drawBossCardLabel(p, left, y, "WEAK TO");
+    y += 8;
+    y += drawBossCardChipRow(p, left, y, contentWidth, data.weakTo, (row) => (row.isDouble ? "4x" : "2x"));
+    y += BOSS_CARD_SECTION_GAP;
+  }
+  if (data.resists.length) {
+    y += drawBossCardLabel(p, left, y, "RESISTS");
+    y += 8;
+    y += drawBossCardChipRow(p, left, y, contentWidth, data.resists, (row) => (row.isDouble ? "0.39x" : "0.625x"));
+    y += BOSS_CARD_SECTION_GAP;
+  }
+
+  const movesetRows = bossCardMovesetRows(data);
+  if (movesetRows.length) {
+    y += drawBossCardLabel(p, left, y, "MOVESETS & RATINGS", { font: `700 22px ${MONO}` });
+    y += 14;
+    for (const row of movesetRows) {
+      y += drawBossCardMovesetRow(p, left, y, contentWidth, row) + 18;
+    }
+    y += BOSS_CARD_SECTION_GAP - 18;
+  }
+
+  if (data.counters) {
+    const groups = [
+      ["MEGA", data.counters.mega], ["SHADOW", data.counters.shadow],
+      ["LEGENDARY / MYTHICAL", data.counters.legendaryMythical], ["GENERAL", data.counters.general],
+    ].filter(([, rows]) => rows.length);
+    const gap = 16;
+    const tileWidth = (contentWidth - gap * 2) / 3;
+    const tileHeight = 150;
+    for (const [label, rows] of groups) {
+      y += drawBossCardLabel(p, left, y, label, { font: `700 22px ${MONO}`, color: PALETTE.lens });
+      y += 14;
+      let x = left;
+      for (const row of rows) {
+        const image = (!dry && row.spritePath) ? await loadImage(documentObject, row.spritePath) : null;
+        p.fillStyle = PALETTE.panel;
+        p.fillRect(x, y, tileWidth, tileHeight);
+        if (image) {
+          p.drawImage(image, x + (tileWidth - 56) / 2, y + 10, 56, 56);
+        } else {
+          p.fillStyle = bossCardTypeColor(row.attackingType);
+          p.beginPath();
+          p.arc(x + tileWidth / 2, y + 38, 28, 0, Math.PI * 2);
+          p.fill();
+        }
+        p.textAlign = "center";
+        p.textBaseline = "alphabetic";
+        p.fillStyle = PALETTE.text;
+        p.font = `700 22px ${DISPLAY}`;
+        p.fillText(bossCardFitText(p, row.pokemon, tileWidth - 20, `700 22px ${DISPLAY}`), x + tileWidth / 2, y + 90);
+        p.fillStyle = PALETTE.muted;
+        p.font = `18px ${MONO}`;
+        p.fillText(`#${row.rank} ${row.attackingType}`, x + tileWidth / 2, y + 112);
+        const moveLine = `${moveText(row.fastMove, row.eliteFastTM)} + ${moveText(row.chargedMove, row.eliteChargedTM)}`;
+        p.font = `16px ${MONO}`;
+        p.fillText(bossCardFitText(p, moveLine, tileWidth - 20, `16px ${MONO}`), x + tileWidth / 2, y + 134);
+        p.textAlign = "left";
+        x += tileWidth + gap;
+      }
+      y += tileHeight + BOSS_CARD_SECTION_GAP;
+    }
+  }
+  return y;
+}
+
+// Real infographic within the existing canvas card system: boss sprite
+// (drawInstanceCard's own loadImage, reused), name + type-colored chips, two
+// CP boxes (plus Raid Hour / trainers-needed lines near them), weak-to/
+// resists as colored multiplier chips, a movesets block (raid attacker rows
+// + whichever PvP leagues are present), each rated by the release's own
+// shipped investmentTier (no derived grade), and the four counter groups as
+// a 3-wide sprite tile grid. Dark dex palette throughout — not a copy of any
+// third-party reference infographic's branding.
+//
+// Height-driven (2026-10 review, item 5): a canvas's size can't change
+// mid-draw without clearing it, so this runs the shared layout function
+// once dry (no pixels, just the real measureText calls) to learn the
+// content's actual height, resizes the canvas to fit (never smaller than
+// the spec default), then runs it again for real.
+async function drawBossCard(ctx, spec, data, documentObject, canvas) {
+  const left = 90;
+  const contentWidth = spec.width - left * 2;
+  const contentBottom = await layoutBossCard(bossCardPainter(ctx, true), true, data, left, contentWidth, documentObject);
+  // Floor at the shared card height, not the boss spec: a boss without a raid
+  // target has little to draw and shouldn't be padded half empty.
+  const finalHeight = Math.max(CARD_HEIGHT, Math.ceil(contentBottom) + BOSS_CARD_FOOTER_CLEARANCE);
+  if (canvas) canvas.height = finalHeight;
+  drawChassis(ctx, spec.width, finalHeight, "Boss card");
+  await layoutBossCard(bossCardPainter(ctx, false), false, data, left, contentWidth, documentObject);
 }
 
 function drawGymLineupCard(ctx, { width }, data) {
@@ -674,6 +1106,7 @@ function cardFilename(type, data) {
   if (type === "rotationPack") return "field-guide-raid-rotation.png";
   if (type === "verdict") return `field-guide-verdict-${safeSlug(data.name)}.png`;
   if (type === "cupTeam") return `field-guide-${safeSlug(data.cupName)}-team.png`;
+  if (type === "bossCard") return `field-guide-boss-card-${safeSlug(data.name)}.png`;
   return "field-guide-triage.png";
 }
 
@@ -698,10 +1131,14 @@ export async function renderShareCard(type, data, { documentObject = globalThis.
   else if (type === "rotationPack") drawRotationPackCard(ctx, spec, data);
   else if (type === "verdict") drawVerdictCard(ctx, spec, data);
   else if (type === "cupTeam") drawCupTeamCard(ctx, spec, data);
+  else if (type === "bossCard") await drawBossCard(ctx, spec, data, documentObject, canvas);
   else return null;
   const blob = await canvasToBlob(canvas);
   if (!blob || !blob.size) return null;
-  return { blob, width: spec.width, height: spec.height, filename: cardFilename(type, data) };
+  // canvas.width/height (not spec.width/height): bossCard resizes its own
+  // canvas to fit its content (2026-10 review, item 5) — every other type
+  // never touches canvas dimensions, so this is a no-op for them.
+  return { blob, width: canvas.width, height: canvas.height, filename: cardFilename(type, data) };
 }
 
 function downloadBlob(blob, filename, { documentObject, windowObject }) {

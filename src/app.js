@@ -1,6 +1,7 @@
 import { announce, createRouter, resolveRoute, ROUTES } from "./router.js";
 import { APP_SHELL_REVISION, ReleaseManager } from "./release-manager.js";
 import { ATTACK_TYPES, WEATHERS, becauseLine, buildRaidPlan, loadWeather, powerUpCost, saveWeather } from "./raid-target.js";
+import { bossCardData } from "./boss-card.js";
 import {
   REFERENCE_PAGES,
   buildSearchIndex, loadRecentSearches, removeRecentSearch, saveRecentSearch, search,
@@ -36,7 +37,7 @@ import { renderMaxBasics } from "./views/maxbasics.js";
 import { renderTypes, typeChip } from "./views/types.js";
 import { weaknessesOf } from "./type-chart.js";
 import { renderGlossary } from "./views/glossary.js";
-import { handleSpriteError, spriteHtml } from "./sprites.js";
+import { handleSpriteError, spriteHtml, spritePath } from "./sprites.js";
 import { buildLazyGymBody, renderGyms } from "./views/gyms.js";
 import { blankOcrIntakeState, blankQuickAddDraft, renderDex } from "./views/dex.js";
 import { renderLeaderboard } from "./views/leaderboard.js";
@@ -98,6 +99,7 @@ import {
 import {
   rotationPackCardData, trophyCardData,
   gymDefenseCardData, gymLineupCardData, instanceCardData, shareOrDownloadCard, triageSummaryCardData, verdictCardData, cupTeamCardData,
+  bossCardShareData,
 } from "./share-card.js";
 import {
   exportDexSummary,
@@ -4103,7 +4105,8 @@ export function createInteractionController({
         const type = actionEl.dataset.shareType;
         let raw = null;
         try { raw = JSON.parse(actionEl.dataset.sharePayload ?? "null"); } catch { raw = null; }
-        const cardData = type === "verdict" ? verdictCardData(raw) : type === "cupTeam" ? cupTeamCardData(raw) : null;
+        const cardData = type === "verdict" ? verdictCardData(raw) : type === "cupTeam" ? cupTeamCardData(raw)
+          : type === "bossCard" ? bossCardShareData(raw) : null;
         const outcome = cardData ? await (api.onShareCard ?? onShareCard)?.(type, cardData) : "no-data";
         const message = outcome === "shared" ? "Shared." : outcome === "downloaded" ? "Card downloaded."
           : outcome === "cancelled" ? "" : "Could not share or download the card on this device.";
@@ -4938,6 +4941,147 @@ function ivFloorLabel(band) {
 }
 
 
+const BOSS_CARD_LEAGUE_NAMES = Object.freeze({ great: "Great League", ultra: "Ultra League", master: "Master League" });
+
+function bossCardTierPill(investmentTier) {
+  return investmentTier ? `<span class="invest-pill">${escapeHtml(investmentTier)}</span>` : "";
+}
+
+function bossCardMovesetLine(fastMove, chargedMove, eliteFastTM, eliteChargedTM) {
+  if (!fastMove && !chargedMove) return "";
+  return `${moveWithElite(fastMove, eliteFastTM, "Fast")} + ${moveWithElite(chargedMove, eliteChargedTM, "Charged")}`;
+}
+
+function bossCardCounterTile(label, rows) {
+  if (!rows.length) return "";
+  return `<div class="boss-card-counter-tile">
+    <p class="boss-card-counter-label">${escapeHtml(label)}</p>
+    <ol>${rows.map((row) => `<li>
+      <strong>${escapeHtml(row.pokemon)}</strong> <span class="boss-card-counter-meta">#${escapeHtml(row.rank)} ${escapeHtml(row.attackingType)}</span>
+      <p class="boss-card-moveset">${bossCardMovesetLine(row.fastMove, row.chargedMove, row.eliteFastTM, row.eliteChargedTM)}</p>
+    </li>`).join("")}</ol>
+  </div>`;
+}
+
+// The inline share payload carries the display-ready shape drawBossCard
+// (share-card.js) draws from directly — real numbers/moves/sprite paths, not
+// pre-joined prose lines, so the canvas card can lay each one out on its own
+// (type-colored chips, CP boxes, a tile grid of counters). spritePath() is
+// resolved here (where `forms` is in scope) the same way instanceCardData
+// already precomputes it for drawInstanceCard. bossCardShareData (share-
+// card.js) re-validates/clips this before anything is drawn.
+function bossCardSharePayload(card, forms) {
+  const counterPayloadRow = (row) => ({
+    formId: row.formId,
+    pokemon: row.pokemon,
+    attackingType: row.attackingType,
+    rank: row.rank,
+    fastMove: row.fastMove,
+    chargedMove: row.chargedMove,
+    eliteFastTM: row.eliteFastTM,
+    eliteChargedTM: row.eliteChargedTM,
+    spritePath: spritePath(row.formId, forms),
+  });
+  return {
+    name: card.name,
+    formId: card.formId,
+    spritePath: spritePath(card.formId, forms),
+    types: card.types,
+    window: card.window?.endsAt ? `Through ${card.window.endsAt}` : (card.window?.tier ?? ""),
+    catchCp: card.catchCp ? {
+      normalMin: card.catchCp.normal.minimumRaidIVCP, normalHundo: card.catchCp.normal.hundoCP,
+      boostedMin: card.catchCp.boosted.minimumRaidIVCP, boostedHundo: card.catchCp.boosted.hundoCP,
+    } : null,
+    weakTo: card.weakTo.map((row) => ({ type: row.type, multiplier: row.multiplier, isDouble: row.isDouble })),
+    resists: card.resists.map((row) => ({ type: row.type, multiplier: row.multiplier, isDouble: row.isDouble })),
+    raidAttackers: card.raidAttackers.slice(0, 3).map((row) => ({
+      attackingType: row.attackingType, rank: row.rank, investmentTier: row.investmentTier,
+      fastMove: row.fastMove, chargedMove: row.chargedMove, eliteFastTM: row.eliteFastTM, eliteChargedTM: row.eliteChargedTM,
+    })),
+    pvp: Object.values(card.pvp).filter(Boolean).map((row) => ({
+      league: BOSS_CARD_LEAGUE_NAMES[row.league], rank: row.rank, investmentTier: row.investmentTier,
+      fastMove: row.fastMove, chargedMoves: row.chargedMoves, eliteFastTM: row.eliteFastTM, eliteChargedTM: row.eliteChargedTM,
+    })),
+    counters: card.counters ? {
+      mega: card.counters.mega.map(counterPayloadRow),
+      shadow: card.counters.shadow.map(counterPayloadRow),
+      legendaryMythical: card.counters.legendaryMythical.map(counterPayloadRow),
+      general: card.counters.general.map(counterPayloadRow),
+    } : null,
+    raidHour: card.raidHour?.name ?? null,
+    trainersNeeded: bossCardTrainersText(card.trainersNeeded),
+  };
+}
+
+// Trainers-needed text: the roster-based beatability() verdict when the
+// reader has starred enough owned counters to earn one, otherwise the same
+// generic tier-difficulty guidance beatability() itself falls back to
+// (raid-target.js's TIER_GUIDANCE, already folded into its "not-enough-data"
+// detail string) — labeled as generic rather than silently passed off as a
+// personalized read. Plain text (shared by the HTML line below and the
+// canvas share card); bossCardTrainersLine adds HTML-only emphasis on top.
+function bossCardTrainersText(trainersNeeded) {
+  if (!trainersNeeded) return null;
+  return trainersNeeded.band === "not-enough-data"
+    ? `${trainersNeeded.detail} (generic tier guidance — star Pokémon you own for a personalized read)`
+    : trainersNeeded.headline;
+}
+
+function bossCardTrainersLine(trainersNeeded) {
+  if (!trainersNeeded) return "";
+  const text = trainersNeeded.band === "not-enough-data"
+    ? `${escapeHtml(trainersNeeded.detail)} <em>(generic tier guidance — star Pokémon you own for a personalized read)</em>`
+    : escapeHtml(trainersNeeded.headline);
+  return `<p class="boss-card-trainers"><strong>Trainers needed:</strong> ${text}</p>`;
+}
+
+// Compact, shareable boss summary at the top of the Raid Target view. The
+// detailed sections below stay the full interactive tool (observed-CP check,
+// full counter lists); this card's own weak-to/catch-CP coverage removes the
+// equivalent lines further down in raidTargetSurface, rather than repeating them.
+function renderBossCard(card, forms) {
+  if (!card) return "";
+  const windowLine = card.window
+    ? [card.window.tier, card.window.startsAt ? `from ${card.window.startsAt}` : "", card.window.endsAt ? `through ${card.window.endsAt}` : ""].filter(Boolean).join(" · ")
+    : "";
+  const movesetRows = [
+    ...card.raidAttackers.slice(0, 3).map((row) => `<li><span class="boss-card-role">Raid attacker</span> ${escapeHtml(row.attackingType)} ${bossCardTierPill(row.investmentTier)} <span class="boss-card-rank">rank #${escapeHtml(row.rank)}</span>
+      <p class="boss-card-moveset">${bossCardMovesetLine(row.fastMove, row.chargedMove, row.eliteFastTM, row.eliteChargedTM)}</p></li>`),
+    ...Object.values(card.pvp).filter(Boolean).map((row) => `<li><span class="boss-card-role">${escapeHtml(BOSS_CARD_LEAGUE_NAMES[row.league])}</span> ${bossCardTierPill(row.investmentTier)} <span class="boss-card-rank">rank #${escapeHtml(row.rank)}</span>
+      <p class="boss-card-moveset">${moveWithElite(row.fastMove, row.eliteFastTM, "Fast")} + ${row.chargedMoves.map((move) => moveWithElite(move, row.eliteChargedTM, "Charged")).join(" / ")}</p></li>`),
+  ];
+  const counterTiles = card.counters ? [
+    bossCardCounterTile("Mega", card.counters.mega),
+    bossCardCounterTile("Shadow", card.counters.shadow),
+    bossCardCounterTile("Legendary / Mythical", card.counters.legendaryMythical),
+    bossCardCounterTile("General", card.counters.general),
+  ].filter(Boolean) : [];
+  return `<section class="boss-card" aria-labelledby="boss-card-title">
+    <div class="boss-card-header">
+      <h3 id="boss-card-title">${escapeHtml(card.name)}</h3>
+      <p class="type-chip-list">${card.types.map(typeChip).join("")}</p>
+      ${windowLine ? `<p class="boss-card-window">${escapeHtml(windowLine)}</p>` : ""}
+      ${card.raidHour ? `<p class="boss-card-window">Raid Hour: ${escapeHtml(card.raidHour.name)}</p>` : ""}
+      ${card.shiny !== null ? `<p class="boss-card-window">${card.shiny ? "Shiny available" : "Not shiny-eligible yet"}</p>` : ""}
+    </div>
+    ${card.catchCp ? `<div class="boss-card-stats">
+      <div class="boss-card-stat"><p class="status-kicker">Catch CP</p><p class="boss-card-level">${card.catchCp.normal.level ? `Level ${escapeHtml(Math.round(card.catchCp.normal.level))} encounter` : ""}</p><p>${ivFloorLabel(card.catchCp.normal)}: ${escapeHtml(card.catchCp.normal.minimumRaidIVCP)}</p><p>${jargonTerm("hundo", "Hundo")}: ${escapeHtml(card.catchCp.normal.hundoCP)}</p></div>
+      <div class="boss-card-stat"><p class="status-kicker">Boosted CP</p><p class="boss-card-level">${card.catchCp.boosted.level ? `Level ${escapeHtml(Math.round(card.catchCp.boosted.level))} weather-boosted encounter` : ""}</p><p>${ivFloorLabel(card.catchCp.boosted)}: ${escapeHtml(card.catchCp.boosted.minimumRaidIVCP)}</p><p>${jargonTerm("hundo", "Hundo")}: ${escapeHtml(card.catchCp.boosted.hundoCP)}</p></div>
+    </div>` : ""}
+    <p class="type-chip-list" aria-label="Weak to">Weak to: ${card.weakTo.length ? card.weakTo.map((row) => (
+    `<span class="type-weak-badge${row.isDouble ? " is-double" : ""}">${typeChip(row.type)}${row.isDouble ? "4x" : "2x"}</span>`
+  )).join("") : "None documented"}</p>
+    <p class="type-chip-list" aria-label="Resists">Resists: ${card.resists.length ? card.resists.map((row) => (
+    `<span class="type-resist-badge${row.isDouble ? " is-double" : ""}">${typeChip(row.type)}${row.isDouble ? "0.39x" : "0.625x"}</span>`
+  )).join("") : "None documented"}</p>
+    ${bossCardTrainersLine(card.trainersNeeded)}
+    ${movesetRows.length ? `<details class="boss-card-section" open><summary>Movesets & ratings</summary><ul class="boss-card-moveset-list">${movesetRows.join("")}</ul></details>` : ""}
+    ${counterTiles.length ? `<details class="boss-card-section"><summary>Top counters</summary><div class="boss-card-counter-groups">${counterTiles.join("")}</div></details>` : ""}
+    <button type="button" class="boss-card-share" data-action="share-card-payload" data-share-type="bossCard" data-share-payload="${escapeHtml(JSON.stringify(bossCardSharePayload(card, forms)))}">Share boss card</button>
+  </section>`;
+}
+
+
 function raidTargetSurface(state, ui, roster) {
   const allTargets = state.raidTargetTool?.targets ?? [];
   const category = allowed(ui.raid.targetCategory, RAID_TARGET_CATEGORY_SET, "all");
@@ -4966,6 +5110,10 @@ function raidTargetSurface(state, ui, roster) {
     roster,
     trainerLevel: ui.trainerProfile.level,
   }, state);
+  const forms = state.core?.forms ?? state.forms ?? {};
+  const bossCard = bossCardData(ui.raid.targetFormId, {
+    data: state, weather: ui.weather, roster, trainerLevel: ui.trainerProfile.level,
+  });
   const lanes = {
     regular: ["Regular, Mega & Primal", plan.regularCounters, plan.beginnerRegularGroups],
     buildable: ["No Megas", plan.buildableCounters, plan.beginnerBuildableGroups],
@@ -4974,7 +5122,6 @@ function raidTargetSurface(state, ui, roster) {
   };
   const [laneLabel, rows, beginnerGroups] = lanes[ui.raid.counterLane] ?? lanes.regular;
   const bossTypes = plan.target.bossTypes ?? [];
-  const forms = state.core?.forms ?? state.forms ?? {};
   const budgetPickIds = new Set((state.budgets?.raid ?? []).map((row) => row.formId));
   // Fresh raid catch (Level 20), independent of the boss's own encounter/weather CP above —
   // that widget verifies the BOSS's catch, not the level of the player's counter Pokemon.
@@ -5038,6 +5185,7 @@ function raidTargetSurface(state, ui, roster) {
   return `<section class="raid-target-view" aria-labelledby="raid-target-title">
     <h2 id="raid-target-title">Raid Target</h2>
     ${targetSwapNotice}
+    ${renderBossCard(bossCard, forms)}
     <div class="pvp-controls">
       <label>Boss category<select data-raid-target-category>${RAID_TARGET_CATEGORIES.map(([value, label]) => option(value, label, category)).join("")}</select></label>
       <label>Exact boss form<select data-raid-target>${targets.map((target) => option(target.bossFormId, target.boss, ui.raid.targetFormId)).join("")}</select></label>
@@ -5049,13 +5197,13 @@ function raidTargetSurface(state, ui, roster) {
     </div>
     <div class="raid-boss-summary">
       <p class="raid-boss-heading"><strong>${escapeHtml(plan.target.boss)}</strong> ${bossTypes.map(typeChip).join("")}</p>
-      <p class="type-chip-list" aria-label="Boss weaknesses">Weak to: ${plan.weaknesses.length ? plan.weaknesses.map((row) => (
+      ${bossCard ? "" : `<p class="type-chip-list" aria-label="Boss weaknesses">Weak to: ${plan.weaknesses.length ? plan.weaknesses.map((row) => (
     `<span class="type-weak-badge${row.effectiveness >= 2.56 ? " is-double" : ""}">${typeChip(row.attackingType)}${row.effectiveness >= 2.56 ? "4x" : "2x"}</span>`
-  )).join("") : "None documented"}</p>
+  )).join("") : "None documented"}</p>`}
       ${raidSoloVerdict ? `<p class="raid-solo-verdict" data-solo-verdict="${escapeHtml(raidSoloVerdict.verdict)}">${escapeHtml(raidSoloVerdict.line)}</p>` : ""}
     </div>
     ${partyPanelHtml}
-    <div class="raid-cp-lines">
+    ${bossCard?.catchCp ? "" : `<div class="raid-cp-lines">
       <div class="raid-cp-set">
         <p><strong>Level 20 encounter:</strong></p>
         <p><strong>Min CP:</strong> ${ivFloorLabel(plan.target.normal)}: ${escapeHtml(plan.target.normal.minimumRaidIVCP)}</p>
@@ -5066,7 +5214,7 @@ function raidTargetSurface(state, ui, roster) {
         <p><strong>Min CP:</strong> ${ivFloorLabel(plan.target.weatherBoosted)}: ${escapeHtml(plan.target.weatherBoosted.minimumRaidIVCP)}</p>
         <p><strong>${jargonTerm("hundo", "Hundo CP")}:</strong> ${escapeHtml(plan.target.weatherBoosted.hundoCP)}</p>
       </div>
-    </div>
+    </div>`}
     <p><strong>${jargonTerm("weather-boost", "Weather boost")}:</strong> ${escapeHtml(plan.weatherBoostConditions.join(", ") || "No boosting weather documented")}</p>
     ${plan.weather !== "None" ? `<p class="raid-weather-now">${plan.bossBoostedNow
       ? `<strong>Boosted right now (${escapeHtml(plan.weather)}):</strong> this boss is stronger and its catch will be Level 25.`
