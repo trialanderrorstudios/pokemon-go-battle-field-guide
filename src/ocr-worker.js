@@ -253,6 +253,9 @@ function preprocessVariants({ minLum, maxLum, otsu }) {
     ["near-white-only", (lum) => (lum >= maxLum - 12 ? 0 : 255)],
     ["otsu-binarized", (lum) => (lum > otsu ? 0 : 255)],
     ["fixed-190", (lum) => (lum > 190 ? 0 : 255)],
+    // White banner digits (2026-10-05 fixtures): the thin "1" of CP 102
+    // survives only when ink is near-pure white.
+    ["fixed-235", (lum) => (lum > 235 ? 0 : 255)],
   ];
 }
 
@@ -304,6 +307,7 @@ async function readCroppedField(engine, file, spec, documentObject = globalThis.
       }
     }
     const attempts = [];
+    const hits = [];
     let bestValue = null;
     let bestScore = 0;
     try {
@@ -323,6 +327,7 @@ async function readCroppedField(engine, file, spec, documentObject = globalThis.
         const text = String(await engine.recognize(blob)).trim();
         const hit = spec.pick(text);
         attempts.push(`[${label}] ${text || "(empty)"}${hit ? ` -> ${hit.value}` : ""}`);
+        if (hit && !hits.includes(hit.value)) hits.push(hit.value);
         if (hit && hit.score > bestScore) {
           bestValue = hit.value;
           bestScore = hit.score;
@@ -340,7 +345,7 @@ async function readCroppedField(engine, file, spec, documentObject = globalThis.
         }
       }
     }
-    return { value: bestValue, score: bestScore, raw: attempts.join("\n") };
+    return { value: bestValue, score: bestScore, raw: attempts.join("\n"), hits };
   } catch {
     return null;
   }
@@ -360,6 +365,10 @@ function findAnchor(anchors, test) {
 // noise, not a number — "7 8 4" fabricated CP 784 on a real device
 // (2026-08-13), and 2-digit reads were battery/junk.
 function pickCpDigits(text) {
+  // "CP" then digits: two digits are a real CP here (Abomasnow CP 30, Little
+  // Cup catches) — the caller's CP+HP solve vets every read anyway.
+  const prefixed = String(text).match(/c\s*p+\s*(\d{2,4})/i);
+  if (prefixed && Number(prefixed[1]) >= 10) return { value: Number(prefixed[1]), score: 1 };
   const runs = [...String(text).matchAll(/\d[\d,]{2,6}/g)]
     .map((match) => Number(match[0].replace(/\D/g, "")))
     .filter((value) => value >= 100 && value <= 9000)
@@ -379,18 +388,20 @@ export async function cpBannerRetry(engine, file, documentObject = globalThis.do
   const result = await readCroppedField(engine, file, {
     label: "cp",
     region: (bitmap) => ({
-      sx: Math.round(bitmap.width * 0.2),
-      sw: Math.round(bitmap.width * 0.6),
+      sx: Math.round(bitmap.width * 0.3),
+      sw: Math.round(bitmap.width * 0.4),
       sy: Math.round(bitmap.height * 0.03),
       sh: Math.round(bitmap.height * 0.15),
     }),
     scale: 2,
     whitelist: `${DIGITS}CPcp, `,
     pick: pickCpDigits,
+    // Every pass runs: the first plausible number isn't the right one
+    // ("cp12" before "cp102"); the caller picks the read that fits CP+HP.
+    good: () => false,
   }, documentObject);
-  // Shape preserved for existing callers/tests: { cp, raw }, null when
-  // nothing could run.
-  return result ? { cp: result.value, raw: result.raw } : null;
+  // { cp, raw, candidates }, null when nothing could run.
+  return result ? { cp: result.value, raw: result.raw, candidates: result.hits ?? [] } : null;
 }
 
 // The species name band. The game puts the name directly ABOVE the HP line
@@ -399,7 +410,7 @@ export async function cpBannerRetry(engine, file, documentObject = globalThis.do
 // its real bbox. That beats a hardcoded percentage, which is only ever
 // correct for the aspect ratio it was tuned on. Falls back to the CP word
 // (name sits below it), then to proportions when neither anchor exists.
-export function nameRegionFromAnchors(anchors, width, height) {
+export function nameRegionFromAnchors(anchors, width, height, hpBar = null) {
   const hp = findAnchor(anchors, (text) => /^hp$/i.test(text.trim()));
   if (hp) {
     const lineHeight = Math.max(1, hp.y1 - hp.y0);
@@ -409,6 +420,17 @@ export function nameRegionFromAnchors(anchors, width, height) {
       sw: Math.round(width * 0.8),
       sy,
       sh: Math.max(1, Math.round(hp.y0 - lineHeight * 0.3) - sy),
+    };
+  }
+  // The green HP bar (pixel anchor, ocr-appraisal-bars.js findHpBar): the
+  // name sits directly above it. Found on every mon-info screen even when
+  // OCR read none of the words (Piplup fixture, 2026-10-05).
+  if (hpBar && Number.isFinite(hpBar.y0)) {
+    return {
+      sx: Math.round(width * 0.1),
+      sw: Math.round(width * 0.8),
+      sy: Math.max(0, Math.round(hpBar.y0 - height * 0.052)),
+      sh: Math.round(height * 0.045),
     };
   }
   const cp = findAnchor(anchors, (text) => /^[^a-z0-9]{0,2}[a-z]?p\.?$/i.test(text.trim()));
@@ -437,11 +459,11 @@ export function nameRegionFromAnchors(anchors, width, height) {
 // post-hoc repair — a variant reading a near-miss beats one reading garbage,
 // and neither is accepted if nothing resembles a real name.
 // `scoreName(text) -> 0..1` is injected so this module stays data-free.
-export async function nameBannerRetry(engine, file, { anchors = [], scoreName } = {}, documentObject = globalThis.document) {
+export async function nameBannerRetry(engine, file, { anchors = [], scoreName, hpBar = null } = {}, documentObject = globalThis.document) {
   if (typeof scoreName !== "function") return null;
   const result = await readCroppedField(engine, file, {
     label: "name",
-    region: (bitmap) => nameRegionFromAnchors(anchors, bitmap.width, bitmap.height),
+    region: (bitmap) => nameRegionFromAnchors(anchors, bitmap.width, bitmap.height, hpBar),
     scale: 3,
     // Dex names: letters, space, the gender glyphs (Nidoran), and the few
     // punctuation marks that appear (Mr. Mime, Farfetch'd, Ho-Oh, parens).
@@ -450,7 +472,9 @@ export async function nameBannerRetry(engine, file, { anchors = [], scoreName } 
       // The band can catch a stray line; score each line, keep the best.
       let best = null;
       for (const line of String(text).split(/\r?\n/)) {
-        const candidate = line.trim();
+        // The pencil "edit nickname" icon beside the name reads as a
+        // trailing " -" or "/" (Piplup fixture) — trim it before scoring.
+        const candidate = line.trim().replace(/[\s\-/|\\_~]+$/, "");
         if (!candidate) continue;
         const score = scoreName(candidate);
         if (score > 0 && (!best || score > best.score)) best = { value: candidate, score };
@@ -462,4 +486,34 @@ export async function nameBannerRetry(engine, file, { anchors = [], scoreName } 
     good: (score) => score >= 1,
   }, documentObject);
   return result ? { name: result.value, score: result.score, raw: result.raw } : null;
+}
+
+
+// HP line retry (2026-10-05): the small grey "25 / 25 HP" text under the
+// green bar is the field the full-frame pass loses most (4 of 12 operator
+// fixtures), and without HP there is no IV solve at all. Region: just below
+// the bar, centre 40% of the width. Current HP can't exceed max.
+export function pickHpPair(text) {
+  const match = String(text).match(/(\d{1,4})\s*[/|]\s*(\d{1,4})/);
+  if (!match) return null;
+  const current = Number(match[1]);
+  const max = Number(match[2]);
+  return max >= 10 && current <= max ? { value: max, score: 1 } : null;
+}
+
+export async function hpLineRetry(engine, file, { hpBar } = {}, documentObject = globalThis.document) {
+  if (!hpBar || !Number.isFinite(hpBar.y1)) return null;
+  const result = await readCroppedField(engine, file, {
+    label: "hp",
+    region: (bitmap) => ({
+      sx: Math.round(bitmap.width * 0.3),
+      sw: Math.round(bitmap.width * 0.4),
+      sy: Math.round(hpBar.y1 + bitmap.height * 0.003),
+      sh: Math.round(bitmap.height * 0.026),
+    }),
+    scale: 3,
+    whitelist: `${DIGITS}/HP `,
+    pick: pickHpPair,
+  }, documentObject);
+  return result ? { hp: result.value, raw: result.raw } : null;
 }

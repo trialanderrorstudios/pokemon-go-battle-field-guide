@@ -6,6 +6,16 @@
 
 export const SHELL_CHANGELOG = Object.freeze([
   Object.freeze({
+    rev: "r191", date: "2026-10-05",
+    added: Object.freeze([
+      "Scans spot shadow Pokémon: a purple shadow screen gets a one-tap \"It's shadow — switch\" on its row.",
+      "When the CP is hidden behind a big Pokémon, the scan works it out from HP and the appraisal bars.",
+    ]),
+    tweaked: Object.freeze([
+      "Screenshot scanning is much more reliable: tested on 13 real screenshots, it now reads the name, CP, HP and IVs right on all 13 (it got 6 of 13 IVs before). Low-CP catches like CP 30 now read, thin digits like the 1 in CP 102 survive, the HP line gets a second look when missed, and the appraisal bars read exactly.",
+    ]),
+  }),
+  Object.freeze({
     rev: "r190", date: "2026-10-05",
     added: Object.freeze([
       "Medals & levels (under Me): enter your medal counts and see your platinum total, the cheapest next platinums, every level 71–80 task with checkboxes, and how much XP and how many Lucky-Egg evolves are left to the next level and to 80. Level tasks and XP come from Leek Duck; medal targets are community-sourced and editable.",

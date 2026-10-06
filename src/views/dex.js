@@ -1603,9 +1603,12 @@ function ocrIntakeRowHtml(row, verdictFor = null) {
       <div class="ocr-row-actions ocr-row-candidates">${row.ivCandidates.map((combo) => `<button type="button" class="ocr-row-pick-btn" data-ocr-row-set-ivs="${escapeHtml(row.id)}" data-ocr-ivs="${escapeHtml(`${combo.ivs.atk},${combo.ivs.def},${combo.ivs.sta}`)}">${escapeHtml(`${combo.ivs.atk}/${combo.ivs.def}/${combo.ivs.sta}`)}</button>`).join("")}</div>`
     : "";
   let actions = "";
+  const shadowNudge = !row.accepted && row.shadowSuggestion
+    ? `<p class="ocr-row-next">Purple shadow aura on this screen.</p><div class="ocr-row-actions"><button type="button" class="ocr-row-pick-btn" data-ocr-row-pick="${escapeHtml(row.id)}" data-ocr-pick-form-id="${escapeHtml(row.shadowSuggestion)}">It's shadow — switch</button></div>`
+    : "";
   if (!row.accepted) {
     if (canEdit) {
-      actions = `<div class="ocr-row-actions">
+      actions = `${shadowNudge}<div class="ocr-row-actions">
       ${canAccept ? `<button type="button" class="ocr-row-accept-btn" data-ocr-row-accept="${escapeHtml(row.id)}">Accept</button>` : ""}
       <button type="button" class="ocr-row-edit-btn" data-ocr-row-edit="${escapeHtml(row.id)}">Edit</button>
     </div>${canAccept ? "" : `<p class="ocr-row-next">Needs IVs — Edit opens the quick-add form to finish.</p>`}`;

@@ -71,11 +71,22 @@ export function readBarFromScanlines(lines) {
   if (!Array.isArray(lines) || !lines.length) return null;
   const row = lines.length === 1 ? lines[0] : medianRow(lines);
   const width = row.length / 4;
-  let filled = 0;
-  let track = 0;
+  const kinds = [];
   for (let x = 0; x < width; x += 1) {
     const i = x * 4;
-    const kind = classifyBarPixel(row[i], row[i + 1], row[i + 2]);
+    kinds.push(classifyBarPixel(row[i], row[i + 1], row[i + 2]));
+  }
+  // The bar is three segments separated by grey gaps. A grey run with fill on
+  // both sides is a gap inside the filled part, not unfilled track: counting
+  // it as track read every full bar as ~97.8% (2026-10-05, 12 real screenshots).
+  const firstTrack = kinds.indexOf("track");
+  const lastFilled = kinds.lastIndexOf("filled");
+  for (let x = Math.max(0, firstTrack); x >= 0 && x < lastFilled; x += 1) {
+    if (kinds[x] === "track" && kinds.slice(0, x).includes("filled")) kinds[x] = "filled";
+  }
+  let filled = 0;
+  let track = 0;
+  for (const kind of kinds) {
     if (kind === "filled") filled += 1;
     else if (kind === "track") track += 1;
   }
@@ -210,6 +221,12 @@ export function detectBarRows({ data, width, height }) {
 // assume elsewhere (instances.js). "sta" is this repo's field name for the
 // HP/Stamina IV throughout (ivCandidatesFromCpHp, buildInstance).
 function barRowGeometry(width, height, anchors, pixels = null) {
+  // Colour detection first (2026-10-05): it reads all 13 operator fixtures
+  // at five resolutions. Label anchors came second for a reason — the first
+  // "HP" word on screen is the "86 / 86 HP" line, not the bar label, which
+  // put the stamina scanline on the wrong row (Seedot read 0/6/0).
+  const detected = pixels ? detectBarRows(pixels) : null;
+  if (detected) return { mode: "detected", ...detected };
   const atkBbox = findAnchorBbox(anchors, ["attack"]);
   const defBbox = findAnchorBbox(anchors, ["defense", "defence"]);
   const staBbox = findAnchorBbox(anchors, ["hp", "stamina"]);
@@ -221,8 +238,6 @@ function barRowGeometry(width, height, anchors, pixels = null) {
       sta: rowFromBbox(staBbox, width),
     };
   }
-  const detected = pixels ? detectBarRows(pixels) : null;
-  if (detected) return { mode: "detected", ...detected };
   return { mode: "proportional", ...proportionalRows(width, height) };
 }
 
@@ -282,7 +297,7 @@ export async function readAppraisalBars(file, { anchors = null, documentObject =
     if (Object.keys(ivs).length < 3) {
       return { ivs: null, confidence: "unreliable", evidence };
     }
-    return { ivs, confidence: geometry.mode === "anchors" ? "exact" : "unreliable", evidence };
+    return { ivs, confidence: geometry.mode === "proportional" ? "unreliable" : "exact", evidence };
   } catch (error) {
     return { ivs: null, confidence: "unreliable", evidence: [`error: ${error?.message ?? error}`] };
   }
@@ -301,4 +316,102 @@ export function pickCandidateByBars(candidates, barIvs) {
   return candidates.find((candidate) => (
     candidate?.ivs?.atk === barIvs.atk && candidate?.ivs?.def === barIvs.def && candidate?.ivs?.sta === barIvs.sta
   )) ?? null;
+}
+
+// ---- Shadow aura (2026-10-05) ----
+// A shadow Pokémon's info screen sits on a dark purple field with purple
+// flames around the sprite; normal screens use the sky or a navy night sky.
+// Score = share of the sprite band's pixels that are saturated purple
+// (hue 260-300°). Measured on 13 of the operator's own screenshots: the one
+// shadow (Deino) scored 0.049; every normal scored 0.000 except Zacian at
+// 0.018 (a purple "Max Moves" banner edge). One positive example is thin, so
+// callers SUGGEST a switch to the shadow form — never apply it silently.
+export const SHADOW_AURA_MIN = 0.03;
+
+export function shadowAuraScore({ data, width, height }) {
+  const x0 = Math.round(width * 0.1);
+  const x1 = Math.round(width * 0.9);
+  const y0 = Math.round(height * 0.06);
+  const y1 = Math.round(height * 0.36);
+  const step = Math.max(1, Math.round(width / 330));
+  let purple = 0;
+  let total = 0;
+  for (let y = y0; y < y1; y += step) {
+    for (let x = x0; x < x1; x += step) {
+      const i = (y * width + x) * 4;
+      const r = data[i] / 255;
+      const g = data[i + 1] / 255;
+      const b = data[i + 2] / 255;
+      const max = Math.max(r, g, b);
+      const min = Math.min(r, g, b);
+      total += 1;
+      if (max < 0.35 || max === 0 || (max - min) / max < 0.45) continue;
+      const d = max - min;
+      let hue = max === r ? ((g - b) / d) % 6 : max === g ? (b - r) / d + 2 : (r - g) / d + 4;
+      hue = (hue * 60 + 360) % 360;
+      if (hue >= 260 && hue <= 300) purple += 1;
+    }
+  }
+  return total ? purple / total : 0;
+}
+
+export async function readShadowAura(file, { documentObject = globalThis.document } = {}) {
+  if (typeof createImageBitmap !== "function" || !documentObject?.createElement) return null;
+  try {
+    const bitmap = await createImageBitmap(file);
+    const canvas = documentObject.createElement("canvas");
+    canvas.width = bitmap.width;
+    canvas.height = bitmap.height;
+    const ctx = canvas.getContext("2d");
+    ctx.drawImage(bitmap, 0, 0);
+    bitmap.close?.();
+    return shadowAuraScore(ctx.getImageData(0, 0, canvas.width, canvas.height));
+  } catch {
+    return null;
+  }
+}
+
+// ---- HP bar anchor (2026-10-05) ----
+// The green HP bar sits directly under the species name and directly above
+// the "25 / 25 HP" text on every mon-info screen (45.0% of height on all 13
+// operator fixtures). When the full-frame OCR misses the HP word, this pixel
+// anchor still places the name and HP-text retries. Mint green: high G,
+// G well above R. Returns { y0, y1, x0, x1 } or null.
+export function findHpBar({ data, width, height }) {
+  const isGreen = (i) => data[i + 1] > 170 && data[i + 1] - data[i] > 50 && data[i + 1] - data[i + 2] > 20 && data[i] < 200;
+  let found = null;
+  for (let y = Math.round(height * 0.25); y < Math.round(height * 0.7); y += 1) {
+    let run = 0;
+    let start = 0;
+    let best = null;
+    for (let x = 0; x < width; x += 1) {
+      if (isGreen((y * width + x) * 4)) {
+        if (run === 0) start = x;
+        run += 1;
+        if (!best || run > best.len) best = { len: run, x0: start, x1: x };
+      } else run = 0;
+    }
+    const isBar = best && best.len > width * 0.3;
+    if (isBar && !found) found = { y0: y, y1: y, x0: best.x0, x1: best.x1 };
+    else if (isBar && found && y === found.y1 + 1) found.y1 = y;
+    else if (found) break;
+  }
+  return found;
+}
+
+export async function readHpBar(file, { documentObject = globalThis.document } = {}) {
+  if (typeof createImageBitmap !== "function" || !documentObject?.createElement) return null;
+  try {
+    const bitmap = await createImageBitmap(file);
+    const canvas = documentObject.createElement("canvas");
+    canvas.width = bitmap.width;
+    canvas.height = bitmap.height;
+    const ctx = canvas.getContext("2d");
+    ctx.drawImage(bitmap, 0, 0);
+    bitmap.close?.();
+    const bar = findHpBar(ctx.getImageData(0, 0, canvas.width, canvas.height));
+    return bar ? { ...bar, width: canvas.width, height: canvas.height } : null;
+  } catch {
+    return null;
+  }
 }

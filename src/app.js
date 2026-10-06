@@ -63,7 +63,7 @@ import { remoteRaidVerdict } from "./remote-raid-verdict.js";
 import { renderPartyPanel } from "./views/party.js";
 import { clearBuddyPlan, loadBuddyPlan, saveBuddyPlan } from "./buddy.js";
 import {
-  bestInstanceForForm, buildImportedInstance, buildInstance, instanceLevel, ivCandidatesFromCpHp,
+  bestInstanceForForm, buildImportedInstance, buildInstance, calculateCp, instanceLevel, ivCandidatesFromCpHp, maxHp,
   reviseInstanceCp, solveLevel, STAR_TIER_RANGES,
 } from "./instances.js";
 import { nextMarkState } from "./collection.js";
@@ -72,7 +72,7 @@ import {
   appraisalTierFromText, baseSpeciesName, draftFromParse, extractMoves, parseMonScreenText,
   scoreNameCandidate, speciesFromContext,
 } from "./ocr-intake.js";
-import { cpBannerRetry, nameBannerRetry } from "./ocr-worker.js";
+import { cpBannerRetry, hpLineRetry, nameBannerRetry } from "./ocr-worker.js";
 import { frustrationWindow, renderFrustrationWindowCard } from "./frustration-window.js";
 import { renderCupView } from "./views/cup.js";
 import { auditBox, verdictForEntry } from "./box-audit.js";
@@ -82,7 +82,7 @@ import {
   activeProfile, addProfile, loadProfiles, removeProfile, renameProfile, rosterRecordKey, saveProfiles, setActiveProfile, tradeSuggestions,
 } from "./profiles.js";
 import { applyMedalEdit, loadMedalState, saveMedalState } from "./medals.js";
-import { readAppraisalBars, pickCandidateByBars } from "./ocr-appraisal-bars.js";
+import { readAppraisalBars, pickCandidateByBars, readHpBar, readShadowAura, SHADOW_AURA_MIN } from "./ocr-appraisal-bars.js";
 import { createOcrEngine as createOcrEngineDefault, OcrEngineError } from "./ocr-worker.js";
 import {
   buildLeaderboard,
@@ -1466,6 +1466,7 @@ export function createInteractionController({
   onClipboardCopy = null,
   cpBannerRetry: cpBannerRetryOption = cpBannerRetry,
   nameBannerRetry: nameBannerRetryOption = nameBannerRetry,
+  hpLineRetry: hpLineRetryOption = hpLineRetry,
   onRosterShareCopy = null,
   onTriageCopy = null,
   onDiagnosticsCopy = null,
@@ -1708,6 +1709,16 @@ export function createInteractionController({
       row.issues = [...(row.issues ?? []), "CP banner read rejected — it fits no IV spread for this Pokémon's HP."];
       row.draft = { ...row.draft, cp: "" };
     }
+    // Same free validation for an HP-line retry read (2026-10-05).
+    if (parsed.confidence?.hp === "low" && Number.isInteger(parsed.cp) && Number.isInteger(parsed.hp)
+      && ivCandidatesFromCpHp(forms[parsed.formId], parsed.cp, parsed.hp, solveOptions).length === 0) {
+      parsed.hp = null;
+      delete parsed.confidence.hp;
+      const note = "HP read rejected — it fits no IV spread for this Pokémon's CP.";
+      parsed.issues = [...(parsed.issues ?? []), note];
+      row.issues = [...(row.issues ?? []), note];
+      row.draft = { ...row.draft, hp: "" };
+    }
     // Moves read from the same scan, matched against the resolved form's
     // legal move list (see extractMoves) — only ever set, never cleared.
     const moves = extractMoves(row.rawText ?? "", forms[parsed.formId]);
@@ -1824,6 +1835,7 @@ export function createInteractionController({
     onRosterExport,
     cpBannerRetry: cpBannerRetryOption,
     nameBannerRetry: nameBannerRetryOption,
+    hpLineRetry: hpLineRetryOption,
     onRosterShareCopy: onRosterShareCopy ?? onClipboardCopy,
     onTriageCopy: onTriageCopy ?? onClipboardCopy,
     onDiagnosticsCopy: onDiagnosticsCopy ?? onClipboardCopy,
@@ -2620,32 +2632,26 @@ export function createInteractionController({
             // Version stamp: a pasted raw dump must say which shell parsed it
             // (three stale-device round-trips on 2026-08-12 without it).
             let rawText = `[shell ${APP_SHELL_REVISION}]\n${text}`;
-            if (parsed.cp === null && parsed.hp !== null) {
-              // Full-screen pass lost the CP banner — targeted crop retry
-              // (see cpBannerRetry). Merged at low confidence; the "CP not
-              // found." issue dies only when the retry actually delivers.
-              // The `hp !== null` half of the gate is load-bearing and is NOT
-              // an oversight (tried widening it to bare `cp === null`,
-              // 2026-09-24): a moves-screen fragment has neither field, and
-              // running the crop retry on one invents a CP for a screenshot
-              // that is not a mon-info screen at all — which stops it merging
-              // into its stats row. Pinned by ocr-wire.test.mjs's two-part
-              // scan tests.
-              // The retry's raw output is appended EITHER WAY, so evidence
-              // distinguishes "retry ran and read garbage" from "never ran".
-              const banner = await api.cpBannerRetry?.(engine, file);
-              if (banner?.cp) {
-                parsed.cp = banner.cp;
-                parsed.confidence.cp = "low";
-                parsed.issues = parsed.issues.filter((issue) => issue !== "CP not found.");
-              }
-              if (banner) {
-                rawText += `\n--- banner retry (${banner.cp ? `read ${banner.cp}` : "no read"}) ---\n${banner.raw}`;
-              } else {
-                rawText += "\n--- banner retry unavailable on this device ---";
-              }
+            // HP-bar pixel anchor (2026-10-05): placed only when a retry needs
+            // it. The full-frame pass lost the small "25 / 25 HP" line on 4 of
+            // 12 operator fixtures; without HP there is no IV solve.
+            let hpBar = null;
+            if (parsed.hp === null || !parsed.formId || parsed.confidence.formId === "low") {
+              hpBar = await readHpBar(file, { documentObject: controllerWindow()?.document });
             }
-            // Same treatment for the species name. The full-frame pass reads
+            if (parsed.hp === null && hpBar) {
+              const hpRead = await api.hpLineRetry?.(engine, file, { hpBar });
+              if (hpRead?.hp) {
+                parsed.hp = hpRead.hp;
+                parsed.confidence.hp = "low";
+                parsed.issues = parsed.issues.filter((issue) => !/^HP (not found|read looks)/.test(issue));
+              }
+              rawText += hpRead
+                ? `\n--- hp retry (${hpRead.hp ? `read ${hpRead.hp}` : "no read"}) ---\n${hpRead.raw}`
+                : "\n--- hp retry unavailable on this device ---";
+            }
+            // Species-name retry (runs before the CP retry below, so CP reads
+            // can be vetted against the species). The full-frame pass reads
             // it as open vocabulary off a stylized font over a 3D backdrop;
             // this re-reads just the name band with a dex-only charset and
             // picks the preprocess variant that scores best against the dex
@@ -2655,6 +2661,7 @@ export function createInteractionController({
             if (!parsed.formId || parsed.confidence.formId === "low") {
               const named = await api.nameBannerRetry?.(engine, file, {
                 anchors: ocrWords,
+                hpBar,
                 scoreName: (candidate) => scoreNameCandidate(candidate, forms),
               });
               // Only take it if it beats what we already had: an exact dex
@@ -2674,6 +2681,37 @@ export function createInteractionController({
               rawText += named
                 ? `\n--- name retry (${named.name ? `read ${named.name} @ ${named.score}` : "no read"}) ---\n${named.raw}`
                 : "\n--- name retry unavailable on this device ---";
+            }
+            if (parsed.cp === null && parsed.hp !== null) {
+              // Full-screen pass lost the CP banner — targeted crop retry
+              // (see cpBannerRetry). Merged at low confidence; the "CP not
+              // found." issue dies only when the retry actually delivers.
+              // The `hp !== null` half of the gate is load-bearing and is NOT
+              // an oversight (tried widening it to bare `cp === null`,
+              // 2026-09-24): a moves-screen fragment has neither field, and
+              // running the crop retry on one invents a CP for a screenshot
+              // that is not a mon-info screen at all — which stops it merging
+              // into its stats row. Pinned by ocr-wire.test.mjs's two-part
+              // scan tests.
+              // The retry's raw output is appended EITHER WAY, so evidence
+              // distinguishes "retry ran and read garbage" from "never ran".
+              const banner = await api.cpBannerRetry?.(engine, file);
+              // Of every pass's read, take the first that fits a real IV
+              // spread for this HP (2026-10-05: "cp12" came before "cp102").
+              const fits = (cp) => parsed.formId && forms[parsed.formId]
+                && ivCandidatesFromCpHp(forms[parsed.formId], cp, parsed.hp).length > 0;
+              const fitting = (banner?.candidates ?? []).find(fits);
+              if (banner && fitting) banner.cp = fitting;
+              if (banner?.cp) {
+                parsed.cp = banner.cp;
+                parsed.confidence.cp = "low";
+                parsed.issues = parsed.issues.filter((issue) => issue !== "CP not found.");
+              }
+              if (banner) {
+                rawText += `\n--- banner retry (${banner.cp ? `read ${banner.cp}` : "no read"}) ---\n${banner.raw}`;
+              } else {
+                rawText += "\n--- banner retry unavailable on this device ---";
+              }
             }
             const row = {
               id: crypto.randomUUID(),
@@ -2713,6 +2751,39 @@ export function createInteractionController({
                   }
                 } catch { /* best-effort; the row keeps its CP/HP state */ }
               }
+            }
+            // CP hidden (Corviknight fixture, 2026-10-05: the sprite covers the
+            // banner). HP + the appraisal bars still pin it: the levels where
+            // those IVs give this HP, and if they all give one CP, that's it.
+            if (!row.solvedIvs && parsed.cp === null && Number.isInteger(parsed.hp) && forms[parsed.formId]) {
+              try {
+                const bars = await readAppraisalBars(file, { anchors: ocrWords, documentObject: controllerWindow()?.document });
+                if (bars?.ivs) {
+                  const form = forms[parsed.formId];
+                  const fits = [];
+                  for (let level = 1; level <= 51; level += 0.5) {
+                    if (maxHp(form, bars.ivs.sta, level) === parsed.hp) fits.push({ level, cp: calculateCp(form, bars.ivs, level) });
+                  }
+                  const cps = [...new Set(fits.map((fit) => fit.cp))];
+                  row.rawText += `\n--- appraisal bars (CP hidden) ---\n${bars.evidence.join("\n")}\nHP ${parsed.hp} fits L${fits.map((fit) => fit.level).join("/") || "none"}`;
+                  if (fits.length && cps.length === 1) {
+                    parsed.cp = cps[0];
+                    parsed.confidence.cp = "low";
+                    row.draft = { ...row.draft, cp: cps[0], ivs: { ...bars.ivs } };
+                    row.solvedIvs = { ivs: { ...bars.ivs }, level: fits[0].level, source: "bars" };
+                    row.issues = [...(row.issues ?? []).filter((issue) => issue !== "CP not found."), `CP ${cps[0]} worked out from HP + appraisal — the banner was hidden.`];
+                  }
+                }
+              } catch { /* best-effort */ }
+            }
+            // Shadow aura (2026-10-05): the scan read the species but never
+            // the shadow status. A purple field + flames around the sprite
+            // suggests the shadow form — offered as one tap, never applied.
+            const shadowFormId = parsed.formId && !parsed.formId.endsWith("-shadow") ? `${parsed.formId}-shadow` : null;
+            if (shadowFormId && forms[shadowFormId]) {
+              const aura = await readShadowAura(file, { documentObject: controllerWindow()?.document });
+              if (Number.isFinite(aura)) row.rawText += `\n--- shadow aura ${aura.toFixed(3)} (suggest at ${SHADOW_AURA_MIN}) ---`;
+              if (aura >= SHADOW_AURA_MIN) row.shadowSuggestion = shadowFormId;
             }
             // Two-part scans (operator, 2026-08-13): a moves-screen or
             // appraisal-screen photo has no CP and no HP — it is a FRAGMENT
@@ -2934,6 +3005,7 @@ export function createInteractionController({
           row.parsed.formId = pickedFormId;
           row.parsed.name = form.name;
           row.parsed.candidates = [];
+          row.shadowSuggestion = null;
           // The "pick one" issue is answered now — drop it, keep the rest.
           row.issues = (row.issues ?? []).filter((issue) => !/pick (one|manually)/i.test(issue));
           if (row.parsed.issues) row.parsed.issues = row.parsed.issues.filter((issue) => !/pick (one|manually)/i.test(issue));
