@@ -8679,3 +8679,29 @@ html:not([data-app-booted]) #app .fallback-section {
 .medals-view .medal-input { width: 6.5rem; min-height: 36px; }
 .medals-view .medal-tasks { list-style: none; padding: 0; display: grid; gap: 0.3rem; }
 .medals-view details > summary { cursor: pointer; padding-block: 0.3rem; }
+
+/* P3: What-if on a catch verdict — collapsed by default to keep the card compact. */
+.cv-whatif { margin-top: 0.35rem; }
+.cv-whatif summary { cursor: pointer; font-size: 0.78rem; font-weight: 700; color: var(--cyan); }
+.cv-whatif ul { margin: 0.3rem 0 0; padding-left: 1.1rem; font-size: 0.82rem; color: var(--muted); }
+.cv-whatif li + li { margin-top: 0.15rem; }
+/* I3 scan-row confidence badges — read/retried/derived/missing (see
+   ocr-intake.js's ocrFieldBadges). Deliberately quiet: a borderless tag
+   riding the field text, not a loud pill — "read" barely registers, only
+   "retried"/"missing" pull the eye toward a value worth double-checking. */
+.ocr-badge {
+  margin-left: 0.3rem;
+  font-size: 0.62rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.ocr-badge[data-badge="retry"] { color: var(--amber); }
+.ocr-badge[data-badge="missing"] { color: var(--danger); }
+.ocr-badge[data-badge="derived"] { color: var(--cyan); }
+/* Feature #9: "Do these N things today" (daily-plan.js), the top-of-Home
+   distilled priority card — a .fallback-section like whats-new-card, just
+   its own list layout for the up-to-3 rows. */
+.daily-plan-list { list-style: none; margin: 0.5rem 0; padding: 0; display: grid; gap: 0.5rem; }
+.daily-plan-item { display: grid; gap: 0.2rem; }

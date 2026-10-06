@@ -510,6 +510,28 @@ function diagnosticsSection(data) {
 }
 
 
+// "Fix and teach" (I3): every scan-row Edit that gets saved with a changed
+// value is a misread recorded locally (see scan-corrections.js) — no image,
+// just field/read/corrected/species/timestamp. This is how misreads become
+// fixtures: copy the report, paste it to the developer.
+function scanCorrectionsSection(data) {
+  const scanCorrections = data.scanCorrections ?? {};
+  const count = scanCorrections.count ?? 0;
+  const status = scanCorrections.copyStatus === "success"
+    ? '<p class="triage-copy-status" role="status">Copied to the clipboard.</p>'
+    : scanCorrections.copyStatus === "failure"
+      ? `<p class="triage-copy-status" role="status">Could not copy automatically — select and copy this text.</p><textarea data-scan-corrections-copy-fallback readonly rows="6">${escapeHtml(scanCorrections.copyPayload ?? "")}</textarea>`
+      : "";
+  return `<section class="more-section" aria-labelledby="more-scan-corrections-title">
+    <p class="status-kicker">Teaching the scanner its misreads</p><h2 id="more-scan-corrections-title">Scan corrections</h2>
+    <p>Every time you edit a scanned row's values before saving, the fix is recorded here — field, what the scan read, what you corrected it to. Local only. Copy the report and paste it to the developer so the misread becomes a fixture.</p>
+    <p><strong>${escapeHtml(count)}</strong> correction${count === 1 ? "" : "s"} recorded.</p>
+    <button type="button" data-action="copy-scan-corrections">Copy corrections report</button>
+    ${status}
+  </section>`;
+}
+
+
 const PUSH_STATE_LABELS = Object.freeze({
   unsupported: "Not supported in this browser",
   default: "Not requested yet",
@@ -920,6 +942,7 @@ export function renderMore(data = {}) {
   })}</div>`;
   if (view === "tradeplanner") return `<div class="more-view">${BACK_TO_MORE}${renderTradePlannerView({
     roster: data.roster, forms: data.forms, friends: data.friends ?? [],
+    rollSelection: data.tradeRollSelection, profileCompare: data.profileCompare, profiles: data.profiles,
   })}</div>`;
   if (view === "powerup") return `<div class="more-view">${BACK_TO_MORE}${renderPowerupView({
     roster: data.roster, forms: data.forms, raids: data.raids,
@@ -951,6 +974,7 @@ export function renderMore(data = {}) {
       ${appSection(data)}
       ${backupSection(data)}
       ${diagnosticsSection(data)}
+      ${scanCorrectionsSection(data)}
       ${shareSection()}
     </div>`;
   }

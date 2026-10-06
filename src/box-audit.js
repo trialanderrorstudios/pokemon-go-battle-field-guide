@@ -10,7 +10,7 @@
 // nothing to rank.
 import { catchVerdict } from "./catch-verdict.js";
 import { buildSearchQuery, toSearchName } from "./game-search.js";
-import { powerUpCost, xlPowerUpCost } from "./raid-target.js";
+import { buildCost } from "./raid-target.js";
 
 const KEEPER_CALLS = new Set(["build", "raid", "gym"]);
 const BATCH_SIZE = 40;
@@ -93,11 +93,9 @@ function bucketSearches(results) {
 // H2: what the whole build queue costs. Every "build" verdict with a known
 // current level and a target level (best.fitsAt) is priced from its level to
 // that target with the app's own power-up tables; XL above 40; shadows pay
-// x1.2 (applied to the regular-candy total, per-step rounding ignored — so
-// shadow totals are approximate, and said so). Evolution candy is not priced:
-// it depends on the family, which the verdict doesn't carry.
-const SHADOW_COST = 1.2;
-
+// the per-step Game Master surcharge via buildCost() (shared with
+// catch-verdict.js's what-if block). Evolution candy is not priced: it
+// depends on the family, which the verdict doesn't carry.
 export function resourcePlan(results) {
   const builds = [];
   for (const { entry, verdict } of results) {
@@ -105,15 +103,13 @@ export function resourcePlan(results) {
     const from = verdict.level;
     const to = verdict.best.fitsAt.level;
     if (!(to > from)) continue;
-    const regular = powerUpCost(from, Math.min(40, to));
-    const xl = to > 40 ? xlPowerUpCost(Math.max(40, from), to, verdict.shadow) : { candy: 0, stardust: 0 };
-    const factor = verdict.shadow ? SHADOW_COST : 1;
+    const cost = buildCost(from, to, verdict.shadow);
     const owned = new Set([entry.instance?.fastMove, ...(entry.instance?.chargedMoves ?? [])].filter(Boolean));
     builds.push({
       id: entry.id, name: verdict.name, league: verdict.best.league, from, to,
-      stardust: Math.round(regular.stardust * factor) + xl.stardust,
-      candy: Math.round(regular.candy * factor),
-      xlCandy: xl.candy,
+      stardust: cost.stardust + cost.xlStardust,
+      candy: cost.candy,
+      xlCandy: cost.xlCandy,
       eliteTms: (verdict.best.eliteMoves ?? []).filter((move) => !owned.has(move)).length,
       evolves: verdict.best.name !== verdict.name,
       shadow: verdict.shadow,

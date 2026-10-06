@@ -6,6 +6,19 @@
 
 export const SHELL_CHANGELOG = Object.freeze([
   Object.freeze({
+    rev: "r192", date: "2026-10-05",
+    added: Object.freeze([
+      "Every catch verdict has an in-game nickname to copy (league, exact IVs, species rank in 12 characters) and a \"What if…\" with the CP after evolving, the dust/candy/XL to reach its best league, and what purifying does.",
+      "Scanning something you already logged says so; scanning one you've powered up since offers to update the logged copy instead of adding a duplicate.",
+      "Scan rows mark each field read, retried, worked out or missing. When you correct a misread, the app remembers what it got wrong (no images) and Settings can copy that report so misreads can be fixed.",
+      "Trade Planner: for any species, the exact odds a trade at each friendship level rolls a hundo (e.g. 1 in 3,375), 3★ or better, or a top-100 Great or Ultra League spread.",
+      "Home: \"Do these 3 things today\" — the three most valuable things to do today, each with the reason, and no repeat of the banners below it.",
+    ]),
+    tweaked: Object.freeze([
+      "Shadow power-up costs are now exact rather than an approximate 1.2× on the total.",
+    ]),
+  }),
+  Object.freeze({
     rev: "r191", date: "2026-10-05",
     added: Object.freeze([
       "Scans spot shadow Pokémon: a purple shadow screen gets a one-tap \"It's shadow — switch\" on its row.",

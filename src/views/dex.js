@@ -23,6 +23,9 @@ import { collectionProgress, livingDexRows } from "../collection.js";
 // not hand-author a second copy of these tables anywhere else") — same
 // source gyms.js/raids.js already derive their own effectiveness math from.
 import { resistancesOf, weaknessesOf } from "../type-chart.js";
+// I3 scan-row confidence badges (read/retried/derived/missing) — pure
+// derivation lives with the parser, not the renderer.
+import { ocrFieldBadges } from "../ocr-intake.js";
 
 const LEAGUE_NAMES = Object.freeze({ great: "Great League", ultra: "Ultra League", master: "Master League" });
 
@@ -1552,16 +1555,34 @@ function ocrProgressHtml(progress) {
   return ` <span class="ocr-intake-progress">(${escapeHtml(progress.done)}/${escapeHtml(progress.total)})</span>`;
 }
 
-function ocrRowFieldsHtml(parsed) {
+// Badge labels for ocrFieldBadges()'s four provenance values — "retry"
+// reads as "retried" here since the row already happened; the rest are
+// shown verbatim.
+const OCR_BADGE_LABELS = Object.freeze({
+  read: "read", retry: "retried", derived: "derived", missing: "missing",
+});
+
+function ocrBadgeHtml(status) {
+  const label = OCR_BADGE_LABELS[status];
+  if (!label) return "";
+  return `<span class="ocr-badge" data-badge="${escapeHtml(status)}">${escapeHtml(label)}</span>`;
+}
+
+function ocrRowFieldsHtml(row) {
+  const parsed = row?.parsed ?? null;
   const name = parsed?.name ?? null;
   const cp = parsed?.cp ?? null;
+  const hp = parsed?.hp ?? null;
   const heightM = parsed?.heightM ?? null;
   const weightKg = parsed?.weightKg ?? null;
+  const badges = ocrFieldBadges(row);
   return `<p class="ocr-row-fields">
-    <span class="ocr-row-field">Name: ${name ? escapeHtml(name) : "—"}</span>
-    <span class="ocr-row-field">CP: ${cp != null ? escapeHtml(cp) : "—"}</span>
-    <span class="ocr-row-field">Height: ${heightM != null ? `${escapeHtml(heightM)} m` : "—"}</span>
-    <span class="ocr-row-field">Weight: ${weightKg != null ? `${escapeHtml(weightKg)} kg` : "—"}</span>
+    <span class="ocr-row-field">Name: ${name ? escapeHtml(name) : "—"}${ocrBadgeHtml(badges.name)}</span>
+    <span class="ocr-row-field">CP: ${cp != null ? escapeHtml(cp) : "—"}${ocrBadgeHtml(badges.cp)}</span>
+    <span class="ocr-row-field">HP: ${hp != null ? escapeHtml(hp) : "—"}${ocrBadgeHtml(badges.hp)}</span>
+    <span class="ocr-row-field">Height: ${heightM != null ? `${escapeHtml(heightM)} m` : "—"}${ocrBadgeHtml(badges.height)}</span>
+    <span class="ocr-row-field">Weight: ${weightKg != null ? `${escapeHtml(weightKg)} kg` : "—"}${ocrBadgeHtml(badges.weight)}</span>
+    <span class="ocr-row-field">IVs: ${ocrBadgeHtml(badges.ivs)}</span>
   </p>`;
 }
 
@@ -1603,13 +1624,19 @@ function ocrIntakeRowHtml(row, verdictFor = null) {
       <div class="ocr-row-actions ocr-row-candidates">${row.ivCandidates.map((combo) => `<button type="button" class="ocr-row-pick-btn" data-ocr-row-set-ivs="${escapeHtml(row.id)}" data-ocr-ivs="${escapeHtml(`${combo.ivs.atk},${combo.ivs.def},${combo.ivs.sta}`)}">${escapeHtml(`${combo.ivs.atk}/${combo.ivs.def}/${combo.ivs.sta}`)}</button>`).join("")}</div>`
     : "";
   let actions = "";
+  const match = !row.accepted ? row.rosterMatch : null;
+  const matchNote = match?.kind === "same"
+    ? `<p class="ocr-row-next">Already in your roster — same IVs, same CP ${escapeHtml(match.cp)}.</p>`
+    : match?.kind === "powered"
+      ? `<p class="ocr-row-next">Same Pokémon you logged at CP ${escapeHtml(match.cp)}, powered up since.</p><div class="ocr-row-actions"><button type="button" class="ocr-row-accept-btn" data-ocr-row-update-instance="${escapeHtml(row.id)}">Update it to CP ${escapeHtml(row.parsed?.cp)}</button></div>`
+      : "";
   const shadowNudge = !row.accepted && row.shadowSuggestion
     ? `<p class="ocr-row-next">Purple shadow aura on this screen.</p><div class="ocr-row-actions"><button type="button" class="ocr-row-pick-btn" data-ocr-row-pick="${escapeHtml(row.id)}" data-ocr-pick-form-id="${escapeHtml(row.shadowSuggestion)}">It's shadow — switch</button></div>`
     : "";
   if (!row.accepted) {
     if (canEdit) {
-      actions = `${shadowNudge}<div class="ocr-row-actions">
-      ${canAccept ? `<button type="button" class="ocr-row-accept-btn" data-ocr-row-accept="${escapeHtml(row.id)}">Accept</button>` : ""}
+      actions = `${matchNote}${shadowNudge}<div class="ocr-row-actions">
+      ${canAccept ? `<button type="button" class="ocr-row-accept-btn" data-ocr-row-accept="${escapeHtml(row.id)}">${match ? "Add as another copy" : "Accept"}</button>` : ""}
       <button type="button" class="ocr-row-edit-btn" data-ocr-row-edit="${escapeHtml(row.id)}">Edit</button>
     </div>${canAccept ? "" : `<p class="ocr-row-next">Needs IVs — Edit opens the quick-add form to finish.</p>`}`;
     } else if (parsed?.candidates?.length) {
@@ -1624,8 +1651,8 @@ function ocrIntakeRowHtml(row, verdictFor = null) {
   }
   return `<li class="${classes}" data-ocr-row-id="${escapeHtml(row.id)}">
     <p class="ocr-row-label">${escapeHtml(row.imageLabel)}</p>
-    ${row.accepted ? `<span class="ocr-row-status is-accepted">Added to roster</span>${row.parsed?.formId ? ` <a class="ocr-row-view-link" data-route="dex" href="./#dex/${encodeURIComponent(row.parsed.formId)}">View in dex</a>` : ""}` : ""}
-    ${unreadable ? `<p class="ocr-row-degrade">${escapeHtml(OCR_ROW_DEGRADE_COPY)}</p>` : ocrRowFieldsHtml(parsed)}
+    ${row.accepted ? `<span class="ocr-row-status is-accepted">${row.updatedExisting ? "Updated the logged copy" : "Added to roster"}</span>${row.parsed?.formId ? ` <a class="ocr-row-view-link" data-route="dex" href="./#dex/${encodeURIComponent(row.parsed.formId)}">View in dex</a>` : ""}` : ""}
+    ${unreadable ? `<p class="ocr-row-degrade">${escapeHtml(OCR_ROW_DEGRADE_COPY)}</p>` : ocrRowFieldsHtml(row)}
     ${solvedLine}
     ${movesReadLine}
     ${ivChips}

@@ -63,7 +63,7 @@ import { remoteRaidVerdict } from "./remote-raid-verdict.js";
 import { renderPartyPanel } from "./views/party.js";
 import { clearBuddyPlan, loadBuddyPlan, saveBuddyPlan } from "./buddy.js";
 import {
-  bestInstanceForForm, buildImportedInstance, buildInstance, calculateCp, instanceLevel, ivCandidatesFromCpHp, maxHp,
+  bestInstanceForForm, buildImportedInstance, buildInstance, calculateCp, instanceLevel, ivCandidatesFromCpHp, maxHp, rosterMatchForScan,
   reviseInstanceCp, solveLevel, STAR_TIER_RANGES,
 } from "./instances.js";
 import { nextMarkState } from "./collection.js";
@@ -131,6 +131,7 @@ import {
 import {
   exportFeedback, loadFeedback, recordFeedback, saveFeedback,
 } from "./feedback.js";
+import { exportScanCorrections, loadScanCorrections, recordScanCorrections } from "./scan-corrections.js";
 import { applyTextSize, loadTextSize, saveTextSize } from "./text-size.js";
 import { clearDiagnostics, exportDiagnostics, installDiagnosticsCapture, loadDiagnostics } from "./diagnostics.js";
 import { applyTheme, loadTheme, saveTheme } from "./theme.js";
@@ -174,6 +175,7 @@ import {
 import { renderSwap } from "./views/swap.js";
 import { toggleTodayTask } from "./views/today.js";
 import { todayDateISO, todayTaskKey } from "./today-tasks.js";
+import { dailyPlanDismissedKey } from "./daily-plan.js";
 import { renderEggs } from "./views/eggs.js";
 import { renderRocket } from "./views/rocket.js";
 import { renderHundo } from "./views/hundo.js";
@@ -1388,6 +1390,12 @@ export function createInteractionState({
     // draft belongs to) — it is never passed to the view.
     quickAdd: null,
     quickAddFormId: null,
+    // "Fix and teach" (I3): set only when the open quickAdd draft was seeded
+    // from a scan row's Edit button — { formId, species, scanned } — so a
+    // save that changes a value the scan actually read can be recorded as a
+    // scan correction (see recordScanCorrections below). Cleared on every
+    // path that discards or replaces the draft.
+    quickAddOcrOrigin: null,
     // I3 OCR bulk-intake — dex.js-owned state shape (blankOcrIntakeState()).
     // Global, not per-formId: a bulk scan can match rows to several different
     // species, unlike quickAdd which is scoped to whichever dex entry is
@@ -1397,11 +1405,14 @@ export function createInteractionState({
     bulkRemove: { pattern: "", error: "", matches: null },
     compare: { formIdA: null, formIdB: null, queryA: "", queryB: "" },
     spreadcheck: { formId: null, query: "", ivs: { atk: 0, def: 0, sta: 0 } },
+    tradeRoll: { formId: null, query: "" },
     boxAudit: { status: "idle", progress: null, summary: null },
     dexShinySprite: false,
     groupMemberName: "",
     groupMessage: "",
     diagnostics: { copyStatus: "", copyPayload: "", storageEstimate: undefined },
+    // I3 "fix and teach" copy-report status — same shape as diagnostics'.
+    scanCorrections: { copyStatus: "", copyPayload: "" },
     textSize: loadTextSize(storage),
     theme: loadTheme(storage),
     trainerProfile: loadTrainerProfile(storage),
@@ -1888,6 +1899,20 @@ export function createInteractionController({
       markLongPressCardEl = null;
     },
     handleInput(event) {
+      const tradeRollQuery = event?.target?.closest?.("[data-traderoll-query]");
+      if (tradeRollQuery) {
+        ui.tradeRoll.query = String(tradeRollQuery.value ?? "").slice(0, 60);
+        const caret = Math.min(
+          Number.isInteger(tradeRollQuery.selectionStart) ? tradeRollQuery.selectionStart : ui.tradeRoll.query.length,
+          ui.tradeRoll.query.length,
+        );
+        const ownerDocument = tradeRollQuery.ownerDocument;
+        rerenderCurrent();
+        const nextInput = ownerDocument?.querySelector?.("[data-traderoll-query]");
+        nextInput?.focus?.({ preventScroll: true });
+        nextInput?.setSelectionRange?.(caret, caret);
+        return;
+      }
       const spreadcheckQuery = event?.target?.closest?.("[data-spreadcheck-query]");
       if (spreadcheckQuery) {
         ui.spreadcheck.query = String(spreadcheckQuery.value ?? "").slice(0, 60);
@@ -1986,6 +2011,11 @@ export function createInteractionController({
       const quickAddCpInput = event?.target?.closest?.("[data-cp-input]");
       if (quickAddCpInput && ui.quickAdd) {
         ui.quickAdd.cp = String(quickAddCpInput.value ?? "");
+        // Clearing a scan-read field back to blank discards that read
+        // outright — the "fix and teach" baseline (ui.quickAddOcrOrigin) no
+        // longer describes this draft, so drop it rather than let a stale
+        // scanned value get diffed against whatever gets typed next.
+        if (ui.quickAdd.cp === "") ui.quickAddOcrOrigin = null;
         const caret = Math.min(
           Number.isInteger(quickAddCpInput.selectionStart) ? quickAddCpInput.selectionStart : ui.quickAdd.cp.length,
           ui.quickAdd.cp.length,
@@ -2003,6 +2033,9 @@ export function createInteractionController({
       const quickAddHeightInput = event?.target?.closest?.("[data-height-input]");
       if (quickAddHeightInput && ui.quickAdd) {
         ui.quickAdd.heightM = String(quickAddHeightInput.value ?? "");
+        // See the cp-input handler above — clearing back to blank drops the
+        // stale "fix and teach" baseline.
+        if (ui.quickAdd.heightM === "") ui.quickAddOcrOrigin = null;
         const caret = Math.min(
           Number.isInteger(quickAddHeightInput.selectionStart) ? quickAddHeightInput.selectionStart : ui.quickAdd.heightM.length,
           ui.quickAdd.heightM.length,
@@ -2017,6 +2050,9 @@ export function createInteractionController({
       const quickAddWeightInput = event?.target?.closest?.("[data-weight-input]");
       if (quickAddWeightInput && ui.quickAdd) {
         ui.quickAdd.weightKg = String(quickAddWeightInput.value ?? "");
+        // See the cp-input handler above — clearing back to blank drops the
+        // stale "fix and teach" baseline.
+        if (ui.quickAdd.weightKg === "") ui.quickAddOcrOrigin = null;
         const caret = Math.min(
           Number.isInteger(quickAddWeightInput.selectionStart) ? quickAddWeightInput.selectionStart : ui.quickAdd.weightKg.length,
           ui.quickAdd.weightKg.length,
@@ -2728,6 +2764,10 @@ export function createInteractionController({
               draft: draftFromParse(parsed),
               issues: parsed.issues,
               accepted: false,
+              // Pipeline-set overrides for ocrFieldBadges (ocr-intake.js) —
+              // only needed where parsed.confidence alone can't tell "derived"
+              // apart from "retried" (see the CP-hidden+bars branch below).
+              provenance: {},
             };
             applyOcrIvSolve(row);
             // Same-screen appraisal (operator, 2026-10-05: shadow Deino CP351
@@ -2769,6 +2809,10 @@ export function createInteractionController({
                   if (fits.length && cps.length === 1) {
                     parsed.cp = cps[0];
                     parsed.confidence.cp = "low";
+                    // Worked out from HP + bars, not a second OCR attempt —
+                    // badge it "derived", not "retried" (ocrFieldBadges
+                    // otherwise reads confidence.cp "low" as a retry).
+                    row.provenance = { ...row.provenance, cp: "derived" };
                     row.draft = { ...row.draft, cp: cps[0], ivs: { ...bars.ivs } };
                     row.solvedIvs = { ivs: { ...bars.ivs }, level: fits[0].level, source: "bars" };
                     row.issues = [...(row.issues ?? []).filter((issue) => issue !== "CP not found."), `CP ${cps[0]} worked out from HP + appraisal — the banner was hidden.`];
@@ -2785,6 +2829,9 @@ export function createInteractionController({
               if (Number.isFinite(aura)) row.rawText += `\n--- shadow aura ${aura.toFixed(3)} (suggest at ${SHADOW_AURA_MIN}) ---`;
               if (aura >= SHADOW_AURA_MIN) row.shadowSuggestion = shadowFormId;
             }
+            // Already logged? (same form + exact IVs) — or the same one
+            // powered up since (higher CP). Saves a duplicate entry.
+            row.rosterMatch = rosterMatchForScan({ formId: parsed.formId, ivs: row.draft?.ivs, cp: parsed.cp }, roster.instances);
             // Two-part scans (operator, 2026-08-13): a moves-screen or
             // appraisal-screen photo has no CP and no HP — it is a FRAGMENT
             // of some other mon in this batch, not its own. Shuffled photo
@@ -3010,6 +3057,7 @@ export function createInteractionController({
           row.issues = (row.issues ?? []).filter((issue) => !/pick (one|manually)/i.test(issue));
           if (row.parsed.issues) row.parsed.issues = row.parsed.issues.filter((issue) => !/pick (one|manually)/i.test(issue));
           applyOcrIvSolve(row);
+          row.rosterMatch = rosterMatchForScan({ formId: row.parsed.formId, ivs: row.draft?.ivs, cp: row.parsed.cp }, roster.instances);
         }
         rerenderCurrent();
         return;
@@ -3023,6 +3071,29 @@ export function createInteractionController({
           row.draft = { ...row.draft, ivs };
           row.solvedIvs = row.ivCandidates?.find((combo) => combo.ivs.atk === ivs.atk && combo.ivs.def === ivs.def && combo.ivs.sta === ivs.sta) ?? { ivs, level: null };
           row.ivCandidates = null;
+          row.rosterMatch = rosterMatchForScan({ formId: row.parsed?.formId, ivs, cp: row.parsed?.cp }, roster.instances);
+        }
+        rerenderCurrent();
+        return;
+      }
+      const ocrRowUpdate = target?.closest?.("[data-ocr-row-update-instance]");
+      if (ocrRowUpdate) {
+        // Same Pokémon, powered up since it was logged: update its CP in place
+        // instead of adding a duplicate.
+        const row = ui.ocrIntake?.rows?.find((candidate) => candidate.id === ocrRowUpdate.dataset.ocrRowUpdateInstance);
+        const instance = (roster.instances ?? []).find((candidate) => candidate.id === row?.rosterMatch?.instanceId);
+        if (row && instance) {
+          try {
+            const revised = reviseInstanceCp(forms[instance.formId], instance, row.parsed.cp);
+            await mutateRoster((current) => ({
+              ...current,
+              instances: (current.instances ?? []).map((candidate) => (candidate.id === revised.id ? revised : candidate)),
+            }));
+            row.accepted = true;
+            row.updatedExisting = true;
+          } catch (error) {
+            row.issues = [...(row.issues ?? []), error?.message ?? String(error)];
+          }
         }
         rerenderCurrent();
         return;
@@ -3087,6 +3158,16 @@ export function createInteractionController({
         if (row && formId) {
           ui.quickAdd = { ...blankQuickAddDraft(), ...row.draft };
           ui.quickAddFormId = formId;
+          ui.quickAddOcrOrigin = {
+            formId,
+            species: forms[formId]?.name ?? formId,
+            scanned: {
+              cp: row.draft.cp ?? "",
+              heightM: row.draft.heightM ?? "",
+              weightKg: row.draft.weightKg ?? "",
+              ivs: row.draft.ivs ? { ...row.draft.ivs } : null,
+            },
+          };
           onNavigateToDex(formId);
         }
         rerenderCurrent();
@@ -3109,7 +3190,10 @@ export function createInteractionController({
           const instance = (roster.instances ?? []).find(
             (row) => row.id === instanceId && row.formId === ui.quickAddFormId,
           );
-          if (instance) ui.quickAdd = quickAddDraftFromInstance(instance);
+          if (instance) {
+            ui.quickAdd = quickAddDraftFromInstance(instance);
+            ui.quickAddOcrOrigin = null;
+          }
         }
         rerenderCurrent();
         return;
@@ -3146,6 +3230,7 @@ export function createInteractionController({
         const qaAction = target?.closest?.("[data-action]")?.dataset?.action;
         if (qaAction === "cancel-edit") {
           ui.quickAdd = blankQuickAddDraft();
+          ui.quickAddOcrOrigin = null;
           rerenderCurrent();
           return;
         }
@@ -3168,6 +3253,7 @@ export function createInteractionController({
               instances: (current.instances ?? []).filter((row) => row.id !== removedId),
             }));
             ui.quickAdd = blankQuickAddDraft();
+            ui.quickAddOcrOrigin = null;
           }
           rerenderCurrent();
           return;
@@ -3278,6 +3364,22 @@ export function createInteractionController({
             await mutateRoster((current) => withInstanceAdded(current, built));
             journalInstanceAdded(built, form, "quick-add");
           }
+          // "Fix and teach" (I3): this save started from a scan row's Edit
+          // button — any field the operator's final values disagree with
+          // what the scan actually read is a misread worth recording (see
+          // scan-corrections.js). IVs are never OCR-read, so they're always
+          // "corrected" from whatever the scan derived (or blank).
+          if (ui.quickAddOcrOrigin?.formId === ui.quickAddFormId) {
+            const origin = ui.quickAddOcrOrigin;
+            const ivsText = (ivs) => (ivs ? `${ivs.atk}/${ivs.def}/${ivs.sta}` : "");
+            recordScanCorrections(storage, origin.species, {
+              cp: origin.scanned.cp, heightM: origin.scanned.heightM,
+              weightKg: origin.scanned.weightKg, ivs: ivsText(origin.scanned.ivs),
+            }, {
+              cp: qa.cp, heightM: qa.heightM, weightKg: qa.weightKg, ivs: ivsText(qa.ivs),
+            });
+          }
+          ui.quickAddOcrOrigin = null;
           ui.quickAdd = {
             ...blankQuickAddDraft(),
             // Transient stamp text (never written onto the persisted
@@ -3831,6 +3933,10 @@ export function createInteractionController({
         const releaseId = actionEl.dataset.releaseId;
         if (releaseId) setStorageFlag(storage, whatsNewDismissedKey(releaseId), "1");
         rerender("home");
+      } else if (action === "dismiss-daily-plan") {
+        const dateISO = actionEl.dataset.dailyPlanDate;
+        if (dateISO) setStorageFlag(storage, dailyPlanDismissedKey(dateISO), "1");
+        rerender("home");
       } else if (action === "dismiss-release-diff") {
         const releaseId = actionEl.dataset.releaseId;
         if (releaseId) setStorageFlag(storage, releaseDiffDismissedKey(releaseId), "1");
@@ -3984,6 +4090,13 @@ export function createInteractionController({
           : outcome === "cancelled" ? ""
           : "Could not share or download the card on this device.";
         rerender("home");
+      } else if (action === "copy-text") {
+        // Generic one-tap copy (scan-row nicknames). The text stays visible
+        // in a <code> next to the button, so a refused clipboard is still
+        // recoverable by long-press.
+        const copied = await (api.onClipboardCopy ?? onClipboardCopy)?.(actionEl.dataset.copyPayload ?? "");
+        announce(controllerWindow()?.document, copied ? "Copied." : "Couldn't copy automatically — long-press the text to copy it.");
+        actionEl.textContent = copied ? "Copied" : "Long-press to copy";
       } else if (action === "share-card-payload") {
         // I2: verdict / cup-team cards carry their data on the button; the
         // *CardData guards re-validate it before anything is drawn.
@@ -4048,6 +4161,11 @@ export function createInteractionController({
         const formId = actionEl.dataset.spreadcheckFormId ?? "";
         ui.spreadcheck.formId = formId || null;
         if (!formId) ui.spreadcheck.query = "";
+        rerenderCurrent();
+      } else if (action === "traderoll-pick") {
+        const formId = actionEl.dataset.traderollFormId ?? "";
+        ui.tradeRoll.formId = formId || null;
+        if (!formId) ui.tradeRoll.query = "";
         rerenderCurrent();
       } else if (action === "compare-pick") {
         const side = actionEl.dataset.compareSide === "b" ? "B" : "A";
@@ -4250,6 +4368,7 @@ export function createInteractionController({
           await mutateRoster(() => blankRoster());
           ui.quickAdd = blankQuickAddDraft();
           ui.quickAddFormId = null;
+          ui.quickAddOcrOrigin = null;
           if (ui.instanceSheet) ui.instanceSheet = null;
           rerender("more");
         }
@@ -4377,6 +4496,12 @@ export function createInteractionController({
           ui.diagnostics.copyPayload = "";
           rerender("more");
         }
+      } else if (action === "copy-scan-corrections") {
+        const payload = exportScanCorrections(storage);
+        const copied = await api.onDiagnosticsCopy?.(payload);
+        ui.scanCorrections.copyStatus = copied ? "success" : "failure";
+        ui.scanCorrections.copyPayload = copied ? "" : payload;
+        rerender("more");
       } else if (action === "cancel-edit-instance") {
         const returnRoute = ui.instanceSheet?.returnRoute ?? "more";
         if (ui.instanceSheet) {
@@ -5412,6 +5537,7 @@ export function bootstrap({
         gym: state.gym,
         compareSelection: ui.compare,
         spreadcheckSelection: ui.spreadcheck,
+        tradeRollSelection: ui.tradeRoll,
         pvpDeepRanks: state.pvpDeepRanks,
         currentEvents: state.currentEvents,
         currentBosses: state.currentBosses ?? state.core?.currentBosses,
@@ -5458,6 +5584,11 @@ export function bootstrap({
           // Which release chunks have actually merged into state this
           // session — "why is Coach stuck loading" support signal.
           loadedChunks: [...loadedChunkPaths].sort(),
+        },
+        scanCorrections: {
+          count: loadScanCorrections(storage).length,
+          copyStatus: ui.scanCorrections.copyStatus,
+          copyPayload: ui.scanCorrections.copyPayload,
         },
       })
       : chunkNotice("more", "More")) + interactionNotice(ui);
@@ -5528,6 +5659,7 @@ export function bootstrap({
         })();
       app.innerHTML = interactionNotice(ui) + renderHome({
         profileName: ui.profiles.profiles.length > 1 ? (ui.profiles.profiles.find((p) => p.id === ui.profiles.activeId)?.name ?? null) : null,
+        profiles: ui.profiles,
         calendarMessage: ui.calendarMessage ?? "",
         questsCardHtml,
         countdownChipsHtml,
@@ -5615,6 +5747,7 @@ export function bootstrap({
       if (ui.quickAddFormId !== view) {
         ui.quickAddFormId = view;
         ui.quickAdd = blankQuickAddDraft();
+        ui.quickAddOcrOrigin = null;
       }
       // Two-panel dex (docs/dex-two-panel-spec.md): a plain matchMedia read,
       // same one-shot pattern this file already uses for prefers-reduced-

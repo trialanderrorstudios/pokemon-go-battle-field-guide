@@ -17,6 +17,8 @@ import { renderToday } from "./today.js";
 import { renderCoachSections } from "./coach.js";
 import { collectionProgress as computeCollectionProgress } from "../collection.js";
 import { buildTodayTasks, todayDateISO, todayTaskKey } from "../today-tasks.js";
+import { loadMedalState } from "../medals.js";
+import { dailyPlan, dailyPlanDismissedKey } from "../daily-plan.js";
 
 
 export function escapeHtml(value) {
@@ -342,9 +344,14 @@ export function nextRaidHour(events, now = new Date()) {
 }
 
 
-export function raidHourBanner({ currentEvents, forms, now = new Date() } = {}) {
+// Feature #9 (coordinator decision): when the daily-plan card already names
+// this exact event, the banner below would just restate it — suppressed via
+// `excludeEventIds` (the card's own eventIds) rather than hidden by chance.
+// An event the card doesn't cover still gets its banner.
+export function raidHourBanner({ currentEvents, forms, now = new Date(), excludeEventIds = null } = {}) {
   const event = nextRaidHour(currentEvents?.events, now);
   if (!event) return "";
+  if (excludeEventIds?.has(event.eventId)) return "";
   const bossName = forms?.[event.formId]?.name ?? event.name.replace(/ Raid Hour$/, "");
   const when = formatRaidHourWhen(event.startsAt, event.endsAt, now);
   const stale = new Date(event.endsAt) < now;
@@ -387,9 +394,11 @@ export function nextSpotlightHour(events, now = new Date()) {
 }
 
 
-export function spotlightHourBanner({ currentEvents, forms, now = new Date() } = {}) {
+// Same daily-plan-card suppression as raidHourBanner above.
+export function spotlightHourBanner({ currentEvents, forms, now = new Date(), excludeEventIds = null } = {}) {
   const event = nextSpotlightHour(currentEvents?.events, now);
   if (!event) return "";
+  if (excludeEventIds?.has(event.eventId)) return "";
   const name = forms?.[event.formId]?.name ?? event.name.replace(/ Spotlight Hour$/, "");
   const when = formatRaidHourWhen(event.startsAt, event.endsAt, now);
   const stale = new Date(event.endsAt) < now;
@@ -1428,6 +1437,29 @@ export function renderTodayStrip({
   </section>`;
 }
 
+// Feature #9 — "Do these N things today": the daily-plan.js scoring
+// distilled into one compact, dismissible-per-day card above the briefing.
+// Silent (empty string) when dailyPlan() found nothing worth naming, or when
+// today's dismiss flag is already set — never a filler card.
+function renderDailyPlanCard({
+  currentEvents, currentBosses, currentMaxBattles, roster, forms, medalState, storage, now,
+} = {}) {
+  const dateISO = todayDateISO(now);
+  if (storage?.getItem?.(dailyPlanDismissedKey(dateISO)) === "1") return "";
+  const items = dailyPlan({
+    now, currentEvents, currentBosses, currentMaxBattles, roster, forms, medalState,
+  });
+  if (!items.length) return "";
+  return `<section class="fallback-section daily-plan-card" aria-labelledby="daily-plan-title">
+    <p class="status-kicker" id="daily-plan-title">Do ${items.length === 1 ? "this" : "these"} today</p>
+    <ul class="daily-plan-list">${items.map((item) => `<li class="daily-plan-item">
+      ${item.href ? `<a href="${escapeHtml(item.href)}"><strong>${escapeHtml(item.title)}</strong></a>` : `<strong>${escapeHtml(item.title)}</strong>`}
+      <p class="briefing-note">${escapeHtml(item.why)}</p>
+    </li>`).join("")}</ul>
+    <button type="button" class="briefing-dismiss" data-action="dismiss-daily-plan" data-daily-plan-date="${escapeHtml(dateISO)}">Dismiss</button>
+  </section>`;
+}
+
 // The whole NOW-anchored rail: the briefing as the fixed NOW node (when
 // there's a rotation to anchor it on), then ending-today (beyond the
 // rotation), starting-tonight, active-now, this-week - each sourced from
@@ -1436,15 +1468,18 @@ export function renderTodayStrip({
 // release with nothing up) shouldn't also blank out real events data.
 // Returns "" only when there is genuinely nothing to show.
 export function renderFieldTimeline({
-  currentBosses, currentEvents, raidTargetTool, forms, roster, data, storage, trainerLevel, gapByFormId = null, now = new Date(), briefingShareMessage = "",
+  currentBosses, currentEvents, raidTargetTool, forms, roster, data, storage, trainerLevel, gapByFormId = null, now = new Date(), briefingShareMessage = "", medalState = null,
 } = {}) {
+  const dailyPlanHtml = renderDailyPlanCard({
+    currentEvents, currentBosses, currentMaxBattles: data?.currentMaxBattles, roster, forms, medalState, storage, now,
+  });
   const briefingHtml = renderFieldBriefing({
     currentBosses, currentEvents, raidTargetTool, forms, roster, data, storage, trainerLevel, now, shareMessage: briefingShareMessage,
   });
   const buckets = buildTimelineBuckets(currentEvents?.events, now);
   const hasEvents = buckets.endingToday.length || buckets.startingTonight.length
     || buckets.activeNow.length || buckets.thisWeek.length;
-  if (!briefingHtml && !hasEvents) return "";
+  if (!dailyPlanHtml && !briefingHtml && !hasEvents) return "";
 
   const items = briefingHtml ? [timelineNowItem(briefingHtml)] : [];
   items.push(timelineBucket({
@@ -1495,11 +1530,14 @@ export function renderFieldTimeline({
   const todayStripHtml = renderTodayStrip({
     currentBosses, currentMaxBattles: data?.currentMaxBattles, currentEvents, roster, forms, storage, raidTargetTool, now,
   });
-  return `<div class="tl-now"><span class="tl-now-chip"><span class="tl-now-dot" aria-hidden="true"></span>NOW · ${escapeHtml(nowLabel)}</span></div>
+  const railHtml = (briefingHtml || hasEvents)
+    ? `<div class="tl-now"><span class="tl-now-chip"><span class="tl-now-dot" aria-hidden="true"></span>NOW · ${escapeHtml(nowLabel)}</span></div>
   ${showcaseLine}
   ${todayStripHtml}
   <div class="tl">${items.join("")}</div>
-  <p class="tl-honesty">Filed for this rotation — the briefing re-files when the rotation changes, not on every open. End times come straight from today's release data; nothing above is a live clock.</p>`;
+  <p class="tl-honesty">Filed for this rotation — the briefing re-files when the rotation changes, not on every open. End times come straight from today's release data; nothing above is a live clock.</p>`
+    : "";
+  return `${dailyPlanHtml}${railHtml}`;
 }
 
 
@@ -1642,6 +1680,7 @@ export function renderHome({
   streakChipHtml = "",
   profileName = null,
   calendarMessage = "",
+  profiles = null,
 } = {}) {
   const continueRoute = CONTINUE_ROUTES.has(continueTask?.route)
     ? continueTask.route
@@ -1653,6 +1692,21 @@ export function renderHome({
       detail: continueTask.detail ?? "Resume your last task.",
     })
     : "";
+  // Daily plan's medal bonus (daily-plan.js regionMedalBonus) reads the same
+  // per-profile medal state the Medals view edits — views/more.js's own
+  // active-profile-id lookup, mirrored here rather than re-plumbed.
+  const medalState = loadMedalState(storage, profiles?.activeId ?? "main");
+  // Coordinator decision: no triple restatement. When the daily-plan card is
+  // showing (not dismissed for today), the Raid/Spotlight Hour banners below
+  // suppress only the event(s) the card already names — anything the card
+  // doesn't cover still gets its banner. Dismiss the card and the banners
+  // return, same as before this feature existed.
+  const dailyPlanShown = storage?.getItem?.(dailyPlanDismissedKey(todayDateISO(now))) !== "1";
+  const dailyPlanEventIds = dailyPlanShown
+    ? new Set(dailyPlan({
+      now, currentEvents, currentBosses, currentMaxBattles: data?.currentMaxBattles, roster, forms, medalState,
+    }).map((item) => item.eventId).filter(Boolean))
+    : new Set();
   return `<section class="home-view" aria-labelledby="today-view-title">
     <form class="fallback-section" role="search" data-global-search>
       <label for="global-search">Search Pokémon, move, type, or raid boss</label>
@@ -1664,10 +1718,10 @@ export function renderHome({
     ${streakChipHtml}
     ${countdownChipsHtml}
     ${renderFieldTimeline({
-    currentBosses, currentEvents, raidTargetTool, forms, roster, data, storage, trainerLevel, gapByFormId, now, briefingShareMessage,
+    currentBosses, currentEvents, raidTargetTool, forms, roster, data, storage, trainerLevel, gapByFormId, now, briefingShareMessage, medalState,
   })}
-    ${raidHourBanner({ currentEvents, forms, now })}
-    ${spotlightHourBanner({ currentEvents, forms, now })}
+    ${raidHourBanner({ currentEvents, forms, now, excludeEventIds: dailyPlanEventIds })}
+    ${spotlightHourBanner({ currentEvents, forms, now, excludeEventIds: dailyPlanEventIds })}
     ${calendarExportHtml(currentEvents, now, calendarMessage)}
     ${questsCardHtml}
     ${evolutionHoldsCardHtml}

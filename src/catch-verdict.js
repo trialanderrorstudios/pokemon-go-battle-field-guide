@@ -16,8 +16,10 @@
 //   - Elite TM cost of the ranked moveset, purify impact (+2 IVs can make a
 //     spread WORSE: Shadow Lapras 0/12/13 is UL #6, purified 2/14/15 is #137),
 //     the Frustration window, and whether you already own a better copy.
+import { buildRenameString } from "./rename-string.js";
 import { rankIvSpread, LEAGUE_CP_CAP, RANK_LEAGUES } from "./pvp-team.js";
 import { calculateCp, solveLevel } from "./instances.js";
+import { buildCost } from "./raid-target.js";
 import { frustrationWindow } from "./frustration-window.js";
 import { escapeHtml } from "./views/home.js";
 
@@ -175,6 +177,68 @@ function ownedBetter(best, ivs, roster, forms) {
 const ivText = (ivs) => `${ivs.atk}/${ivs.def}/${ivs.sta}`;
 const moveName = (id) => String(id).toLowerCase().split("_").map((w) => w[0].toUpperCase() + w.slice(1)).join(" ");
 
+// Sum of evolves_to candyCost edges from fromId to toId, or null if the
+// chain data doesn't connect them (omit the candy figure rather than guess).
+function candyPath(fromId, toId, forms, seen = new Set()) {
+  if (fromId === toId) return 0;
+  if (seen.has(fromId)) return null;
+  seen.add(fromId);
+  for (const edge of forms[fromId]?.evolves_to ?? []) {
+    const rest = candyPath(edge.formId, toId, forms, seen);
+    if (rest !== null) return edge.candyCost + rest;
+  }
+  return null;
+}
+
+// Shadow pre-evolutions carry no evolves_to edges of their own (see the file
+// banner) — their candy cost is still the regular chain's, so walk that one
+// and match against the target's own regular id.
+function evolutionCandyTo(formId, targetId, forms) {
+  if (forms[formId]?.evolves_to?.length) return candyPath(formId, targetId, forms);
+  return candyPath(regularIdOf(formId), regularIdOf(targetId), forms);
+}
+
+// What-if block: evolve (reusing verdict.options, which already walked the
+// targets), power up to the best league fit, and purify (reusing
+// verdict.purify). Pure — no DOM, no I/O — so renderCatchVerdict just joins
+// the strings. Returns [] when there's nothing concrete to say (no level
+// known locks out both CP math lines).
+export function whatIfLines({ formId, cp, level, shadow, options, best, purify }, forms) {
+  const lines = [];
+  if (Number.isFinite(level)) {
+    const seen = new Set();
+    for (const option of options) {
+      if (option.formId === formId || seen.has(option.formId)) continue;
+      seen.add(option.formId);
+      const candy = evolutionCandyTo(formId, option.formId, forms);
+      lines.push(`Evolve to ${option.name}: CP ${cp}→${option.cpNow}${candy != null ? ` (${candy} candy)` : ""}`);
+    }
+    // rankIvSpread's bestBuddy default lets fitsAt.level land on 51 — the
+    // free Best Buddy +1, not a candy-bought level. Price only up to 50 and
+    // name that last step separately.
+    if (best?.fitsAt && best.fitsAt.level > level) {
+      const to = Math.min(50, best.fitsAt.level);
+      const bestBuddy = best.fitsAt.level > 50 ? " + Best Buddy" : "";
+      const cost = to > level ? buildCost(level, to, shadow) : { candy: 0, stardust: 0, xlCandy: 0, xlStardust: 0 };
+      const xlPart = cost.xlCandy ? `, ${cost.xlCandy} XL` : "";
+      // Only name the target species when evolving is part of reaching this
+      // fit — a same-species power-up ("Power up to L30 for Great League")
+      // doesn't need it, an evolving one ("...as Umbreon...") does.
+      const asTarget = best.formId !== formId ? ` as ${best.name}` : "";
+      lines.push(`Power up to L${to}${bestBuddy}${asTarget} for ${LEAGUE_LABEL[best.league]}: ${cost.stardust + cost.xlStardust} dust, ${cost.candy} candy${xlPart}`);
+    }
+  }
+  if (purify) {
+    // Purifying floors the level at 25, which can push CP over the Great
+    // League cap when the pre-purify build's own fit level was already
+    // below that — the ranked spot then isn't reachable purified.
+    const overCap = purify.league === "great" && best?.fitsAt && best.fitsAt.level < 25
+      ? " (purified min L25 — over the Great cap)" : "";
+    lines.push(`Purify: ${ivText(purify.ivs)} → ${LEAGUE_LABEL[purify.league]} spread #${purify.spreadRank}${purify.worse ? " (worse, don't)" : ""}${overCap}`);
+  }
+  return lines;
+}
+
 // catchVerdict({ formId, ivs:{atk,def,sta}, cp?, chargedMoves?, forms, pvp,
 // pvpDeepRanks, raids, gym, roster, currentEvents, now }) -> verdict | null.
 // `chargedMoves`, when known, lets an already-cleared shadow skip the
@@ -273,9 +337,11 @@ export function catchVerdict({
     headline = "No role — transfer.";
   }
 
+  const whatIf = whatIfLines({ formId, cp, level, shadow: form.shadow, options, best, purify }, forms);
+
   return {
     formId, name: form.name, dex: form.dex ?? null, shadow: Boolean(form.shadow), ivs, cp, level,
-    call, headline, best, options, raid: raidRole, gym: gymRole, purify, frustration, ownedBetter: better, lines,
+    call, headline, best, options, raid: raidRole, gym: gymRole, purify, frustration, ownedBetter: better, lines, whatIf,
   };
 }
 
@@ -294,6 +360,15 @@ export function scanRowVerdictHtml(row, ctx = {}) {
   }));
 }
 
+// Poke Genie's signature move, with our verdict in it: the 12-character
+// in-game nickname (rename-string.js) — league letter, the exact IVs in hex,
+// and the species rank for that league. Copy, then paste in-game.
+function renameLine(verdict) {
+  const value = buildRenameString({ league: verdict.best?.league ?? null, ivs: verdict.ivs, speciesRank: verdict.best?.speciesRank ?? null });
+  if (!value) return "";
+  return `<p class="cv-rename">In-game nickname <code>${escapeHtml(value)}</code> <button type="button" class="cv-share" data-action="copy-text" data-copy-payload="${escapeHtml(value)}">Copy</button></p>`;
+}
+
 // Pokedex-entry readout. The app already wears the dex shell (bezel, lens,
 // dx- tokens); this is the voice — a scan result, not a stats table.
 export function renderCatchVerdict(verdict) {
@@ -308,6 +383,8 @@ export function renderCatchVerdict(verdict) {
     <p class="cv-read">${escapeHtml(read)}</p>
     <p class="cv-call">${escapeHtml(verdict.headline)}</p>
     ${verdict.lines.length ? `<ul class="cv-lines">${verdict.lines.map((line) => `<li>${escapeHtml(line)}</li>`).join("")}</ul>` : ""}
+    ${verdict.whatIf?.length ? `<details class="cv-whatif"><summary>What if…</summary><ul>${verdict.whatIf.map((line) => `<li>${escapeHtml(line)}</li>`).join("")}</ul></details>` : ""}
+    ${renameLine(verdict)}
     <button type="button" class="cv-share" data-action="share-card-payload" data-share-type="verdict" data-share-payload="${escapeHtml(JSON.stringify({
     name: verdict.name, tags, read, headline: verdict.headline, lines: verdict.lines,
   }))}">Share</button>

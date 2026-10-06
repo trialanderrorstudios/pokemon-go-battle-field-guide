@@ -316,6 +316,22 @@ export function reviseInstanceCp(form, instance, cp) {
 }
 
 
+// Scan-vs-roster match (2026-10-05, outshine Poke Genie #2): a scanned
+// Pokémon with the same form and exact IVs as a logged copy is either that
+// copy again (same CP) or that copy after power-ups (higher CP). A lower CP
+// than every same-IV copy matches nothing — CP never goes down in-game
+// (purifying changes IVs, so it can't land here either).
+export function rosterMatchForScan({ formId, ivs, cp }, instances) {
+  if (!formId || !ivs || !Number.isInteger(cp)) return null;
+  const same = (instances ?? []).filter((instance) => instance.formId === formId
+    && instance.ivs?.atk === ivs.atk && instance.ivs?.def === ivs.def && instance.ivs?.sta === ivs.sta);
+  const exact = same.find((instance) => instance.cp === cp);
+  if (exact) return { kind: "same", instanceId: exact.id, cp: exact.cp };
+  const below = same.filter((instance) => Number.isInteger(instance.cp) && instance.cp < cp)
+    .sort((a, b) => b.cp - a.cp)[0];
+  return below ? { kind: "powered", instanceId: below.id, cp: below.cp } : null;
+}
+
 // Best (highest-CP) detailed instance owned for a form, or null. Downstream
 // honesty flag: consumers prefer this over the binary owned-star assumption
 // when it exists.

@@ -434,6 +434,39 @@ export function draftFromParse(parsed) {
 }
 
 
+// Per-field provenance badges for a scan row, shown by dex.js next to each
+// read value: "read" (clean first-pass OCR), "retry" (a second-pass retry
+// ran, or the first pass itself was only low-confidence — same badge either
+// way, both mean "trust this less"), "derived" (computed, never OCR-read —
+// IVs always fall here; CP falls here only on the HP+appraisal-bars rescue,
+// where app.js stamps row.provenance.cp = "derived" because the parse
+// pipeline would otherwise mark that read "low" same as a banner retry), or
+// "missing". `row.provenance` carries pipeline-set overrides keyed the same
+// as `parsed.confidence` (formId/cp/hp/heightM/weightKg); confidence alone
+// decides everything else.
+export function ocrFieldBadges(row) {
+  const parsed = row?.parsed ?? {};
+  const confidence = parsed.confidence ?? {};
+  const provenance = row?.provenance ?? {};
+  const fromRead = (value, key) => {
+    if (provenance[key]) return provenance[key];
+    if (value === null || value === undefined) return "missing";
+    return confidence[key] === "low" ? "retry" : "read";
+  };
+  const ivs = row?.draft?.ivs;
+  const ivsComplete = ivs && [ivs.atk, ivs.def, ivs.sta]
+    .every((value) => Number.isInteger(value) && value >= 0 && value <= 15);
+  return {
+    name: fromRead(parsed.name, "formId"),
+    cp: fromRead(parsed.cp, "cp"),
+    hp: fromRead(parsed.hp, "hp"),
+    height: fromRead(parsed.heightM, "heightM"),
+    weight: fromRead(parsed.weightKg, "weightKg"),
+    ivs: ivsComplete ? "derived" : "missing",
+  };
+}
+
+
 // Move ingestion (operator ask 2026-08-13: "will that allow ingestion of
 // moves?"). Once the species is known its legal move list is a CLOSED
 // vocabulary — matching the scan against those exact display names is far

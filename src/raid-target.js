@@ -503,6 +503,28 @@ export function xlPowerUpCost(fromLevel = 40, toLevel = 50, shadow = false) {
   return { candy, stardust };
 }
 
+// Regular (below 40) + XL (40+) Candy/Stardust to power up from fromLevel to
+// toLevel in one call, with the shadow surcharge applied per half-level step
+// like xlPowerUpCost — exact, not a ×1.2-on-the-total approximation. Shared
+// by catch-verdict.js's what-if block and box-audit.js's build-queue pricing
+// so the two never drift apart.
+export function buildCost(fromLevel, toLevel, shadow = false) {
+  const from = Math.max(1, Number(fromLevel) || 1);
+  const to = Math.max(from, Number(toLevel) || from);
+  const regularTo = Math.min(40, to);
+  let candy = 0;
+  let stardust = 0;
+  for (let halfLevel = Math.round(from * 2) + 1; halfLevel <= Math.round(regularTo * 2); halfLevel++) {
+    const level = halfLevel / 2;
+    const tier = POWERUP_TIERS.find((row) => level <= row.upto);
+    if (!tier) continue;
+    candy += shadow ? Math.round(tier.candy * SHADOW_POWERUP_MULTIPLIER) : tier.candy;
+    stardust += shadow ? Math.round(tier.stardust * SHADOW_POWERUP_MULTIPLIER) : tier.stardust;
+  }
+  const xl = to > 40 ? xlPowerUpCost(Math.max(40, from), to, shadow) : { candy: 0, stardust: 0 };
+  return { candy, stardust, xlCandy: xl.candy, xlStardust: xl.stardust };
+}
+
 
 // A Pokemon can only be powered up to (trainer level + 10), hard-capped at
 // the Level 50 endgame ceiling. Verified against Bulbapedia's "Power Up"

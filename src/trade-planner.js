@@ -18,6 +18,8 @@
 //     read in-game friendship tier — so every per-friend suggestion carries
 //     an explicit note instead of a guessed number.
 import { dupeGroups } from "./dupe-advisor.js";
+import { bestLevelUnderCap, LEAGUE_CP_CAP, RANK_MAX_LEVEL, rankIvSpread } from "./pvp-team.js";
+import { STAR_TIER_RANGES } from "./instances.js";
 
 function formTags(form) {
   return new Set((form?.tags ?? []).map((tag) => String(tag).toLowerCase()));
@@ -93,4 +95,81 @@ export function tradePlan({ roster = {}, forms = {}, friends = [], optimalMoves 
   }));
 
   return { baits, perFriend };
+}
+
+// "What will this trade roll?" — per-friendship-tier IV re-roll floors.
+// SOURCE: community-documented (no official Niantic odds page exists);
+// consistently reported by GamePress and The Silph Road trade guides and
+// cross-checked against Pokémon GO Hub's trade writeup (checked 2026-10-05).
+// Each stat (atk/def/sta) rerolls independently and uniformly between the
+// floor and 15 inclusive — the same assumption those guides state and the
+// enumeration below relies on.
+export const TRADE_FRIENDSHIP_TIERS = Object.freeze([
+  Object.freeze({ tier: "Good Friend", floor: 1 }),
+  Object.freeze({ tier: "Great Friend", floor: 2 }),
+  Object.freeze({ tier: "Ultra Friend", floor: 3 }),
+  Object.freeze({ tier: "Best Friend", floor: 5 }),
+  Object.freeze({ tier: "Lucky trade", floor: 12 }),
+]);
+
+// In-game 3-star appraisal is STAR_TIER_RANGES' 37-44 band (instances.js);
+// 45 (the hundo) is that same module's own "4 stars" shorthand for the
+// highlighted top of the 3-star band, not a real 4th star the game shows.
+// This evaluator reports the real in-game label — "3-star or better" — so it
+// reuses the 3-star range's own min instead of a second hardcoded 37.
+const THREE_STAR_SUM_MIN = Math.min(...STAR_TIER_RANGES.filter((range) => range.stars === 3).map((range) => range.min));
+const TOP_RANK_CUTOFF = 100;
+
+function pct(count, total) {
+  return total > 0 ? Math.round((count / total) * 1000) / 10 : 0;
+}
+
+// A league's CP cap only constrains a build if even the best possible IVs
+// (a hundo) get stopped short of the species' own max level by that cap. If
+// a hundo's own best level under the cap already reaches maxLevel, the cap
+// never bites for this species in this league — every spread tops out at
+// (almost) the same level, so "top 100 of 4096 by stat product" doesn't mean
+// "a build worth chasing", it just reflects raw stat totals. Flagged here so
+// the view can render "can't reach the cap" instead of a misleading rank.
+function capIsMeaningful(form, league) {
+  const cap = LEAGUE_CP_CAP[league];
+  if (cap === null) return true;
+  const maxLevel = RANK_MAX_LEVEL[league];
+  return bestLevelUnderCap(form, { atk: 15, def: 15, sta: 15 }, cap, maxLevel) !== maxLevel;
+}
+
+// Exhaustive (not sampled) odds for one species: every possible re-rolled
+// spread from floor..15 on each stat, uniform, is enumerated and classified.
+// rankIvSpread's own rankTable cache (pvp-team.js) is keyed by base stats +
+// league, so repeated calls for the same species/league across tiers reuse
+// one pre-built table instead of rescanning the 4096-spread pool each time.
+export function tradeRollOdds(form) {
+  if (!form) return [];
+  const greatCapMeaningful = capIsMeaningful(form, "great");
+  const ultraCapMeaningful = capIsMeaningful(form, "ultra");
+  return TRADE_FRIENDSHIP_TIERS.map(({ tier, floor }) => {
+    const total = (16 - floor) ** 3;
+    let hundo = 0;
+    let threeStar = 0;
+    let greatTop100 = 0;
+    let ultraTop100 = 0;
+    for (let atk = floor; atk <= 15; atk += 1) {
+      for (let def = floor; def <= 15; def += 1) {
+        for (let sta = floor; sta <= 15; sta += 1) {
+          if (atk === 15 && def === 15 && sta === 15) hundo += 1;
+          if (atk + def + sta >= THREE_STAR_SUM_MIN) threeStar += 1;
+          const ivs = { atk, def, sta };
+          if (greatCapMeaningful && (rankIvSpread(form, ivs, "great")?.rank ?? Infinity) <= TOP_RANK_CUTOFF) greatTop100 += 1;
+          if (ultraCapMeaningful && (rankIvSpread(form, ivs, "ultra")?.rank ?? Infinity) <= TOP_RANK_CUTOFF) ultraTop100 += 1;
+        }
+      }
+    }
+    return {
+      tier, floor, total,
+      hundoCount: hundo,
+      threeStarPct: pct(threeStar, total),
+      greatTop100Pct: greatCapMeaningful ? pct(greatTop100, total) : null,
+      ultraTop100Pct: ultraCapMeaningful ? pct(ultraTop100, total) : null,
+    };
+  });
 }
