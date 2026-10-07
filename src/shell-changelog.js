@@ -6,6 +6,15 @@
 
 export const SHELL_CHANGELOG = Object.freeze([
   Object.freeze({
+    rev: "r197", date: "2026-10-07",
+    added: Object.freeze([
+      "Team coach on PvP → My Team: a switch guide for any full team (suggested lead / safe swap / closer, which teammate resists each attacking type and which hits each type back), warnings when a Pokémon's moves barely dent a type (0.39×), and a check of your logged moves against the ranked moveset in the app's simulator.",
+    ]),
+    tweaked: Object.freeze([
+      "Feed downloads retry when the network is slow instead of failing the data refresh.",
+    ]),
+  }),
+  Object.freeze({
     rev: "r196", date: "2026-10-06",
     added: Object.freeze([
       "Raids opens on \"Raid bosses now\": every boss in rotation by tier, each tile opening its boss card. The boss card shows its infographic right in the app, with Share under it, and boss links on Today and current bosses in the Dex open it.",

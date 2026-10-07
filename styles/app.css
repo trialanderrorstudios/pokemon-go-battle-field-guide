@@ -8914,4 +8914,37 @@ summary + .rocket-battler-mon { border-top: none; }
    and CTA instead of the plain "See counters" text link. */
 .dex-boss-current { border-left: 3px solid var(--cyan); }
 .dex-boss-current-tag { margin: 0 0 0.25rem; font-weight: 700; color: var(--cyan); }
+
+/* Team Coach (My Team view): double-resist (0.39x) warnings, the
+   your-moves-vs-ranked moveset check, and the switch guide — same
+   small-print treatment as the other secondary My Team facts
+   (pvp-myteam-move-delta et al). */
+.pvp-myteam-double-resist {
+  margin: 0.2rem 0 0;
+  padding-left: 1.1rem;
+  font-size: 0.8rem;
+  color: var(--amber);
+}
+.pvp-myteam-moveset-check {
+  margin: 0.3rem 0 0;
+  font-size: 0.82rem;
+  color: var(--muted);
+}
+.pvp-myteam-trade { margin: 0.1rem 0 0; }
+.pvp-switch-guide { margin: 0.6rem 0 0; }
+.pvp-switch-roles,
+.pvp-switch-assumed { font-size: 0.85rem; color: var(--muted); }
+.pvp-switch-table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
+.pvp-switch-table th,
+.pvp-switch-table td {
+  padding: 0.2rem 0.4rem;
+  border-bottom: 1px solid var(--line);
+  text-align: left;
+}
+.pvp-switch-avoid {
+  margin: 0.3rem 0 0;
+  padding-left: 1.1rem;
+  font-size: 0.8rem;
+  color: var(--danger);
+}
 .dex-boss-card-button { display: inline-block; font-weight: 700; }

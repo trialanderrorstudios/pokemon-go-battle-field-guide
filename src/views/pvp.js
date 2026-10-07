@@ -8,6 +8,10 @@ import { levelCapNote, xlPowerUpCost } from "../raid-target.js";
 import { typeChip } from "./types.js";
 import { resistancesOf, weaknessesOf } from "../type-chart.js";
 import { computeMetaCoverage } from "../meta-coverage.js";
+import {
+  avoidSwitchLines, memberMoves, movesetCheck, offenseBlindSpots, suggestedRoles, switchGuideRows,
+} from "../team-coach.js";
+import { MEASURED_AGREEMENT_PCT } from "../pvp-sim.js";
 
 
 export const PVP_LEAGUES = Object.freeze(["great", "ultra", "master"]);
@@ -861,7 +865,51 @@ function idealVsYoursLine(member) {
 }
 
 
-function myTeamMemberCard(league, slot, member, options, pvpMoveCatalog = {}) {
+// Team Coach, check 2: a member's ACTUAL logged moves (never the ranked
+// fallback — this is "what can your real build hit"), or null when moves
+// aren't logged. Also used as the switch guide's per-member input below.
+function actualMemberMoves(member, pvpMoveCatalog) {
+  return member.instance?.fastMove && member.instance?.chargedMoves?.length
+    ? memberMoves(member.instance.fastMove, member.instance.chargedMoves, pvpMoveCatalog)
+    : null;
+}
+
+// Pokémon GO has no true immunities — double-resisted (0.39x) is just the
+// lowest multiplier on the chart, same idiom the boss-card badges already
+// use (app.js's "0.39x"/"0.625x" resist labels) — never "can't hit"/"immune".
+function doubleResistLine(gap) {
+  const blocked = gap.blocked.map((move) => displayMoveName(move.id)).join(" and ");
+  const landingText = gap.landing.length
+    ? ` — ${gap.landing.map((move) => displayMoveName(move.id)).join(" and ")} hit${gap.landing.length === 1 ? "s" : ""} normally`
+    : " — nothing in this moveset hits normally";
+  return `${blocked} barely dent${gap.blocked.length === 1 ? "s" : ""} ${gap.type} types (0.39×)${landingText}.`;
+}
+
+// Team Coach, check 1: simulates the player's actual logged moveset against
+// the league's published (ranked) moveset for this exact owned build, both
+// vs the league's top meta (team-coach.js's movesetCheck — same simulator
+// and published-build helper cup-team.js's "vs meta" sim already uses).
+// Null (renders nothing) when moves aren't logged or already match ranked.
+function moveTradeLine(tradeNote) {
+  if (!tradeNote) return "";
+  const otherText = tradeNote.otherMoveCount === 1 ? "your other move" : "both your other moves";
+  return `<p class="pvp-myteam-trade">${escapeHtml(`${displayMoveName(tradeNote.addedMoveId)} hits ${tradeNote.blockingType}, which resists ${otherText}.`)}</p>`;
+}
+
+function movesetCheckHtml(member, league, pvp, forms, pvpMoveCatalog) {
+  const check = movesetCheck({
+    instance: member.instance, form: member.form, row: member.row, league, pvp, forms, moveCatalog: pvpMoveCatalog,
+  });
+  if (!check) return "";
+  // A 1-win-or-less gap over this few opponents isn't a verdict either way.
+  const tooClose = Math.abs(check.yourWins - check.rankedWins) <= 1;
+  return `<div class="pvp-myteam-moveset-check">
+    <p>Your moves win ${check.yourWins} of ${check.yourTotal} vs the ranked moves' ${check.rankedWins} of ${check.rankedTotal} against ${check.yourTotal} meta opponents, 1-1 shields only${tooClose ? " — too close to call either moveset better from this alone" : ""} <small>(approximate, ${MEASURED_AGREEMENT_PCT}% agreement measured on open GL 1-1)</small>.</p>
+    ${moveTradeLine(check.tradeNote)}
+  </div>`;
+}
+
+function myTeamMemberCard(league, slot, member, options, pvpMoveCatalog = {}, pvp = {}, forms = {}) {
   if (!member) {
     return `<li class="pvp-myteam-slot pvp-myteam-empty" data-my-team-slot-empty="${escapeHtml(slot)}" data-role="${escapeHtml(slot)}">
       <p class="pvp-myteam-heading"><strong class="pvp-team-role" data-role="${escapeHtml(slot)}">${escapeHtml(slot)}</strong></p>
@@ -878,6 +926,8 @@ function myTeamMemberCard(league, slot, member, options, pvpMoveCatalog = {}) {
     ? `<p class="pvp-myteam-rank">${jargonTerm("stat-product", "IV rank")}: ${escapeHtml(rankSummaryText(rank))}</p>`
     : "";
   const moveCounts = member.row ? moveCountText(member.row.fastMove, member.row.chargedMoves, pvpMoveCatalog) : "";
+  const ownMoves = actualMemberMoves(member, pvpMoveCatalog);
+  const doubleResist = ownMoves ? offenseBlindSpots(ownMoves) : [];
   return `<li class="pvp-myteam-slot" data-form-id="${escapeHtml(member.formId)}" data-role="${escapeHtml(slot)}">
     ${spriteHtml(member.formId, { [member.formId]: member.form }, member.form?.name ?? member.formId, member.form?.primary_type)}
     <div class="pvp-myteam-body">
@@ -889,6 +939,8 @@ function myTeamMemberCard(league, slot, member, options, pvpMoveCatalog = {}) {
       ${rankLine}
       ${moveLines.length ? `<ul class="pvp-myteam-move-delta">${moveLines.map((line) => `<li>${escapeHtml(line)}</li>`).join("")}</ul>` : ""}
       ${moveCounts ? `<p class="pvp-myteam-move-counts">${escapeHtml(moveCounts)}</p>` : ""}
+      ${doubleResist.length ? `<ul class="pvp-myteam-double-resist">${doubleResist.map((gap) => `<li>${escapeHtml(doubleResistLine(gap))}</li>`).join("")}</ul>` : ""}
+      ${movesetCheckHtml(member, league, pvp, forms, pvpMoveCatalog)}
       ${myTeamSlotSelect(league, slot, member.formId, options)}
     </div>
   </li>`;
@@ -906,7 +958,46 @@ function myTeamFallback(league, team, forms) {
 }
 
 
-function myTeamSection(league, team, roster, forms, pvpMoveCatalog = {}) {
+// Team Coach, check 3: "who do I switch into what" for a full 3-member
+// team, built from each member's own logged moves (falling back to the
+// league-ranked moveset only when nothing's logged, same honesty rule as
+// the rest of Team Coach — never a fabricated moveset; assumedRanked flags
+// which members fell back, so the view can say so). Renders nothing below
+// a full trio: a 1-2 member team has no "switch to" answer worth giving.
+function switchGuideMembers(team, pvpMoveCatalog) {
+  const filled = (team.members ?? []).filter(Boolean);
+  if (filled.length !== 3) return null;
+  const members = filled.map((member) => {
+    const ownMoves = actualMemberMoves(member, pvpMoveCatalog);
+    const moves = ownMoves
+      ?? (member.row?.fastMove && member.row?.chargedMoves?.length
+        ? memberMoves(member.row.fastMove, member.row.chargedMoves, pvpMoveCatalog) : null);
+    return moves
+      ? { name: member.form?.name ?? member.formId, form: member.form, moves, assumedRanked: !ownMoves }
+      : null;
+  });
+  return members.every(Boolean) ? members : null;
+}
+
+function switchGuideHtml(team, pvpMoveCatalog) {
+  const members = switchGuideMembers(team, pvpMoveCatalog);
+  if (!members) return "";
+  const roles = suggestedRoles(members);
+  const avoidSwitch = avoidSwitchLines(members);
+  const assumed = members.filter((member) => member.assumedRanked);
+  return `<details class="pvp-switch-guide">
+    <summary>Switch guide (suggestion)</summary>
+    ${roles ? `<p class="pvp-switch-roles">${Object.entries(roles).map(([slot, name]) => `${escapeHtml(slot)} — ${escapeHtml(name)}`).join(" · ")}</p>` : ""}
+    ${assumed.length ? `<p class="pvp-switch-assumed">No moves logged for ${escapeHtml(assumed.map((member) => member.name).join(", "))} — using the league-ranked moveset instead of what's actually on that Pokémon.</p>` : ""}
+    <table class="pvp-switch-table"><thead><tr><th>Their attack type</th><th>Switch to (resists it)</th><th>Best to hit that type back</th></tr></thead><tbody>
+      ${switchGuideRows(members).map((row) => `<tr><td>${escapeHtml(row.type)}</td><td>${escapeHtml(row.switchTo)}${row.hitsBack ? "" : ` <small>(${row.backMultiplier.toFixed(2)}× back)</small>`}</td><td>${escapeHtml(row.bestAttacker)} <small>(${row.bestAttackerMultiplier.toFixed(2)}×)</small></td></tr>`).join("")}
+    </tbody></table>
+    ${avoidSwitch.length ? `<ul class="pvp-switch-avoid">${avoidSwitch.map((line) => `<li>Avoid switching ${escapeHtml(line.member)} into ${escapeHtml(line.type)} (all moves 0.39×).</li>`).join("")}</ul>` : ""}
+    <p class="hint">Deterministic from the type chart and each member's logged moves — roles are a heuristic suggestion, not a simulated rating. Checked against a single type at a time: a real two-type opponent's other type can still double-resist (0.39×) through a combination not shown here, or hit back harder than "switch to" implies (e.g. a Fire/Flying attacker's Fire STAB).</p>
+  </details>`;
+}
+
+function myTeamSection(league, team, roster, forms, pvpMoveCatalog = {}, pvp = {}) {
   const options = myTeamOwnedOptions(roster, forms);
   const cap = LEAGUE_CP_CAP[league];
   return `<section class="pvp-section pvp-myteam" aria-labelledby="pvp-myteam-title-${escapeHtml(league)}" data-my-team-league="${escapeHtml(league)}">
@@ -922,8 +1013,9 @@ function myTeamSection(league, team, roster, forms, pvpMoveCatalog = {}) {
     </details>
     ${team.isEmpty
       ? `<p class="pvp-empty">${escapeHtml(team.fallbackMessage)}</p>${myTeamFallback(league, team.fallbackTeam, forms)}`
-      : `<ol class="pvp-myteam-slots">${MY_TEAM_SLOTS.map((slot, index) => myTeamMemberCard(league, slot, team.members[index], options, pvpMoveCatalog)).join("")}</ol>
-      ${team.coverageNote ? `<p class="pvp-myteam-coverage">${escapeHtml(team.coverageNote)}</p>` : ""}`}
+      : `<ol class="pvp-myteam-slots">${MY_TEAM_SLOTS.map((slot, index) => myTeamMemberCard(league, slot, team.members[index], options, pvpMoveCatalog, pvp, forms)).join("")}</ol>
+      ${team.coverageNote ? `<p class="pvp-myteam-coverage">${escapeHtml(team.coverageNote)}</p>` : ""}
+      ${switchGuideHtml(team, pvpMoveCatalog)}`}
     ${backToTop()}
   </section>`;
 }
@@ -962,7 +1054,7 @@ function teamsView(pvp, teams, alternatives, forms, roster, state, trainerLevel 
   return `${jumpNav(sectionLinks)}
   <p class="pvp-attack-iv-note">Why low Attack IV shows up so often: a lower Attack IV keeps CP under the league cap while leaving room for more Defense and HP — same cap, more bulk.</p>
   ${instanceConflictWarnings(conflicts)}
-  ${myTeamLeagues.map((league) => myTeamSection(league, teamsByLeague[league], roster, forms, pvpMoveCatalog)).join("")}
+  ${myTeamLeagues.map((league) => myTeamSection(league, teamsByLeague[league], roster, forms, pvpMoveCatalog, pvp)).join("")}
   <section class="pvp-section" aria-labelledby="pvp-teams-title">
     <p class="status-kicker">${leagueTeams.length} current example teams</p>
     <h2 id="pvp-teams-title">${escapeHtml(leagueName(state.league))} team suggestions</h2>

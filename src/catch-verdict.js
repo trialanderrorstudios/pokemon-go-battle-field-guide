@@ -542,7 +542,7 @@ export function whereItFits({ formId, targets, chainTargets, ivs, cp, canDynamax
 export function catchVerdict({
   formId, ivs, cp = null, chargedMoves = null,
   forms = {}, pvp = {}, pvpDeepRanks = null, raids = {}, gym = {}, roster = null, currentEvents = null, now = new Date(),
-  currentMaxBattles = null, canDynamax = false, canGigantamax = false,
+  currentMaxBattles = null, canDynamax = false, canGigantamax = false, skipFits = false,
 } = {}) {
   const form = forms[formId];
   if (!form || !ivs) return null;
@@ -636,7 +636,8 @@ export function catchVerdict({
   }
 
   const whatIf = whatIfLines({ formId, cp, level, shadow: form.shadow, options, best, purify }, forms);
-  const fits = whereItFits({ formId, targets, chainTargets, ivs, cp, canDynamax, canGigantamax, best, options }, {
+  // The batch box audit never renders fits; skip the walk there (perf budget).
+  const fits = skipFits ? [] : whereItFits({ formId, targets, chainTargets, ivs, cp, canDynamax, canGigantamax, best, options }, {
     forms, pvp, deep: pvpDeepRanks, raids, roster: roster ?? {}, currentEvents, now, level, currentMaxBattles,
   });
 

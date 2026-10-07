@@ -138,7 +138,7 @@ export async function auditBox(entries, ctx, { onProgress = () => {}, yieldFn = 
   const pool = (entries ?? []).filter(judgeable).sort((a, b) => a.formId.localeCompare(b.formId));
   const results = [];
   for (let i = 0; i < pool.length; i += BATCH_SIZE) {
-    for (const entry of pool.slice(i, i + BATCH_SIZE)) results.push({ entry, verdict: verdictForEntry(entry, ctx) });
+    for (const entry of pool.slice(i, i + BATCH_SIZE)) results.push({ entry, verdict: verdictForEntry(entry, { ...ctx, skipFits: true }) });
     onProgress({ done: Math.min(i + BATCH_SIZE, pool.length), total: pool.length });
     await yieldFn();
   }
