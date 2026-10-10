@@ -220,11 +220,21 @@ export function ownedCupPool(cup, ctx) {
 // MEASURED_AGREEMENT_PCT header). rankOne is still the fallback for a league
 // defaultIvs doesn't cover (Master has no CP cap, so no matching PvPoke
 // default) or a row missing the field.
-export function sideFromPublishedBuild(row, form) {
+//
+// preferLeads: use the row's leads-scenario moveset (row.leadsMoves — see
+// pvp.py's _leads_moveset) instead of its overall-scenario fastMove/
+// chargedMoves, when present. simulateVsMeta's opponents are always a 1-1
+// fight — the exact scenario PvPoke's leads moveset was optimized for —
+// so building them at that moveset (rather than the overall one, which
+// diverges on ~1 in 25 rows) matches what the opponent would actually run.
+export function sideFromPublishedBuild(row, form, { preferLeads = false } = {}) {
   const build = row?.defaultIvs?.ivs && row?.defaultIvs?.level ? row.defaultIvs : row?.rankOne;
-  if (!build?.ivs || !build?.level || !row?.fastMove || !row?.chargedMoves?.length) return null;
+  const moveset = preferLeads && row?.leadsMoves?.fastMove && row?.leadsMoves?.chargedMoves?.length
+    ? row.leadsMoves
+    : row;
+  if (!build?.ivs || !build?.level || !moveset?.fastMove || !moveset?.chargedMoves?.length) return null;
   const { attack, defense, stamina } = build.ivs;
-  return { form, ivs: { atk: attack, def: defense, sta: stamina }, level: build.level, fastMove: row.fastMove, chargedMoves: row.chargedMoves };
+  return { form, ivs: { atk: attack, def: defense, sta: stamina }, level: build.level, fastMove: moveset.fastMove, chargedMoves: moveset.chargedMoves };
 }
 
 // An instance is only usable if EVERY move it carries resolves in the
@@ -262,10 +272,12 @@ function sideForMember(member, ctx, league) {
 
 // Simulates each of a cup team's 3 members against the cup meta's top 8
 // (1-1 shields, each side at the build sideForMember resolves). Opponents
-// always use their own published build (sideFromPublishedBuild) — a meta
-// entry without one is dropped rather than guessed at. Cheap (<= 3 x 8 = 24
-// simulatePvp calls); meant for the "vs meta" disclosure in the cup view,
-// not scoring. Each matchup is simulated independently (try/catch per
+// always use their own published build (sideFromPublishedBuild), preferring
+// each opponent's leads-scenario moveset when published (this IS a 1-1
+// fight, the scenario that moveset was optimized for) — a meta entry
+// without a usable build is dropped rather than guessed at. Cheap (<= 3 x 8
+// = 24 simulatePvp calls); meant for the "vs meta" disclosure in the cup
+// view, not scoring. Each matchup is simulated independently (try/catch per
 // member/opponent pair): one bad matchup is dropped from that member's
 // results, it never blanks the whole member or the whole section.
 //
@@ -279,7 +291,7 @@ export function simulateVsMeta(team, meta, ctx, cup) {
   const opponents = meta.slice(0, 8)
     .map((m) => {
       const row = (ctx.pvp?.[league] ?? []).find((r) => r.formId === m.formId);
-      const side = sideFromPublishedBuild(row, ctx.forms?.[m.formId]);
+      const side = sideFromPublishedBuild(row, ctx.forms?.[m.formId], { preferLeads: true });
       return side ? { name: m.name, side } : null;
     })
     .filter(Boolean);

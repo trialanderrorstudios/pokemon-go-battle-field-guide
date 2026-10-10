@@ -6,6 +6,12 @@
 
 export const SHELL_CHANGELOG = Object.freeze([
   Object.freeze({
+    rev: "r199", date: "2026-10-10",
+    tweaked: Object.freeze([
+      "The PvP simulator now agrees with PvPoke's published winner in about 95% of tested Great League matchups (was 86%): cup opponents fight with the moveset PvPoke itself uses for 1-1 fights, and PvPoke's data is refreshed to match the engine version the simulator is ported from.",
+    ]),
+  }),
+  Object.freeze({
     rev: "r198", date: "2026-10-10",
     tweaked: Object.freeze([
       "The PvP simulator now runs a port of PvPoke's own battle engine (MIT licensed): its shield and bait decisions, move timing, damage rounding and Mimikyu's Disguise. It agrees with PvPoke's published winner in about 86% of tested Great League matchups, up from 77%. Cup sims, team coach and moveset checks all use it.",

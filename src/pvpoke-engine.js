@@ -439,13 +439,43 @@ function decideAction(tick, poke, opponent) {
     }
   }
 
+  // Lethal charged move available right now and opponent has no shield left.
+  // ActionLogic.js checks this (and the Mimikyu rush right below) BEFORE the
+  // move-timing optimizer further down — a ready lethal move always fires
+  // immediately, it never waits a tick to better align cooldowns.
+  if (!poke.farmEnergy && opponent.shields === 0) {
+    for (let n = 0; n < poke.activeChargedMoves.length; n++) {
+      const move = poke.activeChargedMoves[n];
+      if (poke.energy < move.energy) continue;
+      const damage = pvpDamage(poke, opponent, move);
+      if (opponent.hp <= damage && !move.selfDebuffing && (n === 0 || (n === 1 && !poke.baitShields)) && opponent.hp > poke.fastMove.damage) {
+        return move;
+      }
+    }
+  }
+
+  // Opponent has Mimikyu's Disguise (or PvPoke's generic "protect"
+  // formChange, which this repo's data only ever sets for Mimikyu) and no
+  // real shield left: rush the CHEAPEST charged move instead of building
+  // up to a bigger one, to pop the free block as early as possible. Ported
+  // as-is, including that it keeps firing every decision cycle for the
+  // rest of the fight (not just until the disguise actually breaks) — a
+  // real quirk of ActionLogic.js's own condition, not refined here.
+  if (opponent.hasDisguise && opponent.shields === 0) {
+    if (poke.energy >= poke.fastestChargedMove.energy && !poke.fastestChargedMove.selfDebuffing) {
+      return poke.fastestChargedMove;
+    }
+  }
+
   // Optimize move timing (Pokemon.js default: poke.optimizeMoveTiming is
   // true for every Pokemon, not a per-species flag — on in every Ranker
   // fight): hold back a ready charged move for one more fast-move cycle
   // when doing so better aligns this side's cooldown against the
   // opponent's, UNLESS any of the "don't optimize" guards below fire (an
   // imminent KO either direction, going over 100 energy, or running out
-  // of turnsToLive first).
+  // of turnsToLive first). Checked AFTER the lethal/Mimikyu blocks above,
+  // matching ActionLogic.js's order — those can return straight through
+  // this optimizer, which only ever says "throw a fast move instead".
   {
     let targetCooldown = TICK_MS;
     if (poke.fastMove.cooldown >= 2000) targetCooldown = 1000;
@@ -499,31 +529,6 @@ function decideAction(tick, poke, opponent) {
       if (poke.hp <= opponent.fastMove.damage * fastMovesInFastMove) optimizeTiming = false;
 
       if (optimizeTiming) return null; // throw a fast move instead, to re-align cooldown timing
-    }
-  }
-
-  // Lethal charged move available right now and opponent has no shield left.
-  if (!poke.farmEnergy && opponent.shields === 0) {
-    for (let n = 0; n < poke.activeChargedMoves.length; n++) {
-      const move = poke.activeChargedMoves[n];
-      if (poke.energy < move.energy) continue;
-      const damage = pvpDamage(poke, opponent, move);
-      if (opponent.hp <= damage && !move.selfDebuffing && (n === 0 || (n === 1 && !poke.baitShields)) && opponent.hp > poke.fastMove.damage) {
-        return move;
-      }
-    }
-  }
-
-  // Opponent has Mimikyu's Disguise (or PvPoke's generic "protect"
-  // formChange, which this repo's data only ever sets for Mimikyu) and no
-  // real shield left: rush the CHEAPEST charged move instead of building
-  // up to a bigger one, to pop the free block as early as possible. Ported
-  // as-is, including that it keeps firing every decision cycle for the
-  // rest of the fight (not just until the disguise actually breaks) — a
-  // real quirk of ActionLogic.js's own condition, not refined here.
-  if (opponent.hasDisguise && opponent.shields === 0) {
-    if (poke.energy >= poke.fastestChargedMove.energy && !poke.fastestChargedMove.selfDebuffing) {
-      return poke.fastestChargedMove;
     }
   }
 
@@ -706,7 +711,8 @@ function decideAction(tick, poke, opponent) {
     finalState.moves[0] = poke.activeChargedMoves[0];
   }
 
-  if (poke.activeChargedMoves.length > 1 && poke.activeChargedMoves[0].energy - finalState.moves[0].energy <= 5 && poke.activeChargedMoves[0].selfBuffing) {
+  if (poke.activeChargedMoves.length > 1 && poke.activeChargedMoves[0].energy - finalState.moves[0].energy <= 5
+    && poke.activeChargedMoves[0].dpe > finalState.moves[0].dpe && poke.activeChargedMoves[0].selfBuffing) {
     finalState.moves[0] = poke.activeChargedMoves[0];
   }
 
@@ -1014,7 +1020,20 @@ function applyEvent(event, log, tick) {
 }
 
 // Known gaps — mechanics PvPoke's own engine has that this port doesn't,
-// left out deliberately rather than missed:
+// left out deliberately rather than missed. Measured by diffing this port
+// fight-by-fight against PvPoke's own real, fetched Battle.js/Pokemon.js/
+// ActionLogic.js/GameMaster.js running in a Node vm (scripts/pvpoke-diff.mjs,
+// not shipped — not vendored into the repo, see that file's header). Once
+// every pvp.<league> row carried its own leads-scenario moveset
+// (leadsMoves — see pvp.py's _leads_moveset and pvp-sim.js's header) in
+// place of the overall-scenario one, that harness reproduces PvPoke's own
+// published leads-scenario ratings at 100% (500/500) — fed the exact
+// moveset its own Ranker used, the real engine always agrees with its own
+// published number, as expected (see "Resolved" below for the data gap
+// that used to cap this at 89.8%). This port agrees with that REAL
+// engine's own winner (not just the published number) on 473/500 (94.6%)
+// of the same pairs — the remaining gap below is genuine engine fidelity,
+// not a moveset or snapshot-date mismatch.
 //
 // - Aegislash's form-change mechanic (shield/blade swap attack and
 //   defense between forms mid-fight, and DamageCalculator.js special-
@@ -1023,8 +1042,34 @@ function applyEvent(event, log, tick) {
 //   both forms (0681-shield/0681-blade), but there's no Aegislash row in
 //   pvp.great at all, so it's unmeasured here and not cheap to add
 //   (dynamic per-battle form/stat switching, not a single extra field).
-// - Cramorant's Gulp Missile form changes (gulping/gorging), gated the
-//   same way — no rows in pvp.great either.
+// - Cramorant's Gulp Missile form changes (gulping/gorging). Unlike
+//   Aegislash, Cramorant DOES appear in pvp.great (as both a subject row
+//   and — more consequentially — as an OPPONENT in other rows' matchups):
+//   the harness's real-engine diff confirms ActionLogic.js checks the
+//   OPPONENT's activeFormId directly (`opponent.activeFormId ==
+//   "cramorant_gulping"`) to decide whether to hold back a charged move
+//   and stack it instead of throwing immediately — i.e. fighting Cramorant
+//   changes the OTHER Pokémon's move timing, not just Cramorant's own. This
+//   is the single largest divergence class the harness finds (11 of the
+//   500 pairs' winners, concentrated on Cramorant match-ups specifically —
+//   up from 7/499 once leadsMoves fixed the moveset mismatch above and
+//   surfaced more genuine Cramorant match-ups that a wrong moveset had
+//   been hiding), confirming the mechanic is both real and measurable, but
+//   still not cheap to add for the reason above (dynamic per-battle
+//   form/stat switching threaded through the OPPONENT's own decision
+//   logic too, not just Cramorant's).
+// - A residual Mimikyu post-Disguise-bust edge case: once Disguise breaks
+//   (see "Already handled" below), decideAction's "opponent can't be
+//   fainted within a couple of charge cycles, just throw the best move"
+//   vs. "plan the full DP lethal sequence" branch choice (the `opponent.hp
+//   / bestCycleDamage > minimumCycleThreshold` check) sits right on its own
+//   boundary for several of Mimikyu's own matchups post-bust, and this
+//   port lands on the opposite side of that boundary from the real engine
+//   for some of them (Mimikyu accounts for 10 of the harness's 27 remaining
+//   winner divergences, up from 5/17 for the same reason as Cramorant
+//   above). Not yet root-caused past confirming it isn't a stat/type
+//   change on the busted form (both are identical to the un-busted form in
+//   gamemaster.json) — flagged here rather than guessed at further.
 // - The hardcoded "Melmetal vs Cresselia" clause in ActionLogic.js's DP
 //   search (skip a lethal-adjacent self-defense-debuffing move specifically
 //   for that one matchup) — a one-pair special case, not ported.
@@ -1048,4 +1093,34 @@ function applyEvent(event, log, tick) {
 // - Mimikyu's Disguise IS ported (hasDisguise/disguiseBusted above) —
 //   hardcoded by speciesId rather than generic formChange data, since
 //   data/sources/raw/pvpoke-pokemon.json confirms it's the only species
-//   using PvPoke's "protect" formChange effect.
+//   using PvPoke's "protect" formChange effect. (See the post-bust DP-
+//   boundary gap above for what's NOT yet fully matched once it fires.)
+// - ActionLogic.js's "lethal charged move available" and Mimikyu-disguise-
+//   rush checks run BEFORE the move-timing optimizer (hold a ready move
+//   back one more cycle to align cooldowns), so a ready lethal/disguise-
+//   breaking move always fires immediately rather than risking a one-tick
+//   delay. This port had the two blocks in the opposite order (fixed by
+//   the differential harness).
+// - The "bandaid to force a more efficient move of similar energy if one
+//   move is self-buffing" reorder (decideAction's DP-plan cleanup) also
+//   requires the candidate move to have a STRICTLY higher dpe than the
+//   planned move, matching ActionLogic.js — this port was missing that
+//   dpe comparison, so it fired whenever energy was merely close (fixed by
+//   the differential harness; found via a Fearow/Tinkaton fight where this
+//   port threw the cheap bait move twice instead of switching to the
+//   bigger kill move once the bait had already been shielded).
+//
+// Resolved — the real engine used to only reproduce PvPoke's own published
+// leads-scenario rating 89.8% of the time (not ~100%): for roughly 18 of
+// the ~280 Great League species in data/processed/encyclopedia.json's
+// pvp.great, the stored chargedMoves (an "overall ranking" moveset) differed
+// from the moveset PvPoke's leads-scenario rankings actually used for that
+// specific Pokémon (e.g. this repo had Altaria running MOONBLAST/
+// SKY_ATTACK, PvPoke's own leads ranking ran MOONBLAST/FLAMETHROWER). That
+// was a canonical-data staleness problem (which moveset got captured per
+// scenario), not a battle-engine bug. Fixed by sourcing each row's
+// leads-scenario moveset (leadsMoves — pvp.py's _leads_moveset) from a new
+// pinned pvpoke-leads-<league> snapshot and having the measurement
+// harnesses (scripts/pvp-sim-agreement.mjs, scripts/pvpoke-diff.mjs,
+// tests/web/pvp-sim.test.mjs) play both sides at leadsMoves instead —
+// real-engine reproduction of the published ratings is now 100% (500/500).

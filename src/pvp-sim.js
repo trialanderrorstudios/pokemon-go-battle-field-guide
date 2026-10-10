@@ -37,7 +37,36 @@ import { simulateBattle } from "./pvpoke-engine.js";
 // is engine fidelity (move-selection/shielding edge cases still undiscovered
 // or deliberately left unported — see pvpoke-engine.js's "Known gaps"),
 // not a scenario mismatch.
-export const MEASURED_AGREEMENT_PCT = 85.7;
+//
+// Raised again, from 85.7% to 86.7%, after scripts/pvpoke-diff.mjs (a
+// differential harness that runs PvPoke's own fetched Battle.js/Pokemon.js/
+// ActionLogic.js in a Node vm and diffs it fight-by-fight against this
+// port — not shipped, not vendored, see that script's header) found and
+// fixed two engine-ordering bugs in pvpoke-engine.js's decideAction (see
+// its "Known gaps" / "Already handled" notes). That harness also measured
+// the REAL engine's own reproduction of these published ratings at 89.8%
+// (448/499) at the time — this port's winner agreed with that real
+// engine's own winner on 96.6% (482/499) of pairs, closer to the ≥98%
+// target than the 86.7% published number suggested, because ~18 species'
+// stored chargedMoves didn't match PvPoke's own leads-scenario-specific
+// moveset (a canonical-data staleness problem, not an engine bug).
+//
+// Raised again, from 86.7% to 94.6%, by fixing that data gap: every
+// pvp.<league> row now also carries `leadsMoves` (pvp.py's
+// _leads_moveset), PvPoke's own leads-scenario moveset for that species —
+// the build its Ranker actually used to compute the published matchups/
+// counters rating, sourced from a new pvpoke-leads-<league> snapshot
+// (scripts/sync-battle-sources.mjs). scripts/pvp-sim-agreement.mjs and the
+// floor test below now play both sides at leadsMoves (falling back to
+// fastMove/chargedMoves for the rare row with no leads entry) instead of
+// the overall-scenario moveset. Re-measuring with the data gap closed:
+// scripts/pvpoke-diff.mjs's real-engine reproduction of the published
+// ratings rose from 89.8% (448/499) to 100% (500/500) — confirming the
+// remaining ~5.4-point gap to the real engine (473/500, see
+// pvpoke-engine.js's "Known gaps") is now genuinely engine fidelity
+// (Cramorant's Gulp Missile, a residual Mimikyu post-Disguise boundary,
+// and a handful of others), not a moveset or snapshot-date mismatch.
+export const MEASURED_AGREEMENT_PCT = 94.6;
 export const AGREEMENT_FLOOR_PCT = MEASURED_AGREEMENT_PCT - 2;
 
 // a/b: { form, ivs: {atk, def, sta}, level, fastMove, chargedMoves }, where

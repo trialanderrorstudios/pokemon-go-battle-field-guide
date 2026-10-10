@@ -49,7 +49,7 @@ function vsMetaHtml(vsMeta) {
   const agreementPct = Math.round(MEASURED_AGREEMENT_PCT);
   return `<details class="cup-sim-section">
     <summary>Simulate your team vs the cup meta</summary>
-    <p class="briefing-note">Approximate: this app's PvPoke-derived simulator agrees with PvPoke's published winner in ~${agreementPct}% of tested Great League matchups, 1-1 shields. Opponents at PvPoke's own default IVs with recommended moves.</p>
+    <p class="briefing-note">Approximate: this app's PvPoke-derived simulator agrees with PvPoke's published winner in ~${agreementPct}% of tested Great League matchups, 1-1 shields. Opponents at PvPoke's own default IVs with the moveset PvPoke uses for 1-1 (leads) fights.</p>
     <ul class="cup-sim-rows">${rows}</ul>
   </details>`;
 }
