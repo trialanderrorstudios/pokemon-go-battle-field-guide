@@ -6,6 +6,12 @@
 
 export const SHELL_CHANGELOG = Object.freeze([
   Object.freeze({
+    rev: "r198", date: "2026-10-10",
+    tweaked: Object.freeze([
+      "The PvP simulator now runs a port of PvPoke's own battle engine (MIT licensed): its shield and bait decisions, move timing, damage rounding and Mimikyu's Disguise. It agrees with PvPoke's published winner in about 86% of tested Great League matchups, up from 77%. Cup sims, team coach and moveset checks all use it.",
+    ]),
+  }),
+  Object.freeze({
     rev: "r197", date: "2026-10-07",
     added: Object.freeze([
       "Team coach on PvP → My Team: a switch guide for any full team (suggested lead / safe swap / closer, which teammate resists each attacking type and which hits each type back), warnings when a Pokémon's moves barely dent a type (0.39×), and a check of your logged moves against the ranked moveset in the app's simulator.",

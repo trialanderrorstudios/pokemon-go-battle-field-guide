@@ -50,6 +50,21 @@ export function effectivenessOf(attackType, defenderTypes) {
   return multiplier;
 }
 
+// How many of defenderTypes are weak to attackType (0, 1, or 2) — not a
+// multiplier. Exists only for callers that need to rebuild the super-
+// effective factor with a different literal than this module's plain 1.6
+// (PvPoke's own engine uses the float32-rounded 1.60000002384185791015625,
+// which shifts floor()'d damage in edge cases — see web/src/pvpoke-
+// engine.js's rawDamage). 0.625/0.390625 need no such adjustment: both are
+// exact negative powers of two in binary floating point at any precision.
+export function superEffectiveCount(attackType, defenderTypes) {
+  return (defenderTypes ?? []).filter(Boolean)
+    // Same priority as effectivenessOf's if/else-if chain: double-resisted
+    // wins over weak for a given type if a table entry ever listed both.
+    .filter((type) => !DOUBLE_RESISTED[attackType]?.includes(type) && SUPER[attackType]?.includes(type))
+    .length;
+}
+
 function ratedTypes(defenderTypes, keep) {
   return ATTACK_TYPES
     .map((type) => ({ type, multiplier: round(effectivenessOf(type, defenderTypes)) }))
