@@ -17,6 +17,7 @@ import { loadDefenseLog } from "./gym-defense-log.js";
 import { loadDrillStats } from "./drill.js";
 import { loadFeedback } from "./feedback.js";
 import { sanitizeMedalState } from "./medals.js";
+import { MAX_ENTRIES as BATTLE_LOG_MAX_ENTRIES, sanitizeBattleLog } from "./battle-log.js";
 import { TEXT_SIZES } from "./text-size.js";
 import { THEMES } from "./theme.js";
 
@@ -33,7 +34,20 @@ const REQUIRED_PAYLOAD_FIELDS = new Set(["roster", "defenseLog", "textSize", "th
 // `medals` (2026-10-06) is the raw pogo-medals dict, already keyed by every
 // profile id in one object, so unlike `profiles` it needs no per-profile
 // unpacking to round-trip every profile's medal/level progress.
-const KNOWN_PAYLOAD_FIELDS = new Set([...REQUIRED_PAYLOAD_FIELDS, "drillStats", "feedback", "profiles", "medals"]);
+// `battleLog` (2026-10-16) is the raw pogo-battle-log dict — same
+// per-profile-id-keyed shape as `medals`.
+const KNOWN_PAYLOAD_FIELDS = new Set([...REQUIRED_PAYLOAD_FIELDS, "drillStats", "feedback", "profiles", "medals", "battleLog"]);
+// Fable review, 2026-10-16: battleLog's profile ids come straight from an
+// imported JSON file's object keys and land in a bracket-assignment loop
+// (`merged[profileId] = ...`) below — unlike a spread/Object.fromEntries
+// (CreateDataProperty, which never consults a prototype setter), a bracket
+// ASSIGNMENT to the literal key "__proto__" sets the object's own
+// prototype, and "constructor"/"prototype" are the same family of footgun
+// one layer up. Skipped explicitly everywhere a profileId drives an
+// assignment, parse included (belt and suspenders — Object.fromEntries
+// there is already safe, but an explicit skip can't regress if that ever
+// changes to a loop).
+const DANGEROUS_PROFILE_KEYS = new Set(["__proto__", "constructor", "prototype"]);
 const TEXT_SIZE_SET = new Set(TEXT_SIZES);
 const THEME_SET = new Set(THEMES);
 
@@ -58,10 +72,10 @@ export class BackupImportError extends Error {
 // imported file is preserved opaquely (see parseBackupEnvelope's `extra`).
 export function buildBackupEnvelope({
   roster, defenseLog, textSize, theme, appShellRevision,
-  drillStats = { currentStreak: 0, bestStreak: 0 }, feedback = [], profiles = null, medals = {},
+  drillStats = { currentStreak: 0, bestStreak: 0 }, feedback = [], profiles = null, medals = {}, battleLog = {},
   now = () => new Date().toISOString(),
 }) {
-  const payload = { roster, defenseLog, textSize, theme, drillStats, feedback, medals };
+  const payload = { roster, defenseLog, textSize, theme, drillStats, feedback, medals, battleLog };
   if (profiles) payload.profiles = profiles;
   return {
     formatVersion: BACKUP_FORMAT_VERSION,
@@ -170,6 +184,18 @@ export async function parseBackupEnvelope(text, validFormIds) {
   const medals = Object.fromEntries(
     Object.entries(rawMedals).map(([profileId, state]) => [profileId, sanitizeMedalState(state)]),
   );
+  // Optional (missing on pre-2026-10-16 backups) — same "trust the store's
+  // own normalizer" rule as medals above, plus validFormIds so an entry
+  // naming a formId that doesn't exist in this release is dropped, the same
+  // honesty rule importRoster already applies to a backed-up roster.
+  // "__proto__"/"constructor"/"prototype" profile ids are skipped outright —
+  // see DANGEROUS_PROFILE_KEYS above.
+  const rawBattleLog = isPlainObject(raw.payload.battleLog) ? raw.payload.battleLog : {};
+  const battleLog = Object.fromEntries(
+    Object.entries(rawBattleLog)
+      .filter(([profileId]) => !DANGEROUS_PROFILE_KEYS.has(profileId))
+      .map(([profileId, entries]) => [profileId, sanitizeBattleLog(entries, validFormIds)]),
+  );
   // Anything beyond the known fields is a future store this build of the app
   // doesn't understand yet. JSON.parse already guarantees these are plain
   // JSON values, so they're carried through this parse step rather than
@@ -188,7 +214,7 @@ export async function parseBackupEnvelope(text, validFormIds) {
     exportedAt: raw.exportedAt,
     appShellRevision: raw.appShellRevision ?? null,
     payload: {
-      roster, defenseLog, textSize: raw.payload.textSize, theme: raw.payload.theme, drillStats, feedback, medals, extra,
+      roster, defenseLog, textSize: raw.payload.textSize, theme: raw.payload.theme, drillStats, feedback, medals, battleLog, extra,
       ...(profiles ? { profiles } : {}),
     },
   };
@@ -371,6 +397,43 @@ function replaceAllMedals(current, imported) {
 }
 
 
+// One profile's battle log: union by entry id (not unionNewestById's
+// timestamp-wins rule — a logged match is never "superseded" by another
+// device's, both are real matches that happened), then re-sanitized and
+// capped at the same MAX_ENTRIES a live log enforces on itself.
+function mergeBattleLogEntries(current, imported) {
+  const byId = new Map(sanitizeBattleLog(current).map((entry) => [entry.id, entry]));
+  for (const entry of sanitizeBattleLog(imported)) if (!byId.has(entry.id)) byId.set(entry.id, entry);
+  return [...byId.values()].sort((a, b) => a.ts - b.ts).slice(-BATTLE_LOG_MAX_ENTRIES);
+}
+
+// battleLog is the raw pogo-battle-log dict (every profile id -> entries) —
+// same per-profile-id merge shape as mergeAllMedals above.
+function mergeAllBattleLogs(current, imported) {
+  const safeCurrent = isPlainObject(current) ? current : {};
+  const safeImported = isPlainObject(imported) ? imported : {};
+  const merged = {};
+  for (const profileId of new Set([...Object.keys(safeCurrent), ...Object.keys(safeImported)])) {
+    if (DANGEROUS_PROFILE_KEYS.has(profileId)) continue;
+    merged[profileId] = mergeBattleLogEntries(safeCurrent[profileId], safeImported[profileId]);
+  }
+  return merged;
+}
+
+// Replace overwrites only the profile ids the backup actually carries — same
+// "absent profile keeps its current data" rule as replaceAllMedals above.
+function replaceAllBattleLogs(current, imported) {
+  const safeCurrent = isPlainObject(current) ? current : {};
+  const safeImported = isPlainObject(imported) ? imported : {};
+  const merged = { ...safeCurrent };
+  for (const [profileId, entries] of Object.entries(safeImported)) {
+    if (DANGEROUS_PROFILE_KEYS.has(profileId)) continue;
+    merged[profileId] = sanitizeBattleLog(entries);
+  }
+  return merged;
+}
+
+
 // Combines a currently-loaded app state with a parsed backup's payload.
 // textSize/theme are per-device ergonomics, not shared data — merge leaves
 // them as this device already has them; only replaceBackupPayload changes
@@ -384,6 +447,7 @@ export function mergeBackupPayload(current, imported) {
     drillStats: mergeDrillStats(current.drillStats, imported.drillStats),
     feedback: mergeFeedback(current.feedback, imported.feedback),
     medals: mergeAllMedals(current.medals, imported.medals),
+    battleLog: mergeAllBattleLogs(current.battleLog, imported.battleLog),
     extra: { ...(current.extra ?? {}), ...(imported.extra ?? {}) },
   };
 }
@@ -403,6 +467,7 @@ export function replaceBackupPayload(imported, current = {}) {
     drillStats: imported.drillStats ?? { currentStreak: 0, bestStreak: 0 },
     feedback: imported.feedback ?? [],
     medals: replaceAllMedals(current.medals, imported.medals),
+    battleLog: replaceAllBattleLogs(current.battleLog, imported.battleLog),
     extra: imported.extra ?? {},
   };
 }

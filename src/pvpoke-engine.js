@@ -87,9 +87,11 @@ function battleStats(form, ivs, level) {
 }
 
 // DamageCalculator.damage's default branch (percentMaxHP moves aren't in
-// this repo's PvP catalog, so that branch is omitted) — attack/defense are
-// already buff-stage-adjusted by the caller, chargeMultiplier/mega are
-// always 1 in "simulate" mode with no mega data, so neither is a parameter.
+// this repo's PvP move catalog — the only two that exist, Gulp Missile's
+// retaliation hits, are hardcoded below and use percentMaxHpDamage instead)
+// — attack/defense are already buff-stage-adjusted by the caller,
+// chargeMultiplier/mega are always 1 in "simulate" mode with no mega data,
+// so neither is a parameter.
 function rawDamage(attack, defense, attackerTypes, defenderTypes, move) {
   const stab = attackerTypes.includes(move.type) ? STAB : 1;
   const weakCount = superEffectiveCount(move.type, defenderTypes);
@@ -113,6 +115,19 @@ function effectiveDefense(side) {
 // DamageCalculator.damage(attacker, defender, move) for "simulate" mode.
 function pvpDamage(attackerSide, defenderSide, move) {
   return rawDamage(effectiveAttack(attackerSide), effectiveDefense(defenderSide), attackerSide.stats.types, defenderSide.stats.types, move);
+}
+
+// Cramorant's Gulp Missile retaliation hits (Battle.js's GULP_MISSILE_ARROKUDA/
+// GULP_MISSILE_PIKACHU, both "unlisted" gamemaster moves with no PvPoke-UI
+// move-picker entry, so they aren't in this repo's pvpMoveCatalog — copied
+// here as literals instead). damageMethod "percentMaxHP": flat % of the
+// TARGET's own max HP, ignoring attack/defense/type/STAB entirely (see
+// DamageCalculator.damage's percentMaxHP branch).
+const GULP_MISSILE_ARROKUDA = { id: "GULP_MISSILE_ARROKUDA", power: 15, buffs: [0, -1], buffTarget: "opponent", buffApplyChance: 1 };
+const GULP_MISSILE_PIKACHU = { id: "GULP_MISSILE_PIKACHU", power: 15, buffs: [-2, 0], buffTarget: "opponent", buffApplyChance: 1 };
+
+function percentMaxHpDamage(move, defenderSide) {
+  return Math.floor((move.power / 100) * defenderSide.stats.hp) + 1;
 }
 
 function resolveMove(moveId, moveCatalog) {
@@ -217,6 +232,16 @@ function makeSide(spec, moveCatalog) {
     // addition to its real shield count.
     hasDisguise: spec.form?.upstream_id === "mimikyu",
     disguiseBusted: false,
+    // Cramorant's Gulp Missile form change (Pokemon.js's activeFormId,
+    // Battle.js's formChange "variable" cramorant_gulping/cramorant_gorging
+    // handling): hardcoded by speciesId for the same one-Pokemon-mechanic
+    // reason as hasDisguise above. Starts in its base form; swaps to
+    // gulping/gorging the moment it throws DIVE or SURF (see applyHit),
+    // and back to base the moment that form retaliates (see
+    // maybeFireGulpMissile) — ActionLogic.js reads this both on Cramorant's
+    // own decideAction (rush Dive/Surf) and on its OPPONENT's (hold back a
+    // charged move while Cramorant is gulping/gorging).
+    activeFormId: spec.form?.upstream_id === "cramorant" ? "cramorant" : null,
     activeChargedMoves: [], fastestChargedMove: null, bestChargedMove: null,
     energy: 0, cooldown: 0, hp: stats.hp, shields: 0, startingShields: 0,
     atkStage: 0, defStage: 0, pendingFast: null, hasActed: false,
@@ -264,10 +289,10 @@ function prepareMatchup(side, opponent) {
   side.bestChargedMove = ordered.length ? pickBestChargedMove(ordered) : null;
 }
 
-// ActionLogic.wouldShield, minus the Aegislash/Cramorant-form and
-// always-bait (attacker.baitShields == 2) clauses — no data for those forms
-// in this repo, and baitShields stays PvPoke's default (1, "baits
-// selectively") since this app doesn't expose a per-Pokemon baiting toggle.
+// ActionLogic.wouldShield, minus the Aegislash-form and always-bait
+// (attacker.baitShields == 2) clauses — no Aegislash data in this repo, and
+// baitShields stays PvPoke's default (1, "baits selectively") since this
+// app doesn't expose a per-Pokemon baiting toggle.
 function wouldShield(attacker, defender, move) {
   const damage = pvpDamage(attacker, defender, move);
   move.damage = damage;
@@ -325,6 +350,23 @@ function wouldShield(attacker, defender, move) {
   if (move.selfAttackDebuffing && move.damage / defender.hp > 0.55) {
     useShield = true;
     shieldWeight = 4;
+  }
+
+  // Save shields in Cramorant's gulping/gorging form to trigger Gulp
+  // Missile earlier against weak moves — a hard override (not just a
+  // weight nudge), same as upstream.
+  if ((defender.activeFormId === "cramorant_gulping" || defender.activeFormId === "cramorant_gorging") && move.damage * 2.2 < defender.hp) {
+    useShield = false;
+  }
+  // Don't shield early Cramorant Dives/Surfs (still in base form) to save
+  // shields for later, bigger attacks — including, oddly but faithfully, a
+  // Dive/Surf that would otherwise be lethal (upstream's own quirk, not
+  // refined here).
+  if (attacker.speciesId === "cramorant" && move.damage && move.damage / defender.hp < 0.33) {
+    useShield = false;
+  }
+  if (attacker.speciesId === "cramorant" && (move.id === "DIVE" || move.id === "SURF") && move.damage > defender.hp) {
+    useShield = false;
   }
 
   return { value: useShield, shieldWeight, noShieldWeight };
@@ -455,13 +497,16 @@ function decideAction(tick, poke, opponent) {
   }
 
   // Opponent has Mimikyu's Disguise (or PvPoke's generic "protect"
-  // formChange, which this repo's data only ever sets for Mimikyu) and no
-  // real shield left: rush the CHEAPEST charged move instead of building
-  // up to a bigger one, to pop the free block as early as possible. Ported
-  // as-is, including that it keeps firing every decision cycle for the
-  // rest of the fight (not just until the disguise actually breaks) — a
-  // real quirk of ActionLogic.js's own condition, not refined here.
-  if (opponent.hasDisguise && opponent.shields === 0) {
+  // formChange, which this repo's data only ever sets for Mimikyu), it
+  // hasn't busted yet, and no real shield left: rush the CHEAPEST charged
+  // move instead of building up to a bigger one, to pop the free block as
+  // early as possible. Upstream's own condition reads
+  // `opponent.formChange?.effect == "protect"` — Pokemon.js's changeForm
+  // overwrites a Pokemon's `formChange` with its NEW form's own gamemaster
+  // entry the moment Disguise busts (mimikyu_busted's formChange has no
+  // "effect" key), so this stops firing once busted, not forever as an
+  // earlier version of this comment claimed.
+  if (opponent.hasDisguise && !opponent.disguiseBusted && opponent.shields === 0) {
     if (poke.energy >= poke.fastestChargedMove.energy && !poke.fastestChargedMove.selfDebuffing) {
       return poke.fastestChargedMove;
     }
@@ -529,6 +574,18 @@ function decideAction(tick, poke, opponent) {
       if (poke.hp <= opponent.fastMove.damage * fastMovesInFastMove) optimizeTiming = false;
 
       if (optimizeTiming) return null; // throw a fast move instead, to re-align cooldown timing
+    }
+  }
+
+  // Cramorant, still in its base form: rush Dive/Surf (its Gulp-Missile-
+  // triggering moves) as soon as affordable, unless its other move is
+  // meaningfully more effective right now.
+  if (poke.activeFormId === "cramorant") {
+    const gulpMove = poke.activeChargedMoves.find((m) => m.id === "DIVE" || m.id === "SURF");
+    const nonGulpMove = poke.activeChargedMoves.find((m) => m.id !== "DIVE" && m.id !== "SURF");
+    if (gulpMove && nonGulpMove && poke.energy >= gulpMove.energy
+      && opponent.hp > nonGulpMove.damage * 1.3 && nonGulpMove.dpe / gulpMove.dpe < 1.5) {
+      return gulpMove;
     }
   }
 
@@ -751,7 +808,13 @@ function decideAction(tick, poke, opponent) {
     }
   }
 
-  if (finalState.moves[0].selfDebuffing) {
+  // Same stacking logic also applies while the OPPONENT is Cramorant in its
+  // gulping/gorging Gulp-Missile form, even when poke's own planned move
+  // isn't self-debuffing: each separate unshielded charged throw against a
+  // gulping/gorging Cramorant eats a free retaliation hit (see
+  // maybeFireGulpMissile), so it's worth delaying to stack energy and
+  // throw fewer, bigger hits instead of many small ones.
+  if (finalState.moves[0].selfDebuffing || opponent.activeFormId === "cramorant_gulping" || opponent.activeFormId === "cramorant_gorging") {
     const targetEnergy = Math.floor(100 / finalState.moves[0].energy) * finalState.moves[0].energy;
     if (poke.energy < targetEnergy) {
       const moveDamage = pvpDamage(poke, opponent, finalState.moves[0]);
@@ -974,13 +1037,14 @@ function resolveHit(event) {
 // useMove's shield-decision default (Battle.js lines ~1074-1137, non-sandbox
 // path): shield ANY charged hit with a shield available, EXCEPT for a
 // self-buffing move (don't block an opponent's own buildup turn — the move
-// barely hurts, and blocking it stops nothing) or when the shield-holder's
-// own best move will soon debuff its own defense (it may want to save
-// shields for after that debuff lands) — those two cases defer to
-// wouldShield()'s real calculation instead of the blanket "always block"
-// default. Species exceptions (Aegislash/Cramorant/Mimikyu) are omitted —
-// no data for those forms in this repo.
+// barely hurts, and blocking it stops nothing), when the shield-holder's own
+// best move will soon debuff its own defense (it may want to save shields
+// for after that debuff lands), or (now ported) the two Cramorant-specific
+// cases below — those defer to wouldShield()'s real calculation instead of
+// the blanket "always block" default. The Aegislash exception is still
+// omitted — no data for that form in this repo.
 function decideShield(attacker, defender, move) {
+  const damage = pvpDamage(attacker, defender, move);
   let useShield = true;
   if (move.buffs && move.selfBuffing
     && ((move.buffTarget === "self" && move.buffs[0] > 0) || (move.buffTarget === "opponent" && move.buffs[1] < 0))) {
@@ -1000,6 +1064,17 @@ function decideShield(attacker, defender, move) {
       }
     }
   }
+  // Save shields in Cramorant's gulping/gorging form to trigger Gulp
+  // Missile earlier against weak moves (it wants the retaliation hit more
+  // than it wants to block a hit it can comfortably take).
+  if ((defender.activeFormId === "cramorant_gulping" || defender.activeFormId === "cramorant_gorging") && damage * 2.2 < defender.hp) {
+    useShield = wouldShield(attacker, defender, move).value;
+  }
+  // Don't shield early Cramorant Dives/Surfs (still in base form) to save
+  // shields for later, bigger attacks.
+  if (attacker.speciesId === "cramorant" && damage / defender.hp < 0.33) {
+    useShield = wouldShield(attacker, defender, move).value;
+  }
   return useShield;
 }
 
@@ -1011,6 +1086,37 @@ function applyHit(event, hit, log, tick) {
   else side.energy -= move.energy;
   applyBuffIfCertain(move, side, opp);
   log.push({ turn: tick, by: label, move: move.id, kind, damage: hit.damage, shielded: hit.shielded });
+
+  // Cramorant's own form change: throwing Dive or Surf from its base form
+  // triggers Gulp Missile — gulping if still above half HP, gorging
+  // otherwise. Battle.js applies this regardless of whether the hit landed
+  // or was shielded (it's the THROWER's own post-attack form change, not
+  // gated on the defender's reaction).
+  if (side.activeFormId === "cramorant" && kind === "charged" && (move.id === "DIVE" || move.id === "SURF")) {
+    side.activeFormId = side.hp / side.stats.hp > 0.5 ? "cramorant_gulping" : "cramorant_gorging";
+  }
+
+  maybeFireGulpMissile(opp, side, label === "a" ? "b" : "a", hit, kind, log, tick);
+}
+
+// Battle.js's Gulp Missile trigger: a gulping/gorging Cramorant that takes
+// an unshielded charged hit immediately retaliates against its attacker
+// with GULP_MISSILE_ARROKUDA/PIKACHU (percentMaxHP damage plus a debuff;
+// "instant", so it ignores shields and — since this is applied directly
+// rather than re-entering resolveHit/applyHit — can't re-trigger itself),
+// then reverts to its base form.
+function maybeFireGulpMissile(cramorantSide, attackerSide, cramorantLabel, hit, kind, log, tick) {
+  if (kind !== "charged" || hit.shielded) return;
+  if (cramorantSide.activeFormId !== "cramorant_gulping" && cramorantSide.activeFormId !== "cramorant_gorging") return;
+  // Upstream's Pikachu missile lacks ignoresFaint: a gorging Cramorant KO'd
+  // by the hit never fires it (review fix).
+  if (cramorantSide.activeFormId === "cramorant_gorging" && cramorantSide.hp <= 0) return;
+  const retaliation = cramorantSide.activeFormId === "cramorant_gulping" ? GULP_MISSILE_ARROKUDA : GULP_MISSILE_PIKACHU;
+  const damage = percentMaxHpDamage(retaliation, attackerSide);
+  attackerSide.hp = Math.max(0, attackerSide.hp - damage);
+  applyBuffIfCertain(retaliation, cramorantSide, attackerSide);
+  log.push({ turn: tick, by: cramorantLabel, move: retaliation.id, kind: "charged", damage, shielded: false });
+  cramorantSide.activeFormId = "cramorant";
 }
 
 function applyEvent(event, log, tick) {
@@ -1020,6 +1126,10 @@ function applyEvent(event, log, tick) {
 }
 
 // Known gaps — mechanics PvPoke's own engine has that this port doesn't,
+// (Surf: upstream's Cramorant clauses compare move.moveID — a typo — so only
+// Dive triggers its lethal-no-shield rule there; this port treats Surf like
+// Dive. No effect on ranked data (Cramorant runs Dive), can differ for a
+// user-chosen Surf set.)
 // left out deliberately rather than missed. Measured by diffing this port
 // fight-by-fight against PvPoke's own real, fetched Battle.js/Pokemon.js/
 // ActionLogic.js/GameMaster.js running in a Node vm (scripts/pvpoke-diff.mjs,
@@ -1031,9 +1141,10 @@ function applyEvent(event, log, tick) {
 // moveset its own Ranker used, the real engine always agrees with its own
 // published number, as expected (see "Resolved" below for the data gap
 // that used to cap this at 89.8%). This port agrees with that REAL
-// engine's own winner (not just the published number) on 473/500 (94.6%)
-// of the same pairs — the remaining gap below is genuine engine fidelity,
-// not a moveset or snapshot-date mismatch.
+// engine's own winner (not just the published number) on 491/500 (98.2%)
+// of the same pairs, up from 473/500 (94.6%) after porting Cramorant's
+// Gulp Missile form change and fixing a Mimikyu post-Disguise regression
+// (both below, under "Resolved") — the remaining 9 pairs are below.
 //
 // - Aegislash's form-change mechanic (shield/blade swap attack and
 //   defense between forms mid-fight, and DamageCalculator.js special-
@@ -1042,34 +1153,20 @@ function applyEvent(event, log, tick) {
 //   both forms (0681-shield/0681-blade), but there's no Aegislash row in
 //   pvp.great at all, so it's unmeasured here and not cheap to add
 //   (dynamic per-battle form/stat switching, not a single extra field).
-// - Cramorant's Gulp Missile form changes (gulping/gorging). Unlike
-//   Aegislash, Cramorant DOES appear in pvp.great (as both a subject row
-//   and — more consequentially — as an OPPONENT in other rows' matchups):
-//   the harness's real-engine diff confirms ActionLogic.js checks the
-//   OPPONENT's activeFormId directly (`opponent.activeFormId ==
-//   "cramorant_gulping"`) to decide whether to hold back a charged move
-//   and stack it instead of throwing immediately — i.e. fighting Cramorant
-//   changes the OTHER Pokémon's move timing, not just Cramorant's own. This
-//   is the single largest divergence class the harness finds (11 of the
-//   500 pairs' winners, concentrated on Cramorant match-ups specifically —
-//   up from 7/499 once leadsMoves fixed the moveset mismatch above and
-//   surfaced more genuine Cramorant match-ups that a wrong moveset had
-//   been hiding), confirming the mechanic is both real and measurable, but
-//   still not cheap to add for the reason above (dynamic per-battle
-//   form/stat switching threaded through the OPPONENT's own decision
-//   logic too, not just Cramorant's).
-// - A residual Mimikyu post-Disguise-bust edge case: once Disguise breaks
-//   (see "Already handled" below), decideAction's "opponent can't be
-//   fainted within a couple of charge cycles, just throw the best move"
-//   vs. "plan the full DP lethal sequence" branch choice (the `opponent.hp
-//   / bestCycleDamage > minimumCycleThreshold` check) sits right on its own
-//   boundary for several of Mimikyu's own matchups post-bust, and this
-//   port lands on the opposite side of that boundary from the real engine
-//   for some of them (Mimikyu accounts for 10 of the harness's 27 remaining
-//   winner divergences, up from 5/17 for the same reason as Cramorant
-//   above). Not yet root-caused past confirming it isn't a stat/type
-//   change on the busted form (both are identical to the un-busted form in
-//   gamemaster.json) — flagged here rather than guessed at further.
+// - 9 residual winner divergences the harness hasn't been root-caused
+//   further than this: 3 are Mimikyu matchups (Thievul, Stunfisk,
+//   Araquanid (Shadow)) that still diverge even with the post-Disguise
+//   opponent-rush fix below applied — unlike that fix, these don't trace
+//   to a single upstream condition read so far, and look like the same
+//   kind of DP-search/move-timing boundary sensitivity as the Cramorant
+//   and Mimikyu cases that WERE resolved (a small state difference
+//   earlier in the fight tips a later `>` / `>=` branch choice the other
+//   way, cascading into a different winner) rather than one missing
+//   mechanic. The other 6 (Altaria (Shadow) vs Thievul, Corsola
+//   (Galarian) vs Melmetal/Quagsire (Shadow), Vigoroth (Shadow) vs
+//   Altaria, Morpeko (Full Belly) vs Florges, Furret vs Florges) involve
+//   none of this file's known species-specific mechanics at all —
+//   flagged here rather than guessed at further.
 // - The hardcoded "Melmetal vs Cresselia" clause in ActionLogic.js's DP
 //   search (skip a lethal-adjacent self-defense-debuffing move specifically
 //   for that one matchup) — a one-pair special case, not ported.
@@ -1093,8 +1190,19 @@ function applyEvent(event, log, tick) {
 // - Mimikyu's Disguise IS ported (hasDisguise/disguiseBusted above) —
 //   hardcoded by speciesId rather than generic formChange data, since
 //   data/sources/raw/pvpoke-pokemon.json confirms it's the only species
-//   using PvPoke's "protect" formChange effect. (See the post-bust DP-
-//   boundary gap above for what's NOT yet fully matched once it fires.)
+//   using PvPoke's "protect" formChange effect.
+// - Cramorant's Gulp Missile form change IS ported (activeFormId above,
+//   the Cramorant-only branches in decideAction/wouldShield/decideShield,
+//   and applyHit's maybeFireGulpMissile) — also hardcoded by speciesId,
+//   since Cramorant is the only species using PvPoke's "variable"
+//   alternativeFormId. This includes the opponent-side effect the harness
+//   flagged as the single largest divergence class before it was ported:
+//   ActionLogic.js reads the OPPONENT's activeFormId directly (`opponent.
+//   activeFormId == "cramorant_gulping"`) to decide whether to hold back a
+//   charged move and stack energy instead of throwing immediately, since
+//   each separate unshielded throw against a gulping/gorging Cramorant
+//   eats a free retaliation hit — fighting Cramorant changes the OTHER
+//   Pokémon's move timing, not just Cramorant's own.
 // - ActionLogic.js's "lethal charged move available" and Mimikyu-disguise-
 //   rush checks run BEFORE the move-timing optimizer (hold a ready move
 //   back one more cycle to align cooldowns), so a ready lethal/disguise-
@@ -1124,3 +1232,17 @@ function applyEvent(event, log, tick) {
 // harnesses (scripts/pvp-sim-agreement.mjs, scripts/pvpoke-diff.mjs,
 // tests/web/pvp-sim.test.mjs) play both sides at leadsMoves instead —
 // real-engine reproduction of the published ratings is now 100% (500/500).
+//
+// Resolved — Cramorant's Gulp Missile (see "Already handled" above) fixed
+// 11 of the harness's then-27 winner divergences. Separately, the
+// opponent-rush-Mimikyu's-Disguise check (the "Opponent has Mimikyu's
+// Disguise... rush the CHEAPEST charged move" block in decideAction) was
+// missing a `!opponent.disguiseBusted` guard: upstream's own condition
+// reads `opponent.formChange?.effect == "protect"`, but Pokemon.js's
+// changeForm() overwrites a Pokemon's `formChange` field with its NEW
+// form's own gamemaster entry the instant Disguise busts (mimikyu_busted's
+// formChange has no "effect" key), so upstream's check stops firing once
+// busted — this port's `hasDisguise` flag never changes, so without the
+// explicit guard it kept firing for the rest of the fight. Fixing it
+// resolved 7 of the remaining 16 divergences (all Mimikyu matchups) in one
+// change, landing this port at 491/500 (98.2%) real-engine agreement.

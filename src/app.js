@@ -175,6 +175,34 @@ import {
   toggleSwapManualPick,
 } from "./swap.js";
 import { renderSwap } from "./views/swap.js";
+import {
+  addManualOpponent,
+  addPoolInstance,
+  createTeamFinderState,
+  removeManualOpponent,
+  removePoolInstance,
+  setManualOpponentWeight,
+  setTeamFinderLeague,
+  setTeamFinderMode,
+  setTeamFinderOpponentQuery,
+  setTeamFinderPoolQuery,
+} from "./team-finder.js";
+import {
+  addBattleLogEntry,
+  addLogDraftOpponent,
+  canSubmitLogDraft,
+  createLogDraft,
+  loadAllBattleLogState,
+  loadBattleLog,
+  removeLogDraftOpponent,
+  saveAllBattleLogState,
+  saveBattleLog,
+  setLogDraftLead,
+  setLogDraftLeague,
+  setLogDraftQuery,
+  setLogDraftWin,
+} from "./battle-log.js";
+import { renderTeamFinderView } from "./views/team-finder.js";
 import { toggleTodayTask } from "./views/today.js";
 import { todayDateISO, todayTaskKey } from "./today-tasks.js";
 import { dailyPlanDismissedKey } from "./daily-plan.js";
@@ -315,7 +343,7 @@ const CHUNK_FIELDS = Object.freeze({
   "raids-shadow.json": ["raids"],
   "raid-targets.json": ["raidTargetTool"],
   "gyms.json": ["gym", "placement"],
-  "pvp.json": ["pvp", "pvpTeams", "pvpAlternatives", "pvpTheorycraft", "pvpDeepRanks"],
+  "pvp.json": ["pvp", "pvpBuilds", "pvpTeams", "pvpAlternatives", "pvpTheorycraft", "pvpDeepRanks"],
   "extras.json": ["budgets", "megasPrimals", "futureProof", "coveragePlanner", "moveSettings"],
   "acquisition.json": ["acquisitionGuide", "shinyOdds"],
   "current-bosses.json": ["currentBosses", "currentMaxBattles"],
@@ -1358,6 +1386,8 @@ export function createInteractionState({
     }),
     drill: createDrillState({ storage }),
     swap: createSwapState(),
+    teamFinder: createTeamFinderState(),
+    teamFinderLogDraft: createLogDraft(),
     triage: createTriageViewState(),
     lastTask: savedTask ? { route: savedTask.route, view: typeof savedTask.view === "string" ? savedTask.view : "" } : null,
     installMessage: "",
@@ -2109,6 +2139,54 @@ export function createInteractionController({
         const nextInput = ownerDocument?.querySelector?.("[data-swap-opponent-query]");
         nextInput?.focus?.({ preventScroll: true });
         nextInput?.setSelectionRange?.(caret, caret);
+        return;
+      }
+      const teamFinderQuery = event?.target?.closest?.("[data-teamfinder-opponent-query]");
+      if (teamFinderQuery) {
+        ui.teamFinder = setTeamFinderOpponentQuery(ui.teamFinder, teamFinderQuery.value);
+        const caret = Math.min(
+          Number.isInteger(teamFinderQuery.selectionStart) ? teamFinderQuery.selectionStart : ui.teamFinder.opponentQuery.length,
+          ui.teamFinder.opponentQuery.length,
+        );
+        const ownerDocument = teamFinderQuery.ownerDocument;
+        rerender("pvp");
+        const nextInput = ownerDocument?.querySelector?.("[data-teamfinder-opponent-query]");
+        nextInput?.focus?.({ preventScroll: true });
+        nextInput?.setSelectionRange?.(caret, caret);
+        return;
+      }
+      const teamFinderLogQuery = event?.target?.closest?.("[data-teamfinder-log-query]");
+      if (teamFinderLogQuery) {
+        ui.teamFinderLogDraft = setLogDraftQuery(ui.teamFinderLogDraft, teamFinderLogQuery.value);
+        const caret = Math.min(
+          Number.isInteger(teamFinderLogQuery.selectionStart) ? teamFinderLogQuery.selectionStart : ui.teamFinderLogDraft.query.length,
+          ui.teamFinderLogDraft.query.length,
+        );
+        const ownerDocument = teamFinderLogQuery.ownerDocument;
+        rerender("pvp");
+        const nextInput = ownerDocument?.querySelector?.("[data-teamfinder-log-query]");
+        nextInput?.focus?.({ preventScroll: true });
+        nextInput?.setSelectionRange?.(caret, caret);
+        return;
+      }
+      const teamFinderPoolQuery = event?.target?.closest?.("[data-teamfinder-pool-query]");
+      if (teamFinderPoolQuery) {
+        ui.teamFinder = setTeamFinderPoolQuery(ui.teamFinder, teamFinderPoolQuery.value);
+        const caret = Math.min(
+          Number.isInteger(teamFinderPoolQuery.selectionStart) ? teamFinderPoolQuery.selectionStart : ui.teamFinder.poolQuery.length,
+          ui.teamFinder.poolQuery.length,
+        );
+        const ownerDocument = teamFinderPoolQuery.ownerDocument;
+        rerender("pvp");
+        const nextInput = ownerDocument?.querySelector?.("[data-teamfinder-pool-query]");
+        nextInput?.focus?.({ preventScroll: true });
+        nextInput?.setSelectionRange?.(caret, caret);
+        return;
+      }
+      const teamFinderOpponentWeight = event?.target?.closest?.("[data-teamfinder-opponent-weight]");
+      if (teamFinderOpponentWeight) {
+        ui.teamFinder = setManualOpponentWeight(ui.teamFinder, teamFinderOpponentWeight.dataset.teamfinderOpponentWeight, teamFinderOpponentWeight.value);
+        rerender("pvp");
       }
     },
     async handleChange(event) {
@@ -3911,6 +3989,74 @@ export function createInteractionController({
         rerender("pvp");
         return;
       }
+      const teamFinderLeague = target?.closest?.("[data-teamfinder-league]");
+      if (teamFinderLeague) {
+        ui.teamFinder = setTeamFinderLeague(ui.teamFinder, teamFinderLeague.dataset.teamfinderLeague);
+        rerender("pvp");
+        return;
+      }
+      const teamFinderMode = target?.closest?.("[data-teamfinder-mode]");
+      if (teamFinderMode) {
+        ui.teamFinder = setTeamFinderMode(ui.teamFinder, teamFinderMode.dataset.teamfinderMode);
+        rerender("pvp");
+        return;
+      }
+      const teamFinderAddOpponent = target?.closest?.("[data-teamfinder-add-opponent]");
+      if (teamFinderAddOpponent) {
+        ui.teamFinder = addManualOpponent(ui.teamFinder, teamFinderAddOpponent.dataset.teamfinderAddOpponent);
+        rerender("pvp");
+        return;
+      }
+      const teamFinderRemoveOpponent = target?.closest?.("[data-teamfinder-remove-opponent]");
+      if (teamFinderRemoveOpponent) {
+        ui.teamFinder = removeManualOpponent(ui.teamFinder, teamFinderRemoveOpponent.dataset.teamfinderRemoveOpponent);
+        rerender("pvp");
+        return;
+      }
+      const teamFinderPoolAdd = target?.closest?.("[data-teamfinder-pool-add]");
+      if (teamFinderPoolAdd) {
+        ui.teamFinder = addPoolInstance(ui.teamFinder, teamFinderPoolAdd.dataset.teamfinderPoolAdd);
+        rerender("pvp");
+        return;
+      }
+      const teamFinderPoolRemove = target?.closest?.("[data-teamfinder-pool-remove]");
+      if (teamFinderPoolRemove) {
+        ui.teamFinder = removePoolInstance(ui.teamFinder, teamFinderPoolRemove.dataset.teamfinderPoolRemove);
+        rerender("pvp");
+        return;
+      }
+      const teamFinderLogLeague = target?.closest?.("[data-teamfinder-log-league]");
+      if (teamFinderLogLeague) {
+        ui.teamFinderLogDraft = setLogDraftLeague(ui.teamFinderLogDraft, teamFinderLogLeague.dataset.teamfinderLogLeague);
+        rerender("pvp");
+        return;
+      }
+      const teamFinderLogAdd = target?.closest?.("[data-teamfinder-log-add]");
+      if (teamFinderLogAdd) {
+        ui.teamFinderLogDraft = addLogDraftOpponent(ui.teamFinderLogDraft, teamFinderLogAdd.dataset.teamfinderLogAdd);
+        rerender("pvp");
+        return;
+      }
+      const teamFinderLogRemove = target?.closest?.("[data-teamfinder-log-remove]");
+      if (teamFinderLogRemove) {
+        ui.teamFinderLogDraft = removeLogDraftOpponent(ui.teamFinderLogDraft, teamFinderLogRemove.dataset.teamfinderLogRemove);
+        rerender("pvp");
+        return;
+      }
+      // Checked after data-teamfinder-log-remove above: the × button nests
+      // inside the lead chip, so removing must win over marking it lead.
+      const teamFinderLogLead = target?.closest?.("[data-teamfinder-log-lead]");
+      if (teamFinderLogLead) {
+        ui.teamFinderLogDraft = setLogDraftLead(ui.teamFinderLogDraft, teamFinderLogLead.dataset.teamfinderLogLead);
+        rerender("pvp");
+        return;
+      }
+      const teamFinderLogWin = target?.closest?.("[data-teamfinder-log-win]");
+      if (teamFinderLogWin) {
+        ui.teamFinderLogDraft = setLogDraftWin(ui.teamFinderLogDraft, teamFinderLogWin.dataset.teamfinderLogWin === "true");
+        rerender("pvp");
+        return;
+      }
       // More's sub-views are routes now (#more/<view>), so the scroll reset,
       // Back behaviour and dex wipe come from router.render() — the hand-rolled
       // ui.moreList/navigateMore/scrollToTop patch that shadowed the URL (and
@@ -4452,6 +4598,7 @@ export function createInteractionController({
           drillStats: loadDrillStats(storage),
           feedback: loadFeedback(storage),
           medals: loadAllMedalState(storage),
+          battleLog: loadAllBattleLogState(storage),
           appShellRevision: APP_SHELL_REVISION,
         });
         (api.onBackupExport ?? onBackupExport)?.(stableBackupJson(envelope));
@@ -4474,6 +4621,7 @@ export function createInteractionController({
           drillStats: loadDrillStats(storage),
           feedback: loadFeedback(storage),
           medals: loadAllMedalState(storage),
+          battleLog: loadAllBattleLogState(storage),
         };
         const restored = mode === "merge"
           ? mergeBackupPayload(current, preview.envelope.payload)
@@ -4517,6 +4665,7 @@ export function createInteractionController({
         ui.drill.stats = saveDrillStats(storage, restored.drillStats);
         saveFeedback(storage, restored.feedback);
         saveAllMedalState(storage, restored.medals ?? {});
+        saveAllBattleLogState(storage, restored.battleLog ?? {});
         recordBackupNow(storage);
         ui.backupNudge = false;
         ui.backupImportPreview = null;
@@ -4775,6 +4924,17 @@ export function createInteractionController({
       } else if (action === "swap-reset") {
         event.preventDefault?.();
         ui.swap = createSwapState();
+        rerender("pvp");
+      } else if (action === "teamfinder-log-submit") {
+        if (canSubmitLogDraft(ui.teamFinderLogDraft)) {
+          const profileId = activeProfile(ui.profiles ?? loadProfiles(storage)).id;
+          const draft = ui.teamFinderLogDraft;
+          const entries = addBattleLogEntry(loadBattleLog(storage, profileId), {
+            league: draft.league, opponents: draft.opponents, win: draft.win, lead: draft.lead,
+          });
+          saveBattleLog(storage, profileId, entries);
+          ui.teamFinderLogDraft = createLogDraft(draft.league);
+        }
         rerender("pvp");
       }
     },
@@ -6353,14 +6513,26 @@ export function bootstrap({
         ["swap", "Battle Swap"],
         ["theorycraft", "Next Season"],
         ["cup", "Cups"],
+        ["teamfinder", "Team Finder"],
       ], view);
       if (view === "cup") {
         app.innerHTML = interactionNotice(ui) + tabs + (state.pvp && state.currentEvents
           ? renderCupView({
             currentEvents: state.currentEvents, forms: state.core.forms, pvp: state.pvp,
-            pvpDeepRanks: state.pvpDeepRanks, roster, moveCatalog: pvpMoveCatalog, now: new Date(),
+            pvpBuilds: state.pvpBuilds, pvpDeepRanks: state.pvpDeepRanks, roster, moveCatalog: pvpMoveCatalog, now: new Date(),
           })
           : chunkNotice("pvp", "Cups"));
+        return;
+      }
+      if (view === "teamfinder") {
+        const profileId = activeProfile(ui.profiles ?? loadProfiles(storage)).id;
+        app.innerHTML = interactionNotice(ui) + tabs + (state.pvp
+          ? renderTeamFinderView({
+            forms: state.core.forms, pvp: state.pvp, pvpBuilds: state.pvpBuilds, roster, moveCatalog: pvpMoveCatalog,
+            battleLog: loadBattleLog(storage, profileId), state: ui.teamFinder, logDraft: ui.teamFinderLogDraft,
+            cache: ui.teamFinder._cache,
+          })
+          : chunkNotice("pvp", "Team Finder"));
         return;
       }
       if (view === "swap") {

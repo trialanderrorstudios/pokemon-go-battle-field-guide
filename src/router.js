@@ -15,7 +15,7 @@ const DEX_FORM_ID_PATTERN = /^\d{4}[a-z0-9-]*$/i;
 const ROUTE_VIEWS = Object.freeze({
   raids: ["target", "hundo"],
   gyms: ["defend"],
-  pvp: ["rankings", "antimeta", "swap", "theorycraft", "cup"],
+  pvp: ["rankings", "antimeta", "swap", "theorycraft", "cup", "teamfinder"],
   triage: ["gaps", "candy"],
   basics: ["types", "glossary", "drill", "tricks", "max", "items"],
   // Adding a renderMore view without listing it here is the "lands at the
@@ -46,7 +46,7 @@ const HUBS = Object.freeze([
   ] },
   { id: "dex", items: [["dex", "", "Pokédex"], ["more", "collection", "Living Dex"], ["more", "megas", "Megas"], ["more", "compare", "Compare"], ["basics", "", "Learn"]] },
   { id: "battle", items: [
-    ["pvp", "", "PvP"], ["pvp", "cup", "Cups"], ["gyms", "", "Gyms"], ["rocket", "", "Rocket"], ["leaderboard", "", "Leaderboard"],
+    ["pvp", "", "PvP"], ["pvp", "cup", "Cups"], ["pvp", "teamfinder", "Team Finder"], ["gyms", "", "Gyms"], ["rocket", "", "Rocket"], ["leaderboard", "", "Leaderboard"],
     ["more", "mastery", "Mastery"], ["more", "coverage", "Coverage"],
   ] },
   { id: "raids", items: [["raids", "", "Raids"], ["raids", "hundo", "Hundos"], ["more", "group", "Raid Group"]] },

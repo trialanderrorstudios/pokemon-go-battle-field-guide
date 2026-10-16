@@ -237,6 +237,38 @@ export function sideFromPublishedBuild(row, form, { preferLeads = false } = {}) 
   return { form, ivs: { atk: attack, def: defense, sta: stamina }, level: build.level, fastMove: moveset.fastMove, chargedMoves: moveset.chargedMoves };
 }
 
+// formId's buildable side for `league`, so ANY form PvPoke ranks can be
+// simulated — not only one with a row inside the shipped top-50/curated-
+// alternatives list (sideFromPublishedBuild's only source). Prefers that
+// shipped row when it exists (unchanged behavior — keeps the measured
+// agreement rate in scripts/pvp-sim-agreement.mjs exact); falls back to
+// ctx.pvpBuilds (pvp.py's build_pvp_builds — every form PvPoke's full
+// open-league dump ranks, not just the top 50). Round-P1 gap: Shadow
+// Forretress sits at open-GL #54 and Greninja has no ranked row at all, so
+// neither had a buildable side before this. Null when neither source has a
+// usable build — callers render that as an explicit "no build data" note
+// (see web/src/views/cup.js's vsMetaHtml), never a silent loss.
+//
+// The deep table's primary fast/charged is the leads-scenario moveset
+// (pvp.py's _deep_moveset); overallFast/overallCharged ride along only
+// when the overall-scenario moveset is legal and actually differs. Honor
+// preferLeads here too, not just on the shipped-row path (review finding
+// LOW) — else the fallback would silently serve the leads moveset even
+// when the caller asked for the overall one.
+export function publishedBuild(formId, league, ctx, { preferLeads = false } = {}) {
+  const form = ctx.forms?.[formId];
+  if (!form) return null;
+  const row = (ctx.pvp?.[league] ?? []).find((r) => r.formId === formId);
+  const fromRow = row ? sideFromPublishedBuild(row, form, { preferLeads }) : null;
+  if (fromRow) return fromRow;
+  const build = ctx.pvpBuilds?.[league]?.[formId];
+  if (!build?.ivs?.length || !build?.fast || !build?.charged?.length) return null;
+  const [attack, defense, stamina] = build.ivs;
+  const fastMove = preferLeads ? build.fast : (build.overallFast ?? build.fast);
+  const chargedMoves = preferLeads ? build.charged : (build.overallCharged ?? build.charged);
+  return { form, ivs: { atk: attack, def: defense, sta: stamina }, level: build.level, fastMove, chargedMoves };
+}
+
 // An instance is only usable if EVERY move it carries resolves in the
 // move catalog — a retired/renamed move id on just one of its 1-2 charged
 // moves would otherwise either crash the sim or silently fight with a
@@ -250,9 +282,9 @@ function instanceMovesKnown(instance, moveCatalog) {
 // H2: a team member's build for simulation — the player's own logged
 // instance (fastMove/chargedMoves/ivs, level solved from its cp) when one
 // with a full, catalog-resolvable moveset is on the roster, else the
-// species' published build (see sideFromPublishedBuild), read from the
-// `league` list that actually matches this cup's CP cap. assumedPublished
-// tells the view to label the fallback.
+// species' published build (see publishedBuild), read from the `league`
+// list that actually matches this cup's CP cap. assumedPublished tells the
+// view to label the fallback.
 function sideForMember(member, ctx, league) {
   const form = ctx.forms?.[member.formId];
   const instance = (ctx.roster?.instances ?? []).find(
@@ -265,14 +297,13 @@ function sideForMember(member, ctx, league) {
       return { side: { form, ivs: instance.ivs, level, fastMove: instance.fastMove, chargedMoves: instance.chargedMoves }, assumedPublished: false };
     }
   }
-  const row = (ctx.pvp?.[league] ?? []).find((r) => r.formId === member.formId);
-  const side = form ? sideFromPublishedBuild(row, form) : null;
+  const side = publishedBuild(member.formId, league, ctx);
   return { side, assumedPublished: true };
 }
 
 // Simulates each of a cup team's 3 members against the cup meta's top 8
 // (1-1 shields, each side at the build sideForMember resolves). Opponents
-// always use their own published build (sideFromPublishedBuild), preferring
+// always use their own published build (publishedBuild), preferring
 // each opponent's leads-scenario moveset when published (this IS a 1-1
 // fight, the scenario that moveset was optimized for) — a meta entry
 // without a usable build is dropped rather than guessed at. Cheap (<= 3 x 8
@@ -290,8 +321,7 @@ export function simulateVsMeta(team, meta, ctx, cup) {
   if (!league) return null;
   const opponents = meta.slice(0, 8)
     .map((m) => {
-      const row = (ctx.pvp?.[league] ?? []).find((r) => r.formId === m.formId);
-      const side = sideFromPublishedBuild(row, ctx.forms?.[m.formId], { preferLeads: true });
+      const side = publishedBuild(m.formId, league, ctx, { preferLeads: true });
       return side ? { name: m.name, side } : null;
     })
     .filter(Boolean);

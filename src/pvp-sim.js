@@ -63,10 +63,16 @@ import { simulateBattle } from "./pvpoke-engine.js";
 // scripts/pvpoke-diff.mjs's real-engine reproduction of the published
 // ratings rose from 89.8% (448/499) to 100% (500/500) — confirming the
 // remaining ~5.4-point gap to the real engine (473/500, see
-// pvpoke-engine.js's "Known gaps") is now genuinely engine fidelity
-// (Cramorant's Gulp Missile, a residual Mimikyu post-Disguise boundary,
-// and a handful of others), not a moveset or snapshot-date mismatch.
-export const MEASURED_AGREEMENT_PCT = 94.6;
+// pvpoke-engine.js's "Known gaps") was now genuinely engine fidelity, not
+// a moveset or snapshot-date mismatch.
+//
+// Raised again, from 94.6% to 98.2% (491/500), by porting Cramorant's
+// Gulp Missile form change (its single largest divergence class) and
+// fixing a Mimikyu post-Disguise regression (a missing `!disguiseBusted`
+// guard on the opponent-rush check) — see pvpoke-engine.js's "Known gaps"
+// / "Resolved" notes for both. 9 residual divergences remain, documented
+// there.
+export const MEASURED_AGREEMENT_PCT = 98.2;
 export const AGREEMENT_FLOOR_PCT = MEASURED_AGREEMENT_PCT - 2;
 
 // a/b: { form, ivs: {atk, def, sta}, level, fastMove, chargedMoves }, where

@@ -102,9 +102,9 @@ function littleCupHtml(pool) {
     ${pool.length ? `<p class="briefing-note">Eligible in your box: ${pool.map((m) => escapeHtml(m.name)).join(", ")}</p>` : `<p class="briefing-note">Nothing logged in your box is eligible.</p>`}`;
 }
 
-export function renderCupView({ currentEvents, forms = {}, pvp = {}, pvpDeepRanks = null, roster = null, moveCatalog = {}, now = new Date() } = {}) {
+export function renderCupView({ currentEvents, forms = {}, pvp = {}, pvpBuilds = {}, pvpDeepRanks = null, roster = null, moveCatalog = {}, now = new Date() } = {}) {
   const { cups, uncurated } = cupCalendar(currentEvents, now);
-  const ctx = { forms, pvp, pvpDeepRanks, roster, moveCatalog };
+  const ctx = { forms, pvp, pvpBuilds, pvpDeepRanks, roster, moveCatalog };
   if (!cups.length && !uncurated.length) {
     return `<div class="fallback-section"><p class="briefing-note">No GO Battle League cup is live or announced in the current feed.</p></div>`;
   }

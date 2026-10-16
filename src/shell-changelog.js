@@ -6,6 +6,17 @@
 
 export const SHELL_CHANGELOG = Object.freeze([
   Object.freeze({
+    rev: "r200", date: "2026-10-16",
+    added: Object.freeze([
+      "Team Finder (Battle → PvP): scores every trio from your box with your own IVs at each Pokémon's best level under the cap, against PvPoke's top 50, your logged opponents, or Pokémon you add (e.g. Greninja). Shows score, sure answers, trouble spots, best lead, switch guide, and when your IVs lose a mirror to the standard build.",
+      "GBL battle log: log each match's three opponents and the result; \"my meta\" ranks what you actually face and feeds the Team Finder. Included in backups.",
+    ]),
+    tweaked: Object.freeze([
+      "The PvP simulator now agrees with PvPoke's published winner in about 98% of tested Great League matchups (was 95%): Cramorant's Gulp Missile and a Mimikyu Disguise bug are fixed.",
+      "Every Pokémon PvPoke ranks can now be simulated (1,152 Great, 849 Ultra, 409 Master League forms), with every move they can learn.",
+    ]),
+  }),
+  Object.freeze({
     rev: "r199", date: "2026-10-10",
     tweaked: Object.freeze([
       "The PvP simulator now agrees with PvPoke's published winner in about 95% of tested Great League matchups (was 86%): cup opponents fight with the moveset PvPoke itself uses for 1-1 fights, and PvPoke's data is refreshed to match the engine version the simulator is ported from.",

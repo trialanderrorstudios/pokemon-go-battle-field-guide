@@ -156,6 +156,7 @@ export const REFERENCE_PAGES = Object.freeze([
   // `label` replaces "Reference — how it works" on the result row.
   ...[
     ["Cups — team builder", "pvp", "cup", ["cup", "cups", "color cup", "little cup", "cup team", "team builder", "gbl team"]],
+    ["Team Finder — best team from your box", "pvp", "teamfinder", ["team finder", "best team", "my meta", "battle log", "log a match", "lead mode", "trio"]],
     ["PvP rankings", "pvp", "rankings", ["rankings", "pvp rank", "great league", "ultra league", "master league", "gbl"]],
     ["Anti-meta picks", "pvp", "antimeta", ["anti meta", "antimeta", "pvp counters"]],
     ["Move swap", "pvp", "swap", ["move swap", "swap moves", "tm"]],
