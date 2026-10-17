@@ -1985,6 +1985,7 @@ h1 {
   border-left-width: 4px;
   border-radius: 999px;
   background: var(--panel-raised);
+  color: var(--text);
   font-size: 0.78rem;
 }
 
@@ -8948,3 +8949,243 @@ summary + .rocket-battler-mon { border-top: none; }
   color: var(--danger);
 }
 .dex-boss-card-button { display: inline-block; font-weight: 700; }
+
+/* GBL Session (Wave R lane R2): current-set record + rating sparkline.
+   .session-view carries the same grid/gap/max-width/centering treatment as
+   every other route's own view wrapper (.pvp-view et al, see the combined
+   rule above) plus the page's standard #app side gutter — without it the
+   view's own direct children had no consistent spacing from each other or
+   from the screen edge (Fable review, 2026-10-16). */
+.session-view {
+  display: grid;
+  gap: 0.8rem;
+  width: 100%;
+  max-width: 44rem;
+  margin-inline: auto;
+}
+.session-set-record {
+  margin: 0.3rem 0;
+  font-size: 1.3rem;
+  color: var(--text);
+}
+.session-set-record small { font-size: 0.8rem; color: var(--muted); font-weight: 400; }
+.session-sparkline {
+  display: block;
+  margin: 0.4rem 0 0;
+  background: var(--panel);
+  border-radius: 4px;
+}
+.session-sparkline-labels {
+  display: flex;
+  justify-content: space-between;
+  width: 240px;
+  margin: 0.2rem 0 0;
+  font-size: 0.72rem;
+  color: var(--muted);
+}
+.session-sparkline-empty { color: var(--muted); }
+.session-match-list {
+  display: grid;
+  gap: 0.4rem;
+  margin: 0.6rem 0 0;
+  padding: 0;
+  list-style: none;
+}
+.session-match-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0.35rem 0.6rem;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel);
+  font-size: 0.82rem;
+  color: var(--text);
+}
+.session-match-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  flex-shrink: 0;
+}
+.session-log-message { color: var(--text); }
+.session-today-tile { padding: 0.6rem 0.8rem; }
+
+/* R5 perf: the Living Dex grid (views/collection.js .collection-grid) renders
+   every species unvirtualized — ~950+ <li> cards at once, each with a sprite
+   <img>. Scrolling it under throttled CPU showed repeated long main-thread
+   tasks (runtime audit, 2026-10-16). content-visibility: auto skips style/
+   layout/paint for cards currently off-screen (same mechanism a windowed
+   list gets from unmounting rows, with no JS and no risk to search/filter/
+   keyboard/aria behavior, since every row stays in the DOM).
+   contain-intrinsic-size always sizes the CONTENT box, even under this
+   file's global `* { box-sizing: border-box }` (verified empirically —
+   box-sizing has no effect on it) — so it must exclude this rule's own
+   padding/border, not just restate the real border-box height. Real
+   rendered height is ~151px; minus vertical padding (2 × 0.6rem = 19.2px at
+   the default text size) and border (2 × 1px) leaves ~130px of content.
+   auto lets the browser remember the actual size once a card has rendered
+   once (self-correcting if a text-size setting shifts that px math), so
+   grid-auto-rows height and scrollbar position stay stable instead of
+   collapsing off-screen rows. */
+.collection-card {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 130px;
+}
+
+/* ══ Wave R8 nav-polish fixes (hub-by-hub audit, 2026-10-16) — appended, no
+   edits to the selectors above, per the wave's parallel-lane CSS rule. ══ */
+
+/* P1: transient status toast (interactionNotice, app.js) — used to render as
+   .fallback-section's centered 34rem card, pinned on every route with no
+   dismiss (reported as an off-grid bubble on iPad, where that card sits
+   narrower than the 64rem route content beside it). Left-aligned instead of
+   centered. interactionNotice() drops the underlying message at 6s, so the
+   animation is timed to finish right at 6s (not drift past it) and to
+   collapse its own box height/margin/padding/border away at the end instead
+   of leaving a blank gap in flow once it's gone (Fable review, a6cb72f #3) —
+   a re-render recreates this node from scratch, so app.js's
+   syncInteractionToast() sets a negative animation-delay on it each time,
+   skipping the animation ahead to match how much of the 6s has actually
+   elapsed instead of restarting it at 0%. */
+.interaction-toast {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.6rem;
+  width: 100%;
+  max-width: 34rem;
+  max-height: 10rem;
+  overflow: hidden;
+  margin: 0 0 0.75rem;
+  padding: 0.7rem 0.85rem;
+  border: 1px solid var(--cyan);
+  border-radius: 11px;
+  background: linear-gradient(145deg, var(--panel-raised), var(--panel));
+  box-shadow: 0 14px 34px #0005;
+  animation: interaction-toast-fade 6s ease-in forwards;
+}
+.interaction-toast p {
+  flex: 1;
+  margin: 0;
+  color: var(--text);
+}
+.interaction-toast-close {
+  flex: none;
+  min-width: 32px;
+  min-height: 32px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 1rem;
+  line-height: 1;
+}
+@keyframes interaction-toast-fade {
+  0%, 80% {
+    opacity: 1;
+    max-height: 10rem;
+    margin-bottom: 0.75rem;
+    padding-top: 0.7rem;
+    padding-bottom: 0.7rem;
+    border-width: 1px;
+  }
+  100% {
+    opacity: 0;
+    visibility: hidden;
+    max-height: 0;
+    margin-bottom: 0;
+    padding-top: 0;
+    padding-bottom: 0;
+    border-width: 0;
+  }
+}
+@media (min-width: 36rem) {
+  /* Same direct-child wide-breakpoint widening as .guide-card/.guide-toggle-row
+     (line ~3106) — this toast is also a direct #app child, first on the page. */
+  #app > .interaction-toast {
+    max-width: 64rem;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  /* No animation at all, so no auto-collapse either — interactionNotice()
+     clearing the message on the next render (nav, another action) still
+     removes the node outright; reduced motion trades the few-seconds-stale
+     toast for never animating it, not for leaving it permanently. */
+  .interaction-toast {
+    animation: none;
+  }
+}
+
+/* P1: PvP's in-page jump nav (jumpNav(), views/pvp.js — "My Team · Ultra
+   League" / "Example teams" / "Alternatives") used to share the same solid
+   chip chrome as the real #route/view tab switcher above it (.view-segments),
+   reading as a second row of tabs for the same view. jumpNav() now prefixes
+   each label with "↓" (matching backToTop()'s existing "↑ Back to top"); this
+   restyles the buttons themselves as an outlined, text-like link row instead
+   of filled tabs. Overrides .jump-nav button (line ~4132) by appending here,
+   not editing it in place. */
+.jump-nav button {
+  min-width: 0;
+  padding: 0.3rem 0.6rem;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--cyan);
+  font-weight: 600;
+}
+.jump-nav-end button {
+  color: var(--muted);
+}
+
+/* P2: Roster's Lucky toggle (more.js) wrapped "Luck/y" mid-word on phone —
+   unlike Shiny, its unselected label has no icon prefix, so it's shorter
+   content asked to share a flex row with Shiny's "☆ Shiny"/"★ Shiny"; nothing
+   here forces equal widths, but with no nowrap the button could still shrink
+   below the word's own min-content under flex-shrink. nowrap guarantees it
+   never breaks mid-word regardless of exactly why. */
+.collection-flag-toggle {
+  white-space: nowrap;
+}
+
+/* P2: light-mode contrast fixes — swap hardcoded hex (same value in both
+   themes, so never tuned for light) for the existing theme-aware tokens
+   already used elsewhere for this exact purpose (see --dx-lens-blue/good/
+   warn/bad's light-mode overrides, line ~77). Only the four flagged spots:
+   dex move badges, PvP trait chips, and the Next Season hit/miss scorecard. */
+.dex-move-badge[data-badge="pvp"] { color: var(--cyan); }
+.dex-move-badge[data-badge="raids"] { color: var(--amber); }
+.pvp-trait { color: var(--amber); }
+.pvp-trait[data-negative="true"] { color: var(--danger); }
+.tc-scorecard-line [data-verdict="hit"], .tc-verdict[data-verdict="hit"] { color: var(--green); }
+.tc-scorecard-line [data-verdict="partial"], .tc-verdict[data-verdict="partial"] { color: var(--amber); }
+.tc-scorecard-line [data-verdict="miss"], .tc-verdict[data-verdict="miss"] { color: var(--danger); }
+
+/* P2: Rankings' "Search name" input rendered with dark native chrome in light
+   mode — :root sets color-scheme:dark unconditionally (line 2) and neither
+   light-mode block (line ~69, ~90) ever flips it, so the browser draws native
+   form controls (search inputs, etc.) with dark UA styling even while every
+   custom token is light. The <meta color-scheme> tag in index.html is only a
+   hint; this property is what actually wins. Appended against the same
+   selectors those blocks use, instead of edited into them. */
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme]) { color-scheme: light; }
+}
+:root[data-theme="light"] { color-scheme: light; }
+:root[data-theme="dark"] { color-scheme: dark; }
+
+/* P2: raid gallery tile names truncated ("Primeape (Sha…", "Landorus (Inc…")
+   at the phone 3-col grid, hiding the Shadow/form qualifier entirely. Allow
+   up to 2 lines instead — .raid-gallery-tile (line ~8860) already sets
+   min-width:0, which is what actually stops the grid collapsing to 2/row;
+   nowrap+ellipsis was a separate truncate choice layered on top of that, not
+   required by it. */
+.raid-gallery-name {
+  white-space: normal;
+  overflow-wrap: break-word;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  text-overflow: clip;
+}

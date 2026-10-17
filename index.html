@@ -53,6 +53,16 @@
       <button type="button" class="update-banner-dismiss" data-action="dismiss-staleness-banner" aria-label="Remind me again in a week">✕</button>
     </div>
 
+    <!-- Not dismissible on purpose: this stays up for the whole read-only
+         session (see app.js's updateRosterReadOnlyBanner), not a 6s toast —
+         a reader who tries an edit minutes later still needs to see it. -->
+    <div id="roster-readonly-banner" class="update-banner" role="status" aria-live="polite" hidden>
+      <a class="update-banner-tap" href="./#more/about">
+        <span class="update-banner-icon" aria-hidden="true">⚠</span>
+        <span id="roster-readonly-banner-label">Couldn't read your saved Pokémon — changes won't be saved. Restore from backup or export what's readable.</span>
+      </a>
+    </div>
+
     <div class="bezelwrap">
       <!-- Deliberately NOT aria-live: the router replaces this element's
            innerHTML on every route change, so a live region here read the whole
