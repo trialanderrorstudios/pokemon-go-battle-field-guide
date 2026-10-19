@@ -37,19 +37,20 @@ const MANIFEST_PATH = "release-manifest.json";
 const SPRITE_DEX_COUNT = 1025;
 const SHELL_CODE_FILES = Object.freeze([
   "./",
-  "./index.html",
-  "./manifest.webmanifest",
-  "./styles/app.css",
+  "./icons/apple-touch-icon.png",
   "./icons/field-guide.svg",
   "./icons/icon-192.png",
   "./icons/icon-512.png",
-  "./icons/apple-touch-icon.png",
   "./icons/share-qr.svg",
+  "./index.html",
+  "./manifest.webmanifest",
+  "./src/app.bundle.js",
   "./src/boot-watchdog.js",
+  "./src/html.js",
   "./src/release-manager.js",
   "./src/sprites.js",
   "./src/upcoming.js",
-  "./src/app.bundle.js",
+  "./styles/app.css",
 ]);
 
 // Sprites live in their OWN cache, versioned independently of the shell.
@@ -287,6 +288,11 @@ function assertStageExpectations(metadata, expectations) {
 }
 
 
+// P2 (wave-s-speed): how many release files stageRelease fetches/hashes/puts
+// at once. 3-4 matches the measured win (load-time-profile.md §5 lever 2)
+// without opening every file's socket at the same instant.
+const STAGE_CONCURRENCY = 4;
+
 export async function stageRelease(manifest, environment = {}, expectations = {}) {
   const env = runtime(environment);
   const validated = validateReleaseManifest(manifest, { appVersion: env.appVersion });
@@ -347,25 +353,37 @@ export async function stageRelease(manifest, environment = {}, expectations = {}
         headers: { "content-type": "application/json", "x-content-sha256": manifestSha256 },
       }),
     );
-    for (const file of validated.files) {
-      const url = releaseUrl(env, validated.releaseId, file.path);
-      let bytes = await reusableBytes(env, reuseFrom, file);
-      if (bytes) await assertServerStillHas(env, url, file);
-      if (!bytes) {
-        let response;
-        try {
-          response = await env.fetch(url, { cache: "no-store", credentials: "same-origin" });
-        } catch (error) {
-          throw new Error(`Network fetch failed for ${file.path}: ${error?.message ?? error}`);
+    // P2 (wave-s-speed, concurrent release staging): these files used to be
+    // fetched one at a time (12 files × ~1 RTT + hash + cache.put each, fully
+    // serialized) — on a cold install that's ~1.4s that could have mostly
+    // overlapped. Batched the same way warmSpriteCache below batches sprite
+    // warming: a few requests in flight at once, not one giant Promise.all
+    // (which would open every socket simultaneously and contend with the
+    // concurrent sprite warm). Atomicity is unaffected — each file is still
+    // verified and cache.put individually; nothing here changes what counts
+    // as a complete, verified release.
+    for (let index = 0; index < validated.files.length; index += STAGE_CONCURRENCY) {
+      const batch = validated.files.slice(index, index + STAGE_CONCURRENCY);
+      await Promise.all(batch.map(async (file) => {
+        const url = releaseUrl(env, validated.releaseId, file.path);
+        let bytes = await reusableBytes(env, reuseFrom, file);
+        if (bytes) await assertServerStillHas(env, url, file);
+        if (!bytes) {
+          let response;
+          try {
+            response = await env.fetch(url, { cache: "no-store", credentials: "same-origin" });
+          } catch (error) {
+            throw new Error(`Network fetch failed for ${file.path}: ${error?.message ?? error}`);
+          }
+          if (!response?.ok) throw new Error(`Missing release file ${file.path} (${response?.status ?? "unknown"}).`);
+          bytes = await response.arrayBuffer();
+          if (bytes.byteLength !== file.bytes) throw new Error(`Byte count mismatch for ${file.path}.`);
+          const actualHash = await hashBytes(bytes, env.crypto);
+          if (actualHash !== file.sha256) throw new Error(`SHA-256 hash mismatch for ${file.path}.`);
         }
-        if (!response?.ok) throw new Error(`Missing release file ${file.path} (${response?.status ?? "unknown"}).`);
-        bytes = await response.arrayBuffer();
-        if (bytes.byteLength !== file.bytes) throw new Error(`Byte count mismatch for ${file.path}.`);
-        const actualHash = await hashBytes(bytes, env.crypto);
-        if (actualHash !== file.sha256) throw new Error(`SHA-256 hash mismatch for ${file.path}.`);
-      }
-      await cache.put(url, new Response(bytes, {
-        headers: { "content-type": "application/json", "x-content-sha256": file.sha256 },
+        await cache.put(url, new Response(bytes, {
+          headers: { "content-type": "application/json", "x-content-sha256": file.sha256 },
+        }));
       }));
     }
     const marker = { releaseId: validated.releaseId, fileCount: validated.files.length, manifestSha256 };
@@ -429,6 +447,16 @@ export async function activateRelease(releaseId, environment = {}) {
   };
   await writeMetadata(env, promoted);
   await retireReleaseCaches(env, [promoted.currentReleaseId, promoted.previousReleaseId]);
+  // P2 (wave-s-speed, cold install): used to start at shell install time,
+  // running concurrently with the first release's own staging and
+  // contending for the same bandwidth on a cold boot (load-time-profile.md
+  // §1: 60 sprite requests start mid-way through the 12 sequential release
+  // fetches). Starting it here instead — right after a release actually
+  // activates — means it only ever competes with the NEXT boot's revalidation
+  // traffic, never with the release that's still gating first render. Not
+  // awaited for the same reason installShell never awaited it: it's a
+  // best-effort background warm, not part of what "activated" means.
+  void warmSpriteCache(env).catch(function () {});
   return { ...await releaseStatus(env), activationChanged: true };
 }
 
@@ -513,14 +541,13 @@ export function installShellForTest(environment) {
 async function installShell(environment = {}) {
   const env = runtime(environment);
   const cache = await env.caches.open(SHELL_CACHE);
-  // Atomic on purpose: these 82 files ARE the app, and a partial shell is a
+  // Atomic on purpose: the SHELL_CODE_FILES the build writes ARE the app, and a partial shell is a
   // broken boot. Small enough that all-or-nothing is affordable.
   await cache.addAll(SHELL_CODE_FILES);
-  // NOT awaited. Even the bounded warm below is several fetches; blocking
-  // install on it keeps the worker in "installing" for minutes on a flaky
-  // phone connection, which is its own outage — the app has no active worker
-  // meanwhile. Kick it off and let install finish.
-  void warmSpriteCache(env).catch(function () {});
+  // P2 (wave-s-speed, cold install): the sprite warm used to start here,
+  // racing the bandwidth of the first release's own staging. It now starts
+  // in activateRelease once a release has actually activated — see the
+  // comment there.
 }
 
 
@@ -684,23 +711,38 @@ export async function fetchWithinWorker(request, environment = {}) {
   }
   if (request.mode === "navigate") {
     const shell = await env.caches.open(SHELL_CACHE);
+    // P4 (wave-s-speed, shell cache-first): this used to be network-first
+    // (no-cache: still a real request, just a conditional GET that mostly
+    // comes back 304) — 3 serialized shell RTT waves on every warm launch
+    // (load-time-profile.md §3: +230ms 4G / +540ms Fast 3G, unbounded on a
+    // stalled connection). Cache-first is actually STRICTER against mixing
+    // revisions than that was: SHELL_CACHE is per-revision
+    // (pogo-shell-v1-${APP_SHELL_REVISION}), filled atomically by
+    // cache.addAll at install, and this worker never skipWaiting — so by the
+    // time its fetch handler ever runs, SHELL_CACHE holds exactly one
+    // revision's files and nothing here can serve index.html from one
+    // revision and app.bundle.js from another. New revisions still land:
+    // the browser's own SW-update algorithm re-fetches sw.js and installs a
+    // new worker (with a new, atomically-filled SHELL_CACHE) independently
+    // of this handler. Because this worker never skipWaiting()s, a new one
+    // stays "waiting" until every page still controlled by THIS worker
+    // closes or navigates away (standard SW lifecycle) — so the in-flight
+    // page keeps serving this exact shell for the rest of its life, and the
+    // new revision takes over the next time the app is opened with no
+    // surviving old-worker client. Honest note: this is a SHELL (code)
+    // revision swap, a different mechanism from release-manager.js's data
+    // update banner (new raid/PvP data within the SAME shell revision) —
+    // nothing here shows the reader a shell-update banner; the swap is
+    // silent and only visible as "the next launch is on new code."
+    const cached = await shell.match(scopedUrl(env.scope, "index.html"));
+    if (cached) return cached;
     try {
-      // no-cache, not no-store: both revalidate with the server on every
-      // request, so a shell revision still lands on the very next navigation
-      // (the 2026-07-22 stranding fix depends on that immediacy — index.html
-      // and src/app.js share URLs across revisions, so serving either one from
-      // a cache while the other comes from the network mixes revisions).
-      // no-store additionally forbade the HTTP cache from holding the bytes,
-      // which re-downloaded all 86 shell files / 344,576 B on every warm
-      // launch; no-cache turns that into 86 conditional GETs that return 304
-      // with an empty body (verified against the live host 2026-08-11).
       const response = await env.fetch(request, { cache: "no-cache" });
       if (response?.ok) return response;
     } catch {
-      // Offline navigation falls back to the verified shell below.
+      // Nothing cached yet (shell not installed) and offline: honest failure.
     }
-    return await shell.match(scopedUrl(env.scope, "index.html"))
-      ?? new Response("Offline shell unavailable.", { status: 503 });
+    return new Response("Offline shell unavailable.", { status: 503 });
   }
   const status = await releaseStatus(env);
   if (status.currentReleaseId) {
@@ -713,16 +755,17 @@ export async function fetchWithinWorker(request, environment = {}) {
   const shell = await env.caches.open(SHELL_CACHE);
   const shellUrls = new Set(SHELL_FILES.map((path) => scopedUrl(env.scope, path)));
   if (!shellUrls.has(url.href)) return env.fetch(request);
+  // P4: same cache-first-within-this-revision reasoning as the navigation
+  // branch above.
+  const cached = await shell.match(request);
+  if (cached) return cached;
   try {
-    // no-cache for the same reason as the navigation branch above: still
-    // network-first and still revalidated every time, but a 304 costs no body.
     const response = await env.fetch(request, { cache: "no-cache" });
     if (response?.ok) return response;
   } catch {
-    // An installed shell remains available for offline use.
+    // Nothing cached yet and offline: honest failure.
   }
-  return await shell.match(request)
-    ?? new Response("Offline shell asset unavailable.", { status: 503 });
+  return new Response("Offline shell asset unavailable.", { status: 503 });
 }
 
 

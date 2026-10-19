@@ -9046,9 +9046,10 @@ summary + .rocket-battler-mon { border-top: none; }
    collapse its own box height/margin/padding/border away at the end instead
    of leaving a blank gap in flow once it's gone (Fable review, a6cb72f #3) —
    a re-render recreates this node from scratch, so app.js's
-   syncInteractionToast() sets a negative animation-delay on it each time,
-   skipping the animation ahead to match how much of the 6s has actually
-   elapsed instead of restarting it at 0%. */
+   syncInteractionToast() toggles one of the toast-elapsed-N classes below
+   (QA r203 #8 — a computed CSSOM animation-delay hit WebKit's style-src
+   'self' CSP) to match how much of the 6s has actually elapsed instead of
+   restarting the fade at 0%. */
 .interaction-toast {
   display: flex;
   align-items: flex-start;
@@ -9189,3 +9190,70 @@ summary + .rocket-battler-mon { border-top: none; }
   overflow: hidden;
   text-overflow: clip;
 }
+
+/* QA r203 #1: dex search combobox ArrowDown highlight — same tint as the
+   existing hover/active state (line ~5017) so keyboard and pointer users see
+   the same "this is the one Enter will pick" cue. */
+.i1-suggest-item.is-active {
+  background: color-mix(in srgb, var(--cyan) 16%, var(--panel));
+}
+
+/* QA r203 #5: evolve-then-reimport "remove the pre-evolution?" prompts —
+   same panel/border treatment as the rest of More's cards, no new tokens. */
+.poke-genie-evolution-prompts {
+  list-style: none;
+  margin: 0.75rem 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.poke-genie-evolution-prompt {
+  padding: 0.6rem 0.75rem;
+  border: 1px solid var(--amber);
+  border-radius: 0.5rem;
+  background: var(--panel-raised);
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.poke-genie-evolution-prompt p {
+  margin: 0;
+}
+
+/* QA r203 #6: Badges 0/N explainer — matches .badge-tile-detail's muted
+   small text (line ~8437), just full-width prose instead of a tile line. */
+.badge-shelf-note {
+  margin: 0 0 0.5rem;
+  font-size: 0.78rem;
+  color: var(--muted);
+}
+
+/* QA r203 #8: WebKit enforces style-src 'self' against CSSOM .style writes,
+   not just literal style="" attributes — router.js's announce() used to
+   Object.assign(node.style, {...}) onto #app-status, and app.js's
+   syncInteractionToast() used to compute a live animation-delay, both of
+   which WebKit refused ("Refused to apply a stylesheet"). Replaced with
+   plain declarative rules here instead of any runtime style mutation.
+
+   #app-status is the one static, always-visually-hidden screen-reader
+   announcement channel (index.html) — styled directly by id, no class
+   needed. */
+#app-status {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+}
+
+/* Discrete 1s "skip the fade ahead" buckets for .interaction-toast (line
+   ~9052) in place of a computed animation-delay — INTERACTION_TOAST_MS is
+   6s, so losing sub-second precision on the fade is not visible. */
+.interaction-toast.toast-elapsed-1 { animation-delay: -1s; }
+.interaction-toast.toast-elapsed-2 { animation-delay: -2s; }
+.interaction-toast.toast-elapsed-3 { animation-delay: -3s; }
+.interaction-toast.toast-elapsed-4 { animation-delay: -4s; }
+.interaction-toast.toast-elapsed-5 { animation-delay: -5s; }

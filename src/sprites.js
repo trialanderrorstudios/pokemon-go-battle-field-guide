@@ -10,6 +10,7 @@
 
 // Reuse the canonical type palette from src/pogo_encyclopedia/workbook.py
 // so fallback circles match the same type colors used elsewhere.
+import { escapeHtml } from "./html.js";
 export const TYPE_COLORS = Object.freeze({
   Bug: "#92BC2C", Dark: "#595761", Dragon: "#0C69C8", Electric: "#F2D94E",
   Fairy: "#EE90E6", Fighting: "#D3425F", Fire: "#FBA54C", Flying: "#A1BBEC",
@@ -71,13 +72,6 @@ function initial(name) {
 }
 
 
-// escapeHtml is duplicated (not imported) to keep this a dependency-free
-// leaf module usable from any view without an import cycle.
-function escapeHtml(value) {
-  return String(value ?? "")
-    .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;").replace(/'/g, "&#39;");
-}
 
 
 // Renders an <img> when a sprite is known. The runtime fallback (if the file

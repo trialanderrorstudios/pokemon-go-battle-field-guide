@@ -5,7 +5,8 @@
 // (with their resolved boss), Community Day, and other one-off dated
 // events, grouped by calendar day, plus a 5-star-rotation boundary hint
 // derived from raid-battles event start/end boundaries in that same feed.
-import { escapeHtml, formatEventWhen, safeEventLink, startOfDay } from "./views/home.js";
+import { formatEventWhen, safeEventLink, startOfDay } from "./views/home.js";
+import { escapeHtml } from "./html.js";;
 
 const HORIZON_DAYS = 14;
 

@@ -17,16 +17,46 @@
 // preferences live in localStorage/IndexedDB and are deliberately untouched.
 (function bootWatchdog() {
   var BOOTED_ATTRIBUTE = "data-app-booted";
+  // Set by app.js's releaseManager.subscribe callback while the release
+  // manager's status is "caching" (the first-install staging path) — see
+  // P1 (wave-s-speed, boot-watchdog vs first install): on a slow connection,
+  // staging a ~650KB release legitimately takes longer than GRACE_MS, and
+  // firing the repair mid-stage dropped a HEALTHY, still-downloading cache
+  // and reloaded into a second, redundant download. While this attribute
+  // reads "true" the watchdog extends its own grace instead of repairing.
+  var BOOTING_ATTRIBUTE = "data-app-booting";
+  // Fable review follow-up (wave-s-speed): set by app.js when it renders an
+  // honest boot-failure notice (a real data-integrity failure, or a first
+  // visit with no network and nothing cached) instead of the real app —
+  // deliberately NOT the same signal as BOOTED_ATTRIBUTE, which
+  // scripts/verify-boot.mjs / cold-smoke / e2e specs all read as "the real
+  // app rendered." Claiming that here would let a genuinely broken release
+  // pass publish verification; this attribute only ever stops the
+  // watchdog's own repair-reload, nothing else reads it.
+  var BOOT_FAILED_ATTRIBUTE = "data-boot-failed";
   var GUARD_KEY = "pogo-boot-repair-at";
   // Long enough that a slow first paint on a bad connection is not mistaken
   // for a broken install, short enough that a stuck app is not a dead end.
   var GRACE_MS = 9000;
+  // Hard ceiling on total extension: an install that is STILL staging after
+  // this long is indistinguishable from one that's actually stuck (a hung
+  // fetch, a server that stopped responding mid-file), so repair must still
+  // win eventually rather than extend forever.
+  var MAX_GRACE_MS = 30000;
   // One repair per window. A genuinely unreachable server must not become a
   // reload loop; the user gets the static shell and an honest failure instead.
   var COOLDOWN_MS = 60000;
 
   function booted() {
     return document.documentElement.getAttribute(BOOTED_ATTRIBUTE) === "true";
+  }
+
+  function booting() {
+    return document.documentElement.getAttribute(BOOTING_ATTRIBUTE) === "true";
+  }
+
+  function bootFailed() {
+    return document.documentElement.getAttribute(BOOT_FAILED_ATTRIBUTE) === "true";
   }
 
   function recentlyRepaired() {
@@ -65,8 +95,15 @@
     });
   }
 
-  window.setTimeout(function () {
-    if (booted() || recentlyRepaired()) return;
+  function check(elapsedMs) {
+    if (booted() || bootFailed()) return;
+    if (booting() && elapsedMs < MAX_GRACE_MS) {
+      window.setTimeout(function () { check(elapsedMs + GRACE_MS); }, GRACE_MS);
+      return;
+    }
+    if (recentlyRepaired()) return;
     repair();
-  }, GRACE_MS);
+  }
+
+  window.setTimeout(function () { check(GRACE_MS); }, GRACE_MS);
 })();

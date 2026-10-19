@@ -122,10 +122,11 @@
 
     <!-- The app's one screen-reader announcement channel: the router writes the
          new heading here per route, and search writes a match count. It lives
-         outside #app so a route innerHTML swap can't delete it. src/router.js's
-         announce() applies the visually-hidden styles (a `#app-status` rule in
-         app.css would be the tidier home for them; that file is owned by
-         another lane). An empty <div> costs no layout in the meantime. -->
+         outside #app so a route innerHTML swap can't delete it. Visually hidden
+         via the #app-status rule in app.css (QA r203 #8 — a CSSOM style
+         mutation hit the same style-src 'self' CSP block on WebKit, so the
+         rule moved here instead of being applied at runtime). An empty <div>
+         costs no layout in the meantime. -->
     <div id="app-status" role="status"></div>
 
     <!-- Hub strip (A4): the current tab's other pages, filled by src/router.js. -->
