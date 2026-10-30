@@ -8401,6 +8401,7 @@ html:not([data-app-booted]) #app .fallback-section {
 }
 
 .celebration-burst.is-hundo span { background: #ffd75e; }
+.celebration-burst.is-excited span { background: #ff8fd0; }
 .celebration-burst.is-shiny span { background: #b78cff; border-radius: 50%; }
 
 .celebration-burst span:nth-child(1)  { --fx-x: -140px; --fx-y: -180px; }
@@ -9257,3 +9258,12 @@ summary + .rocket-battler-mon { border-top: none; }
 .interaction-toast.toast-elapsed-3 { animation-delay: -3s; }
 .interaction-toast.toast-elapsed-4 { animation-delay: -4s; }
 .interaction-toast.toast-elapsed-5 { animation-delay: -5s; }
+
+/* Buddy mood meter (Get Excited without a Poffin) */
+.buddy-mood { margin: 0 0 0.9rem; }
+.buddy-mood-ladder { display: flex; flex-wrap: wrap; gap: 0.25rem; list-style: none; margin: 0.4rem 0; padding: 0; }
+.buddy-mood-step { border: 1px solid currentColor; border-radius: 999px; padding: 0.15rem 0.5rem; font-size: 0.75rem; opacity: 0.6; }
+.buddy-mood-step.is-current { font-weight: 700; opacity: 1; }
+.buddy-mood-actions { display: flex; flex-wrap: wrap; gap: 0.35rem; margin: 0.4rem 0; }
+.buddy-mood-btn, .buddy-mood-reset { min-height: 44px; padding: 0.3rem 0.7rem; font-size: 0.8rem; }
+.buddy-mood-btn:disabled { opacity: 0.55; }
