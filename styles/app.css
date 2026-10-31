@@ -9267,3 +9267,7 @@ summary + .rocket-battler-mon { border-top: none; }
 .buddy-mood-actions { display: flex; flex-wrap: wrap; gap: 0.35rem; margin: 0.4rem 0; }
 .buddy-mood-btn, .buddy-mood-reset { min-height: 44px; padding: 0.3rem 0.7rem; font-size: 0.8rem; }
 .buddy-mood-btn:disabled { opacity: 0.55; }
+
+.spreadcheck-fork p { margin: 0.25rem 0; }
+.spreadcheck-fork-warn { font-weight: 600; }
+.cup-build { margin: 0.2rem 0 0.4rem; padding-left: 1.1rem; font-size: 0.82rem; }
