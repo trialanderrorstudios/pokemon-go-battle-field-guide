@@ -16,7 +16,7 @@
 // try/caught, because registration RESOLVES under WebKit with workers blocked
 // and the hang lands later on serviceWorker.ready.
 export const APP_VERSION = 1;
-export const APP_SHELL_REVISION = "r210";
+export const APP_SHELL_REVISION = "r211";
 export const MANIFEST_SCHEMA_VERSION = 1;
 export const DATA_SCHEMA_VERSION = 1;
 export const RELEASE_STATES = Object.freeze([
