@@ -49,7 +49,6 @@ const SHELL_CODE_FILES = Object.freeze([
   "./src/html.js",
   "./src/release-manager.js",
   "./src/sprites.js",
-  "./src/upcoming.js",
   "./styles/app.css",
 ]);
 

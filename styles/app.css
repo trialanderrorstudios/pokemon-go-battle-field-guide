@@ -9271,3 +9271,56 @@ summary + .rocket-battler-mon { border-top: none; }
 .spreadcheck-fork p { margin: 0.25rem 0; }
 .spreadcheck-fork-warn { font-weight: 600; }
 .cup-build { margin: 0.2rem 0 0.4rem; padding-left: 1.1rem; font-size: 0.82rem; }
+
+/* ── Week-ahead calendar (#calendar, Home strip) ───────────────────────────
+   Phone: each week's seven days stack as rows (seven columns at 390px would
+   leave ~45px of text). Tablet (>= 48rem): the Mon-Sun grid. Spawn-change
+   markers carry their own amber treatment so the day the wild pool changes
+   reads at a glance, apart from the event cards. */
+.wk-week { margin-bottom: 1.25rem; }
+.wk-week-head { margin: 0 0 0.35rem; font-size: 1rem; }
+.wk-intro,
+.wk-note { margin: 0 0 0.4rem; font-size: 0.78rem; color: var(--muted); }
+.wk-days { display: grid; gap: 0.5rem; }
+.wk-day {
+  padding: 0.55rem 0.65rem;
+  border: 1px solid var(--line);
+  border-radius: 0.65rem;
+  background: var(--panel);
+  min-width: 0;
+}
+.wk-day[data-state="past"] { opacity: 0.5; }
+.wk-day[data-state="today"] { border-color: var(--cyan); }
+.wk-day-head { margin: 0 0 0.3rem; font-size: 0.85rem; display: flex; gap: 0.35rem; align-items: baseline; }
+.wk-dow { font-weight: 800; }
+.wk-date { color: var(--muted); }
+.wk-today { font-size: 0.65rem; font-weight: 800; color: var(--cyan-ink); background: var(--cyan); border-radius: 999px; padding: 0 0.4rem; }
+.wk-list, .wk-species { list-style: none; margin: 0; padding: 0; display: grid; gap: 0.35rem; }
+.wk-item { display: flex; flex-wrap: wrap; gap: 0.25rem 0.4rem; align-items: baseline; font-size: 0.8rem; overflow-wrap: anywhere; }
+.wk-item[data-phase="continuing"] { opacity: 0.75; }
+.wk-badge { font-size: 0.62rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.04em; padding: 0.05rem 0.35rem; border-radius: 0.3rem; background: var(--panel-raised); border: 1px solid var(--line); }
+.wk-item[data-cat="raid"] .wk-badge { border-color: var(--danger); }
+.wk-item[data-cat="cd"] .wk-badge,
+.wk-item[data-cat="spotlight"] .wk-badge { border-color: var(--green); }
+.wk-item[data-cat="gbl"] .wk-badge { border-color: var(--cyan); }
+.wk-meta { font-size: 0.72rem; color: var(--muted); }
+.wk-empty { margin: 0; font-size: 0.75rem; color: var(--muted); }
+.wk-worth { flex-basis: 100%; margin: 0; font-size: 0.74rem; color: var(--muted); }
+.wk-worth[data-tone="good"] { color: var(--green); }
+.wk-worth[data-tone="warn"] { color: var(--amber); }
+.wk-spawn { margin-top: 0.4rem; padding: 0.4rem 0.5rem; border-left: 3px solid var(--amber); border-radius: 0.3rem; background: var(--panel-raised); font-size: 0.78rem; overflow-wrap: anywhere; }
+.wk-spawn-head { margin: 0 0 0.2rem; }
+.wk-species-line { margin: 0; }
+.wk-rare { color: var(--amber); }
+.wk-more summary { display: inline; cursor: pointer; color: var(--cyan); }
+.wk-strip { margin: 0.75rem 0; }
+.wk-strip-cells { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 0.25rem; }
+.wk-cell { display: flex; flex-direction: column; gap: 0.15rem; align-items: center; min-height: 44px; padding: 0.35rem 0.1rem; border: 1px solid var(--line); border-radius: 0.5rem; background: var(--panel); color: var(--text); text-decoration: none; font-size: 0.65rem; min-width: 0; }
+.wk-cell[data-state="today"] { border-color: var(--cyan); }
+.wk-cell .wk-date { font-size: 0.9rem; font-weight: 800; color: var(--text); }
+.wk-chip { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 0 0.25rem; border-radius: 0.25rem; background: var(--panel-raised); }
+.wk-chip[data-cat="spawns"] { background: var(--amber); color: #23252e; font-weight: 800; }
+@media (min-width: 48rem) {
+  .wk-days { grid-template-columns: repeat(7, minmax(0, 1fr)); }
+  .wk-day { padding: 0.45rem; }
+}
